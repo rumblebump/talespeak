@@ -261,8 +261,10 @@ jobs:
   # deploy/env/<env>.env, runs compose up, and checks /healthz from the outside.
   deploy:
     needs: image
+    # always(): without it, GitHub skips this job whenever any job further up the
+    # chain was skipped (for example "web" when no web files changed).
     if: >
-      github.event_name == 'push' && needs.image.result == 'success' &&
+      always() && github.event_name == 'push' && needs.image.result == 'success' &&
       ((github.ref == 'refs/heads/dev' && vars.DEV_DEPLOY == 'true') ||
        (github.ref == 'refs/heads/main' && vars.STAGING_DEPLOY == 'true'))
     runs-on: ubuntu-latest

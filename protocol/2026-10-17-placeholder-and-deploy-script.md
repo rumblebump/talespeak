@@ -46,3 +46,15 @@ deploy.sh dev: "TALESPEAK_DOMAIN is empty in deploy/env/dev.env", exit 1
 ## Result
 
 Placeholder server, health check and deploy flow work locally against stubs.
+
+## First run on main (release PR #2)
+
+```sh
+gh api repos/rumblebump/talespeak/actions/runs/39050221995/jobs --jq '.jobs[] | "\(.name) \(.conclusion)"'
+```
+
+```text
+changes, secrets, trivy-fs, go, image, ci-ok: success; web, lint-ci, e2e: skipped; deploy: skipped
+```
+
+The repository variable `STAGING_DEPLOY` was `true`. Cause: a job `if:` without a status function gets an implicit `success()`, which is false when any job further up the chain was skipped (`web`, because no web files changed). Fix: `always()` in the deploy job's condition; `needs.image.result == 'success'` still guards it.
