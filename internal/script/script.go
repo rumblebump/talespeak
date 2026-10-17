@@ -65,6 +65,11 @@ var (
 // errLeft ends a paused hook whose player left.
 const errLeft = "the player left"
 
+// cancelTime is the time budget of a hook ending after its player left. It
+// can catch the error, but it gets no more than this, so leaving players and
+// shutdown stay cheap.
+const cancelTime = 5 * time.Millisecond
+
 // Host receives what a script sends to the player during a call.
 type Host interface {
 	Say(text string)
@@ -221,7 +226,7 @@ func (r *Runtime) Resume(host Host, th *Thread, choice int) (*Thread, error) {
 		return nil, ErrStateMemory
 	}
 	delete(r.paused, th)
-	r.begin(host, th)
+	r.begin(host, th, r.limits.Time)
 	th.resume <- choice
 	return r.wait(th)
 }
@@ -234,7 +239,7 @@ func (r *Runtime) Cancel(th *Thread) {
 		return
 	}
 	delete(r.paused, th)
-	r.begin(nil, th)
+	r.begin(nil, th, cancelTime)
 	th.resume <- 0
 	// After the 0, ui.dialog refuses to wait again, so the next event is
 	// the hook's end.
@@ -251,7 +256,7 @@ func (r *Runtime) start(host Host, fn *lua.LFunction, args ...lua.LValue) (*Thre
 	}
 	co, _ := r.L.NewThread()
 	th := &Thread{co: co, resume: make(chan int), events: make(chan result)}
-	r.begin(host, th)
+	r.begin(host, th, r.limits.Time)
 	go th.main(r.cur.ctx, fn, args)
 	return r.wait(th)
 }
@@ -274,10 +279,10 @@ func (th *Thread) main(ctx context.Context, fn *lua.LFunction, args []lua.LValue
 	err = th.co.PCall(len(args), 0, nil)
 }
 
-// begin starts the budgets of one call.
-func (r *Runtime) begin(host Host, th *Thread) {
+// begin starts the budgets of one call that may run for d.
+func (r *Runtime) begin(host Host, th *Thread, d time.Duration) {
 	base, abort := context.WithCancelCause(context.Background())
-	ctx, cancel := context.WithTimeoutCause(base, r.limits.Time, ErrTimeout)
+	ctx, cancel := context.WithTimeoutCause(base, d, ErrTimeout)
 	stop := watchAllocs(ctx, r.limits.CallMemory, func() { abort(ErrMemory) })
 	r.cur = &call{host: host, thread: th, ctx: ctx, end: func() int64 {
 		n := stop()

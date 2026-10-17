@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -147,7 +148,7 @@ func New(version string, log *slog.Logger, opts ...Option) *Server {
 // ServeHTTP upgrades the request. Cross-origin upgrades are refused: the
 // Origin header must match the Host the request came in on.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	client := s.clientIP(r)
+	client := clientKey(s.clientIP(r))
 	s.mu.Lock()
 	switch {
 	case s.closed:
@@ -266,10 +267,30 @@ func (s *Server) allowConnect(client string) bool {
 				}
 			}
 		}
+		for k := range s.connects { // still full: drop any one, the map stays bounded
+			if len(s.connects) < maxConnectBuckets {
+				break
+			}
+			delete(s.connects, k)
+		}
 		b = newBucket(s.connectRate, s.connectBurst, time.Now)
 		s.connects[client] = b
 	}
 	return b.allow()
+}
+
+// clientKey is what the per-client limits count by: the address, or for
+// IPv6 its /64, which one home or school network usually gets as a whole.
+func clientKey(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil || !a.Is6() || a.Is4In6() {
+		return ip
+	}
+	p, err := a.Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return p.String()
 }
 
 // peerIP is the TCP peer address without the port.

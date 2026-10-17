@@ -578,7 +578,8 @@ func FuzzMessage(f *testing.F) {
 	} {
 		f.Add([]byte(seed))
 	}
-	_, url := newServer(f)
+	// Every input opens a connection, far more than the connect rate allows.
+	_, url := newServer(f, WithConnectRate(1e9, 1<<30))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		c := dialWelcomed(t, url)
 		writeText(t, c, data)
@@ -772,6 +773,33 @@ func TestConnectRateLimit(t *testing.T) {
 	}
 	if resp.Header.Get("Retry-After") == "" {
 		t.Error("429 without Retry-After")
+	}
+}
+
+func TestClientKey(t *testing.T) {
+	for in, want := range map[string]string{
+		"203.0.113.7":          "203.0.113.7",
+		"2001:db8:1:2:3:4:5:6": "2001:db8:1:2::/64",
+		"2001:db8:1:2:ffff::1": "2001:db8:1:2::/64",
+		"::ffff:203.0.113.7":   "::ffff:203.0.113.7",
+		"not an address":       "not an address",
+		"fe80::1%eth0":         "fe80::/64",
+	} {
+		if got := clientKey(in); got != want {
+			t.Errorf("clientKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestConnectBucketsStayBounded(t *testing.T) {
+	s := New("v", slog.New(slog.NewTextHandler(io.Discard, nil)), WithConnectRate(0.001, 5))
+	for i := range maxConnectBuckets + 10 {
+		s.mu.Lock()
+		s.allowConnect(strconv.Itoa(i))
+		s.mu.Unlock()
+	}
+	if n := len(s.connects); n > maxConnectBuckets {
+		t.Errorf("%d buckets, want at most %d", n, maxConnectBuckets)
 	}
 }
 

@@ -28,7 +28,12 @@ var patternFuncs = []string{"gfind", "gmatch", "gsub", "match"}
 
 // tableFuncs are the table functions a script gets as they are; concat is
 // wrapped.
-var tableFuncs = []string{"getn", "insert", "maxn", "remove", "sort"}
+var tableFuncs = []string{"getn", "insert", "maxn", "remove"}
+
+// MaxSortLength is the longest table table.sort accepts. Sorting without a
+// comparator runs entirely in Go, where the time limit cannot stop it;
+// 20000 entries sort in a few milliseconds.
+const MaxSortLength = 20000
 
 // lockedMeta is what getmetatable returns for a protected table or string.
 const lockedMeta = lua.LString("locked")
@@ -97,6 +102,7 @@ func (r *Runtime) openSandbox() *lua.LTable {
 		tbl.RawSetString(name, fn(fullTbl, name))
 	}
 	tbl.RawSetString("concat", L.NewFunction(tableConcat(fn(fullTbl, "concat"))))
+	tbl.RawSetString("sort", L.NewFunction(tableSort(fn(fullTbl, "sort"))))
 	lib.RawSetString("table", r.readOnly(tbl))
 
 	lib.RawSetString("math", r.readOnly(full.RawGetString("math").(*lua.LTable)))
@@ -284,6 +290,15 @@ func tableConcat(orig *lua.LFunction) lua.LGFunction {
 			if total > MaxStringBytes {
 				L.RaiseError("table.concat result larger than %d bytes", MaxStringBytes)
 			}
+		}
+		return orig.GFunction(L)
+	}
+}
+
+func tableSort(orig *lua.LFunction) lua.LGFunction {
+	return func(L *lua.LState) int {
+		if L.CheckTable(1).Len() > MaxSortLength {
+			L.RaiseError("table.sort: more than %d entries", MaxSortLength)
 		}
 		return orig.GFunction(L)
 	}

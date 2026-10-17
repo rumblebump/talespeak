@@ -141,9 +141,8 @@ func TestConcat(t *testing.T) {
 
 func TestConcatUsesFirstResultOnly(t *testing.T) {
 	out, err := hook(t, `local function two() return "a", "b" end
-local function va(...) return ... .. "!" end
-say(two() .. two() .. va("x", "y"))`)
-	if err != nil || out[0] != "say:aax!" {
+say(two() .. two() .. "!")`)
+	if err != nil || out[0] != "say:aa!" {
 		t.Errorf("out = %q, err = %v", out, err)
 	}
 }
@@ -173,7 +172,7 @@ func TestFormat(t *testing.T) {
 		{"%x %X %o %c", "255, 255, 8, 65", "ff FF 10 A"},
 		{"%f %.2f %e %g", "1.5, 1.5, 1500, 0.1", "1.500000 1.50 1.500000e+03 0.1"},
 		{"%s %5s %.2s", `"abc", "ab", "abc"`, "abc    ab ab"},
-		{"%s %s", "1, true", "1 true"},
+		{"%s %s", `1, "x"`, "1 x"},
 		{"%q", `"a\"b\n"`, `"a\"b\` + "\n" + `"`},
 		{"100%%", "", "100%"},
 	}
@@ -190,6 +189,11 @@ func TestFormat(t *testing.T) {
 	for _, f := range []string{"%[1]s", "%v", "%p", "%T", "%#v", "%100d", "%.100f", "%.[1]9f", "%", "%5", "%------d"} {
 		if _, err := hook(t, `string.format("`+f+`", 1)`); !errors.Is(err, ErrScript) {
 			t.Errorf("format %q: err = %v, want a script error", f, err)
+		}
+	}
+	for _, args := range []string{"", ", true", ", {}", ", setmetatable({}, {__tostring = function() return \"x\" end})"} {
+		if _, err := hook(t, `string.format("%s"`+args+`)`); !errors.Is(err, ErrScript) {
+			t.Errorf("%%s with %q: err = %v, want a script error", args, err)
 		}
 	}
 	if _, err := hook(t, `string.format("%d")`); !errors.Is(err, ErrScript) {
@@ -219,6 +223,40 @@ func TestHugeNumberArguments(t *testing.T) {
 	}
 	if out, err := hook(t, `say(string.rep("ab", 0/0) .. string.rep("", 1e12) .. string.rep("x", -1))`); err != nil || out[0] != "say:" {
 		t.Errorf("rep edge cases: %q, %v", out, err)
+	}
+}
+
+func TestVarargsRefused(t *testing.T) {
+	for _, src := range []string{`local function f(...) end`, `local x = ...`, `function on_enter(...) end`} {
+		r := New(DefaultLimits)
+		if _, err := r.Load("v.lua", src); !errors.Is(err, ErrScript) || !strings.Contains(err.Error(), "varargs") {
+			t.Errorf("%s: err = %v", src, err)
+		}
+		r.Close()
+	}
+}
+
+func TestSortLimit(t *testing.T) {
+	if _, err := hook(t, `local t = {} for i = 1, 20000 do t[i] = -i end table.sort(t) table.sort(t, function(a, b) return a > b end)`); err != nil {
+		t.Errorf("20000 entries: %v", err)
+	}
+	if _, err := hook(t, `local t = {} for i = 1, 20001 do t[i] = i end table.sort(t)`); !errors.Is(err, ErrScript) {
+		t.Errorf("20001 entries: err = %v", err)
+	}
+}
+
+func TestCancelHasSmallBudget(t *testing.T) {
+	r := New(Limits{Time: 10 * time.Second, CallMemory: 32 << 20, StateMemory: 64 << 20})
+	defer r.Close()
+	env := load(t, r, `function on_enter() pcall(ui.dialog, "?", {"a"}) while true do end end`)
+	th, err := r.Run(&recorder{}, env, "on_enter", "p")
+	if err != nil || th == nil {
+		t.Fatal(th, err)
+	}
+	start := time.Now()
+	r.Cancel(th)
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("Cancel took %v; a hook that ignores leaving gets only a short budget", d)
 	}
 }
 

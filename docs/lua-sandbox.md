@@ -7,14 +7,14 @@ Room scripts and, later, rule packs run in [gopher-lua](https://github.com/yuin/
 | Available | Notes |
 | --- | --- |
 | Base functions | `assert`, `error`, `getmetatable`, `ipairs`, `next`, `pairs`, `pcall`, `rawequal`, `rawget`, `rawset` (not on libraries), `select`, `setmetatable`, `tonumber`, `tostring`, `type`, `unpack` (at most 8000 values), `xpcall`, `_G`, `_VERSION` |
-| `string` | `byte` (at most 8000 values), `char`, `find` (with `plain = true` only), `format`, `len`, `lower`, `rep`, `reverse`, `sub`, `upper`. `match`, `gmatch`, `gfind` and `gsub` raise an error. `format` takes Lua 5.1's conversions only (`%c %d %i %o %u %x %X %e %E %f %g %G %q %s %%`, widths and precisions of at most two digits) |
-| `table` | `concat`, `getn`, `insert`, `maxn`, `remove`, `sort` |
+| `string` | `byte` (at most 8000 values), `char`, `find` (with `plain = true` only), `format`, `len`, `lower`, `rep`, `reverse`, `sub`, `upper`. `match`, `gmatch`, `gfind` and `gsub` raise an error. `format` takes Lua 5.1's conversions only (`%c %d %i %o %u %x %X %e %E %f %g %G %q %s %%`, widths and precisions of at most two digits); `%s` takes strings and numbers |
+| `table` | `concat`, `getn`, `insert`, `maxn`, `remove`, `sort` (at most 20000 entries) |
 | `math` | All of it |
 | `say(text)` | Sends a line to the player (at most 4000 bytes) |
 | `room.describe()` | Sends the current room's title and description |
 | `ui.dialog(title, options)` | Shows 1 to 9 options and waits for the player; returns the option's number and its label |
 
-No string is ever longer than 1 MiB: `..`, `string.rep`, `string.format` and `table.concat` refuse to build one. Numbers passed as counts or positions must be within ±2^31.
+No string is ever longer than 1 MiB: `..`, `string.rep`, `string.format` and `table.concat` refuse to build one. Numbers passed as counts or positions must be within ±2^31. Varargs (`...`) are not available.
 
 Not available: `io`, `os`, `debug`, `package`/`require`, `coroutine`, `channel`, `load`, `loadstring`, `dofile`, `loadfile`, `getfenv`, `setfenv`, `collectgarbage`, `newproxy`, `print`. A script cannot read files, open connections, run programs or load other code.
 
@@ -41,7 +41,7 @@ function on_enter(player)
 end
 ```
 
-The top level of a script runs once when the world starts, for setup. `say`, `room.describe` and `ui.dialog` only work inside hooks. `ui.dialog` can wait anywhere in a hook, also inside `pcall`, a `table.sort` comparator or a metamethod. When the player leaves while a hook waits, `ui.dialog` raises the error "the player left" and the hook runs to its end with its output dropped; it cannot wait again.
+The top level of a script runs once when the world starts, for setup. `say`, `room.describe` and `ui.dialog` only work inside hooks. `ui.dialog` can wait anywhere in a hook, also inside `pcall`, a `table.sort` comparator or a metamethod. When the player leaves while a hook waits, `ui.dialog` raises the error "the player left" and the hook runs to its end with its output dropped, within 5 ms; it cannot wait again.
 
 The name `__concat` is reserved: every `..` in a script is compiled into a call to it.
 
@@ -63,7 +63,8 @@ How they are enforced:
 
 - **Time:** each call runs with a deadline that gopher-lua checks before every instruction. `pcall` cannot swallow it for long: the next instruction outside the `pcall` fails again. Go functions are not interrupted, so every library function a script gets finishes quickly whatever its arguments; that is why patterns are off and why sizes are checked before work starts.
 - **Memory per call:** Go has no per-goroutine allocation counter, so a watcher samples the process's allocated bytes every millisecond while a call runs. Allocations by other goroutines count too. A story hook usually runs well under a millisecond, so for it to fail, other goroutines would have to allocate 32 MiB within that time; a hook that runs for tens of milliseconds is more exposed on a busy server, and then fails cleanly.
-- **Memory kept:** after enough allocation since the last check, the engine walks everything reachable from the scripts' globals and from the locals of hooks waiting in `ui.dialog`, and adds up sizes estimated on the high side. `string.sub` copies its result, so a short slice never keeps a long string alive unseen.
+- **Memory kept:** after enough allocation since the last check, the engine walks everything reachable from the scripts' globals and from the locals and temporaries of hooks waiting in `ui.dialog`, and adds up sizes estimated on the high side. `string.sub` copies its result, so a short slice never keeps a long string alive unseen. Varargs are off because gopher-lua keeps them where the walk cannot see them.
+- **Sorting:** `table.sort` without a comparator runs in Go, so it takes at most 20000 entries (a few milliseconds).
 - **No single Go call builds a huge result:** `..`, `string.rep`, `string.format`, `table.concat`, `unpack` and `string.byte` check sizes before they run.
 
 When a call fails, the player sees "This room's script failed. Tell the game master." (or "hit its limits"). The log gets the room and the Lua error with its line.
@@ -76,5 +77,5 @@ Each hook runs on its own goroutine with its own Lua thread. `ui.dialog` blocks 
 
 - Compiling a script is not limited: a large script with deep nesting can take about 100 ms and tens of MiB once, when the world starts. Scripts are limited to 256 KiB.
 - One world runs one hook at a time. A slow hook (up to the 100 ms limit) delays the other players of that world.
-- The memory estimate of a waiting hook covers its named locals and functions, not unnamed temporaries.
+- A Go library function waiting with its caller (a comparator of `table.sort` waiting in `ui.dialog`) holds its own small state outside the estimate.
 

@@ -12,6 +12,9 @@ import (
 // that neither the time limit nor the memory watcher can stop; __concat
 // checks the result size first.
 //
+// It also refuses varargs (...): gopher-lua keeps them below a frame's
+// locals, where the state walk cannot see what a waiting hook holds.
+//
 // Scripts may not use the name __concat themselves. A script that still
 // replaces it (through _G) only changes its own .., and every string it
 // could build that way comes from size-checked functions.
@@ -23,9 +26,15 @@ func rewriteConcat(chunk []ast.Stmt) error {
 
 type rewriter struct{ err error }
 
+func (w *rewriter) fail(line int, msg string) {
+	if w.err == nil {
+		w.err = fmt.Errorf("line %d: %s", line, msg)
+	}
+}
+
 func (w *rewriter) reserved(line int, name string) {
-	if name == concatName && w.err == nil {
-		w.err = fmt.Errorf("line %d: the name %s is reserved", line, concatName)
+	if name == concatName {
+		w.fail(line, "the name "+concatName+" is reserved")
 	}
 }
 
@@ -144,9 +153,14 @@ func (w *rewriter) expr(e ast.Expr) ast.Expr {
 	case *ast.FunctionExpr:
 		if e.ParList != nil {
 			w.names(e.Line(), e.ParList.Names)
+			if e.ParList.HasVargs {
+				w.fail(e.Line(), "varargs (...) are not available in the sandbox")
+			}
 		}
 		w.stmts(e.Stmts)
-	case *ast.TrueExpr, *ast.FalseExpr, *ast.NilExpr, *ast.NumberExpr, *ast.StringExpr, *ast.Comma3Expr:
+	case *ast.Comma3Expr:
+		w.fail(e.Line(), "varargs (...) are not available in the sandbox")
+	case *ast.TrueExpr, *ast.FalseExpr, *ast.NilExpr, *ast.NumberExpr, *ast.StringExpr:
 	default:
 		if w.err == nil {
 			w.err = fmt.Errorf("line %d: unsupported expression %T", e.Line(), e)
@@ -165,11 +179,8 @@ func (w *rewriter) flatten(e ast.Expr, args *[]ast.Expr) {
 	}
 	e = w.expr(e)
 	// An operand of .. is one value: f() .. x uses only f's first result.
-	switch e := e.(type) {
-	case *ast.FuncCallExpr:
-		e.AdjustRet = true
-	case *ast.Comma3Expr:
-		e.AdjustRet = true
+	if c, ok := e.(*ast.FuncCallExpr); ok {
+		c.AdjustRet = true
 	}
 	*args = append(*args, e)
 }

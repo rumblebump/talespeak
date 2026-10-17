@@ -121,7 +121,11 @@ func TestLimits(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := New(limits)
+			l := limits
+			if tt.want != ErrTimeout {
+				l.Time = 5 * time.Second // so a slow race-detector run cannot time out first
+			}
+			r := New(l)
 			defer r.Close()
 			start := time.Now()
 			_, err := r.Load("bad.lua", tt.src)

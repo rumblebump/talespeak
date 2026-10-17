@@ -10,7 +10,7 @@ import (
 // strFormat is string.format with Lua 5.1's conversions only:
 // %[flags][width][.precision]conv with flags from "-+ #0", width and
 // precision of at most two digits, and conv one of c d i o u x X e E f g G
-// q s, plus %%. gopher-lua hands the format string to Go's fmt, where
+// q s, plus %%; %s takes strings and numbers. gopher-lua hands the format string to Go's fmt, where
 // %[n]d reuses an argument any number of times and %v or %p print Go
 // internals; this parses the spec itself and formats one argument at a time,
 // checking the length before every append.
@@ -71,7 +71,10 @@ func strFormat(L *lua.LState) int {
 			}
 			add(fmt.Sprintf(spec+string(conv), float64(L.CheckNumber(arg))))
 		case 's':
-			s := L.ToStringMeta(L.CheckAny(arg)).String()
+			// Strings and numbers only, as in Lua 5.1: a __tostring here
+			// could wait in ui.dialog while this function holds a partial
+			// result the state walk cannot see.
+			s := L.CheckString(arg)
 			if width == "" && precision == "" {
 				add(s)
 			} else {
