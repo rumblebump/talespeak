@@ -14,7 +14,7 @@ Accounts have a global role (admin, GM, player; new accounts are players), each 
 ## Acceptance
 
 - [ ] Global roles and per-world membership roles in the store
-- [ ] Edu mode: kid registration without email, optional class code, join only by GM invite
+- [ ] Edu mode: kids and teachers only ever join by invite or admin action, whatever the registration setting (T-0013)
 - [ ] Public mode: create world -> GM; join as GM or player; GM mode toggle in-game
 - [ ] Audit log of every GM action; visible marker when a GM acts
 - [ ] Core permissions with role defaults; `perm.define()` and `actor:can()` in Lua

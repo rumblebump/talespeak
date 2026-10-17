@@ -12,13 +12,16 @@ Go runs the server, storage, Lua runtime and optional AI glue. Stories, rules an
 | --- | --- |
 | [docs/setup-server.md](docs/setup-server.md) | Running your own server (Docker, Caddy, automatic HTTPS) |
 | [docs/setup-dev.md](docs/setup-dev.md) | Local development and the shared dev server |
-| [docs/ci-cd.md](docs/ci-cd.md) | What CI runs, images, releases |
+| [docs/admin-email.md](docs/admin-email.md) | Optional email: SMTP server or provider, DNS records |
+| [docs/ci-cd.md](docs/ci-cd.md) | Branches, what CI runs, scans, images, releases |
+| [docs/testing.md](docs/testing.md) | Go tests and Playwright browser tests |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Branches, pull requests, DCO sign-off |
 | [tasks/README.md](tasks/README.md) | How work is tracked ([board](tasks/BOARD.md)) |
 | [protocol/README.md](protocol/README.md) | How tests and checks are logged |
 
 ## License
 
-The engine is licensed under the [GNU AGPL v3 or later](LICENSE) with a [content exception](LICENSE-EXCEPTION.md): your own stories, rule packs and assets can use any license, including commercial ones. See [docs/licensing.md](docs/licensing.md) for a plain-language summary.
+The base engine is free forever. It is licensed under the [GNU AGPL v3 or later](LICENSE) with a [content exception](LICENSE-EXCEPTION.md): your own stories, rule packs and assets can use any license, including commercial ones. See [docs/licensing.md](docs/licensing.md) for a plain-language summary.
 
 ## Status
 

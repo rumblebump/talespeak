@@ -1,5 +1,8 @@
-# Runs only when a version tag is pushed:  git tag v0.1.0 && git push origin v0.1.0
-# Publishes a multi-arch image to ghcr.io and static binaries on a GitHub release.
+# Runs only when a version tag is pushed. Tags are cut from main, after the
+# release PR (dev -> main) has passed the full checks:
+#   git switch main && git pull && git tag v0.1.0 && git push origin v0.1.0
+# Publishes a scanned multi-arch image to ghcr.io and static binaries on a
+# GitHub release, then deploys to production once that server exists.
 
 name: release
 
@@ -8,25 +11,52 @@ on:
     tags: ["v*.*.*"]
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tag must point at a commit on main
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "::error::$GITHUB_REF_NAME is not on main. Tag releases from main only."; exit 1; }
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go test -count=1 ./...
+      - run: go test -race -count=1 ./...
 
   image:
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      - name: Build amd64 for scanning
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: talespeak:scan
+          build-args: VERSION=${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # 0.35.0 or newer only, see ci.yml. Renovate pins this to a commit digest.
+      - uses: aquasecurity/trivy-action@0.35.0
+        with:
+          scan-type: image
+          image-ref: talespeak:scan
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -48,12 +78,15 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: VERSION=${{ github.ref_name }}
+          sbom: true
+          provenance: mode=max
           cache-from: type=gha
-          cache-to: type=gha,mode=max
 
   binaries:
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -73,3 +106,26 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --verify-tag
+
+  # Production deploy, off until the server exists: set the repository variable
+  # PROD_DEPLOY to "true" and give the "prod" environment a required reviewer.
+  deploy-prod:
+    needs: [image, binaries]
+    if: vars.PROD_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    environment: prod
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    steps:
+      - name: Deploy over SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+          SSH_TARGET: ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh "$SSH_TARGET" "cd ~/talespeak && sed -i 's/^TALESPEAK_VERSION=.*/TALESPEAK_VERSION=${VERSION#v}/' .env && docker compose pull talespeak && docker compose up -d && docker image prune -f"

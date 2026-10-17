@@ -27,4 +27,4 @@ This page is a summary. The binding texts are [LICENSE](../LICENSE) (GNU AGPL v3
 
 ## For contributors
 
-Contributions to the engine are accepted under AGPL-3.0-or-later with the content exception. The contribution process (DCO sign-off or CLA) is still to be decided; see task T-0009.
+Contributions to the engine are accepted under AGPL-3.0-or-later with the content exception. Sign off each commit under the [Developer Certificate of Origin](https://developercertificate.org/) (`git commit -s`); see [CONTRIBUTING.md](../CONTRIBUTING.md). There is no CLA: the base engine stays free forever, so it will never be relicensed or sold under other terms.

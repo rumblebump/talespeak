@@ -51,7 +51,7 @@ TALESPEAK_VERSION=0.1.0              # pin a release; "latest" also works
 TALESPEAK_KIDS_MODE=true
 ```
 
-`.env` is the only file with your settings. Keep it private.
+`.env` is the only file with your settings. Keep it private. Email is optional; to turn it on, see [admin-email.md](admin-email.md).
 
 ## 4. Start
 

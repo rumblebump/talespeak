@@ -3,6 +3,7 @@
 # one static binary on a distroless base. The web client is embedded in the
 # binary with go:embed, so the image needs nothing else.
 
+# renovate: datasource=docker depName=golang versioning=docker
 ARG GO_VERSION=1.26
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
