@@ -1,0 +1,305 @@
+# One workflow for the dev branch, the main branch and all pull requests.
+#
+#   PR into dev               quick checks: secrets, vet, short tests, build, Trivy fs
+#   push to dev (after merge) full checks for what changed: race + integration tests,
+#                             fuzz, govulncheck, Playwright; "edge" image, dev server
+#   PR into main (release PR) full checks on everything, image build + Trivy image scan
+#   push to main              full checks, "main" image, deploys staging (may break)
+#
+# Tags (v*) are created from main and handled by release.yml.
+# A cheap "changes" job decides which jobs run, and "ci-ok" always reports so it
+# can be the only required status check (trigger-level path filters would leave
+# required checks pending forever on docs-only changes).
+# Pull request runs test the merge result (refs/pull/N/merge), not only the branch.
+
+name: ci
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Full-depth tests on pushes to dev and main and on release PRs; quick on PRs into dev.
+  FULL: ${{ github.event_name == 'push' || github.base_ref == 'main' }}
+  # renovate: datasource=docker depName=zricethezav/gitleaks
+  GITLEAKS_VERSION: v8.30.1
+  # renovate: datasource=docker depName=rhysd/actionlint
+  ACTIONLINT_VERSION: 1.7.12
+  # renovate: datasource=go depName=golang.org/x/vuln
+  GOVULNCHECK_VERSION: v1.9.0
+  # renovate: datasource=npm depName=renovate
+  RENOVATE_VERSION: 44.166.0
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
+      web: ${{ steps.filter.outputs.web }}
+      image: ${{ steps.filter.outputs.image }}
+      deps: ${{ steps.filter.outputs.deps }}
+      ci: ${{ steps.filter.outputs.ci }}
+      renovate: ${{ steps.filter.outputs.renovate }}
+      has_go: ${{ steps.repo.outputs.has_go }}
+      has_e2e: ${{ steps.repo.outputs.has_e2e }}
+    steps:
+      - uses: actions/checkout@v4
+      # Go, image and e2e jobs need code that does not exist yet (T-0002, T-0004);
+      # until then they are skipped instead of failing.
+      - id: repo
+        run: |
+          echo "has_go=$([ -f go.mod ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "has_e2e=$([ -f e2e/package.json ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            go:
+              - '**/*.go'
+              - 'go.mod'
+              - 'go.sum'
+              - 'content/**'   # YAML stories, Lua rule packs, glossaries
+              - 'testdata/**'
+            web:
+              - 'web/**'
+              - 'e2e/**'
+            image:
+              - '**/*.go'
+              - 'go.mod'
+              - 'go.sum'
+              - 'web/**'
+              - 'content/**'
+              - 'Dockerfile'
+              - 'deploy/**'          # a deploy re-creates the server files, so it needs a fresh image
+              - 'scripts/deploy.sh'
+            deps:
+              - 'go.mod'
+              - 'go.sum'
+              - 'Dockerfile'
+              - 'web/vendor/**'
+              - 'e2e/package*.json'
+              - 'deploy/**'
+            ci:
+              - '.github/**'
+            renovate:
+              - 'renovate.json'
+
+  # Always runs: cheap, and protocol files are the most likely place for a leak.
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" "zricethezav/gitleaks:$GITLEAKS_VERSION" \
+            git /repo --redact --no-banner \
+            --log-opts="${{ github.event.before && github.event.before != '0000000000000000000000000000000000000000' && format('{0}..{1}', github.event.before, github.sha) || '-1' }}"
+
+  lint-ci:
+    needs: changes
+    if: needs.changes.outputs.ci == 'true' || needs.changes.outputs.renovate == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - if: needs.changes.outputs.ci == 'true'
+        run: docker run --rm -v "$PWD:/repo" -w /repo "rhysd/actionlint:$ACTIONLINT_VERSION" -color
+      - if: needs.changes.outputs.renovate == 'true'
+        run: npx --yes --package "renovate@$RENOVATE_VERSION" -- renovate-config-validator --strict renovate.json
+
+  go:
+    needs: changes
+    if: needs.changes.outputs.has_go == 'true' && (needs.changes.outputs.go == 'true' || github.base_ref == 'main' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod # module and build cache are on by default
+      - run: go vet ./...
+      - name: Unit tests (quick)
+        if: env.FULL != 'true'
+        run: go test -short -count=1 ./...
+      - name: Unit, integration and Lua pack tests with the race detector (full)
+        if: env.FULL == 'true'
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
+      - name: Short fuzz runs (full)
+        if: env.FULL == 'true'
+        run: ./scripts/fuzz.sh 20s
+      - name: Known vulnerabilities in Go code and modules (full)
+        if: env.FULL == 'true'
+        run: go run "golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_VERSION" ./...
+      - run: CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/talespeak
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Filled in with the client (T-0004): JS syntax and type check (tsc --checkJs),
+      # and a scan that fails on any external URL in web/.
+      - run: echo "web checks go here"
+
+  # Browser tests against a real server binary with the test pack. Not on PRs into dev.
+  e2e:
+    needs: [changes, go]
+    if: >
+      always() && needs.changes.outputs.has_e2e == 'true' && needs.changes.outputs.has_go == 'true' &&
+      (github.base_ref == 'main' || github.ref == 'refs/heads/main' ||
+       (github.event_name == 'push' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.web == 'true'))) &&
+      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - run: CGO_ENABLED=0 go build -o bin/talespeak ./cmd/talespeak
+      - working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npx playwright test --project=chromium
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
+          retention-days: 7
+
+  # Dependencies, secrets and misconfigurations in the repository files.
+  trivy-fs:
+    needs: changes
+    if: needs.changes.outputs.deps == 'true' || github.base_ref == 'main' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # 0.35.0 or newer only: older trivy-action tags were hijacked in March 2026
+      # (GHSA-69fq-xp46-6x23). Renovate pins this to a commit digest.
+      - uses: aquasecurity/trivy-action@0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  # PR to dev: no image (quick). PR to main: amd64 image, scanned by Trivy, not pushed.
+  # Push to dev: amd64 + arm64, tag "edge". Push to main: amd64 + arm64, tag "main".
+  image:
+    needs: [changes, go, web]
+    if: >
+      always() && needs.changes.outputs.has_go == 'true' &&
+      (github.event_name == 'push' || github.base_ref == 'main') &&
+      (needs.changes.outputs.image == 'true' || github.base_ref == 'main' || github.ref == 'refs/heads/main') &&
+      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      CHANNEL: ${{ github.ref == 'refs/heads/main' && 'main' || 'edge' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build amd64 for scanning
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: talespeak:scan
+          build-args: VERSION=${{ env.CHANNEL }}-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: aquasecurity/trivy-action@0.35.0
+        with:
+          scan-type: image
+          image-ref: talespeak:scan
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - if: github.event_name == 'push'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/talespeak:${{ env.CHANNEL }}
+            ghcr.io/${{ github.repository_owner }}/talespeak:sha-${{ github.sha }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          build-args: VERSION=${{ env.CHANNEL }}-${{ github.sha }}
+          cache-from: type=gha
+
+  # dev branch -> dev server, main -> public staging server. Each runs only once
+  # its server exists: set the repository variable DEV_DEPLOY or STAGING_DEPLOY to "true".
+  # scripts/deploy.sh copies compose.yml and Caddyfile, writes .env from
+  # deploy/env/<env>.env, runs compose up, and checks /healthz from the outside.
+  deploy:
+    needs: image
+    if: >
+      github.event_name == 'push' && needs.image.result == 'success' &&
+      ((github.ref == 'refs/heads/dev' && vars.DEV_DEPLOY == 'true') ||
+       (github.ref == 'refs/heads/main' && vars.STAGING_DEPLOY == 'true'))
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.ref == 'refs/heads/main' && 'staging' || 'dev' }}
+    permissions:
+      contents: read
+      packages: read # the server pulls the image with this job's short-lived token
+    concurrency:
+      group: deploy-${{ github.ref_name }}
+      cancel-in-progress: false
+    env:
+      CHANNEL: ${{ github.ref == 'refs/heads/main' && 'main' || 'edge' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: SSH key
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Deploy and check health
+        env:
+          DEPLOY_SSH_TARGET: ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}
+          GH_OWNER: ${{ github.repository_owner }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/deploy.sh "${{ github.ref == 'refs/heads/main' && 'staging' || 'dev' }}" "$CHANNEL" "$CHANNEL-$GITHUB_SHA"
+
+  ci-ok:
+    needs: [changes, secrets, lint-ci, go, web, e2e, trivy-fs, image, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any needed job failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+      - run: echo "all needed jobs passed or were skipped"

@@ -1,0 +1,23 @@
+# Certificates come from Let's Encrypt automatically; no account email is needed.
+
+{$TALESPEAK_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		# Offline first: the browser may load nothing from another origin.
+		# The engine sends the same policy itself, for servers without Caddy.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' wss://{$TALESPEAK_DOMAIN}; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		Cross-Origin-Resource-Policy "same-origin"
+		Permissions-Policy "camera=(), geolocation=(), payment=(), usb=(), microphone=(self)"
+		-Server
+		# Needed later for multi-threaded in-browser speech recognition (WASM threads)
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Embedder-Policy "require-corp"
+	}
+
+	# WebSocket upgrades are proxied automatically
+	reverse_proxy talespeak:8080
+}
