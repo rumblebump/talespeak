@@ -29,6 +29,8 @@ services:
       TALESPEAK_DATA: /data
       TALESPEAK_LISTEN: ":8080"
       TALESPEAK_KIDS_MODE: ${TALESPEAK_KIDS_MODE:-false}
+      # CIDR list whose X-Forwarded-For is believed; empty in .env keeps the engine default (loopback + private ranges, which include Caddy)
+      TALESPEAK_TRUSTED_PROXIES: ${TALESPEAK_TRUSTED_PROXIES:-}
       TALESPEAK_LLM_URL: ${TALESPEAK_LLM_URL:-} # empty = AI features off
     volumes:
       - talespeak_data:/data # SQLite database, uploads, backups

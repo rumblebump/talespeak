@@ -9,10 +9,13 @@ Every message, in both directions, is one JSON object with a `type` field.
 | Limit | Value | When exceeded |
 | --- | --- | --- |
 | Open connections per server | 1000 | Upgrade refused with HTTP 503 |
+| Open connections per client address | 100 | Upgrade refused with HTTP 503 |
 | Message size from the client | 16 KiB | Connection closed (1009, message too big) |
 | Messages per connection | 20 at once, then 10 per second | Connection closed (1008, too many messages) |
 | Silence from the client | 2 minutes | Connection closed (1008, idle timeout); clients ping every 30 s |
 | Binary frame, or text that is not one JSON object (including `null` and arrays) | | Connection closed (1003) |
+
+The client address is the TCP peer, unless the peer is a trusted proxy: then it is the rightmost `X-Forwarded-For` entry that is not a trusted proxy. `TALESPEAK_TRUSTED_PROXIES` (comma-separated CIDR prefixes) sets the trusted proxies; the default is loopback and the private ranges, which covers Caddy in the same Docker network. Narrow it to the proxy's own address when untrusted clients share the private network with the engine; an unset or empty value means the default. The per-client limit stays well above a school class, because a class behind one NAT address shares it.
 
 ## Messages
 

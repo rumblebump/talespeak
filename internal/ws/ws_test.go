@@ -738,3 +738,21 @@ func TestBucket(t *testing.T) {
 		t.Fatal("refill not capped at burst")
 	}
 }
+
+func TestPerClientConnectionCap(t *testing.T) {
+	integration(t)
+	client := "198.51.100.1"
+	_, url := newServer(t, WithMaxConnsPerClient(2), WithClientIP(func(*http.Request) string { return client }))
+	dialWelcomed(t, url)
+	dialWelcomed(t, url)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, resp, err := websocket.Dial(ctx, url, nil)
+	if err == nil || resp == nil || resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("third connection from one client: err=%v resp=%v, want 503", err, resp)
+	}
+
+	client = "198.51.100.2" // another address still gets in
+	dialWelcomed(t, url)
+}

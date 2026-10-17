@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rumblebump/talespeak/internal/clientip"
 	"github.com/rumblebump/talespeak/internal/server"
 	"github.com/rumblebump/talespeak/internal/store/sqlite"
 	"github.com/rumblebump/talespeak/internal/ws"
@@ -80,8 +81,12 @@ func serve(args []string) error {
 	}
 	defer db.Close()
 
+	proxies, err := clientip.New(envOr("TALESPEAK_TRUSTED_PROXIES", clientip.DefaultTrusted))
+	if err != nil {
+		return err
+	}
 	log := slog.Default()
-	sockets := ws.New(version, log)
+	sockets := ws.New(version, log, ws.WithClientIP(proxies.IP))
 	srv := &http.Server{
 		Addr:              *listen,
 		Handler:           server.New(server.Options{Version: version, Store: db, WebSocket: sockets}),

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -23,6 +24,10 @@ const (
 	DefaultIdleTimeout = 2 * time.Minute
 	// DefaultMaxConns caps open connections; more get 503.
 	DefaultMaxConns = 1000
+	// DefaultMaxConnsPerClient caps connections from one address, so one
+	// client cannot take every slot. A school class behind one NAT address
+	// needs a seat each, so this stays well above a class size.
+	DefaultMaxConnsPerClient = 100
 	// DefaultRate and DefaultBurst limit messages per connection
 	// (token bucket: Burst at once, then Rate per second).
 	DefaultRate  = 10
@@ -47,6 +52,13 @@ func WithIdleTimeout(d time.Duration) Option { return func(s *Server) { s.idleTi
 // WithMaxConns sets how many connections may be open at once.
 func WithMaxConns(n int) Option { return func(s *Server) { s.maxConns = n } }
 
+// WithMaxConnsPerClient sets how many connections one client address may hold.
+func WithMaxConnsPerClient(n int) Option { return func(s *Server) { s.maxPerClient = n } }
+
+// WithClientIP sets how the client address is found (for example behind a
+// reverse proxy). The default is the TCP peer address.
+func WithClientIP(f func(*http.Request) string) Option { return func(s *Server) { s.clientIP = f } }
+
 // WithRateLimit sets the per-connection message rate (per second) and burst.
 func WithRateLimit(rate float64, burst int) Option {
 	return func(s *Server) { s.rate, s.burst = rate, burst }
@@ -54,20 +66,23 @@ func WithRateLimit(rate float64, burst int) Option {
 
 // Server accepts WebSocket connections and tracks them for shutdown.
 type Server struct {
-	version     string
-	log         *slog.Logger
-	idleTimeout time.Duration
-	maxConns    int
-	rate        float64
-	burst       int
+	version      string
+	log          *slog.Logger
+	idleTimeout  time.Duration
+	maxConns     int
+	maxPerClient int
+	clientIP     func(*http.Request) string
+	rate         float64
+	burst        int
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu     sync.Mutex // guards closed, active and wg.Add, so Shutdown never races a new connection
-	closed bool
-	active int
-	wg     sync.WaitGroup
+	mu        sync.Mutex // guards closed, active, perClient and wg.Add, so Shutdown never races a new connection
+	closed    bool
+	active    int
+	perClient map[string]int
+	wg        sync.WaitGroup
 }
 
 // New returns a Server that greets clients with version.
@@ -76,8 +91,9 @@ func New(version string, log *slog.Logger, opts ...Option) *Server {
 	s := &Server{
 		version: version, log: log,
 		idleTimeout: DefaultIdleTimeout, maxConns: DefaultMaxConns,
+		maxPerClient: DefaultMaxConnsPerClient, clientIP: peerIP,
 		rate: DefaultRate, burst: DefaultBurst,
-		ctx: ctx, cancel: cancel,
+		ctx: ctx, cancel: cancel, perClient: map[string]int{},
 	}
 	for _, o := range opts {
 		o(s)
@@ -88,23 +104,28 @@ func New(version string, log *slog.Logger, opts ...Option) *Server {
 // ServeHTTP upgrades the request. Cross-origin upgrades are refused: the
 // Origin header must match the Host the request came in on.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	client := s.clientIP(r)
 	s.mu.Lock()
 	switch {
 	case s.closed:
 		s.mu.Unlock()
 		http.Error(w, "shutting down", http.StatusServiceUnavailable)
 		return
-	case s.active >= s.maxConns:
+	case s.active >= s.maxConns, s.perClient[client] >= s.maxPerClient:
 		s.mu.Unlock()
 		http.Error(w, "too many connections", http.StatusServiceUnavailable)
 		return
 	}
 	s.active++
+	s.perClient[client]++
 	s.wg.Add(1)
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
 		s.active--
+		if s.perClient[client]--; s.perClient[client] <= 0 {
+			delete(s.perClient, client) // keep the map as small as the open connections
+		}
 		s.mu.Unlock()
 		s.wg.Done()
 	}()
@@ -170,6 +191,15 @@ func (s *Server) handle(ctx context.Context, c *websocket.Conn) {
 			return
 		}
 	}
+}
+
+// peerIP is the TCP peer address without the port.
+func peerIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // decode accepts only text frames holding one JSON object.
