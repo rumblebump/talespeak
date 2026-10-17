@@ -1,0 +1,6 @@
+id: cell
+title: A damp cell
+description: >-
+  Stone walls, a heap of straw and a narrow window far above you.
+  Iron bars separate you from a dim corridor.
+script: cell.lua

@@ -276,10 +276,20 @@ func TestServeRunsAndShutsDownOnSignal(t *testing.T) {
 	if _, _, err := c.Read(ctx); err != nil { // welcome
 		t.Fatal(err)
 	}
+	// serve plays the demo pack: a new connection starts in its start room.
+	if _, data, err := c.Read(ctx); err != nil || !strings.HasPrefix(string(data), `{"type":"room","id":"cell"`) {
+		t.Fatalf("after welcome: %s, %v; want the demo room", data, err)
+	}
 	closed := make(chan websocket.StatusCode, 1)
 	go func() {
-		_, _, err := c.Read(ctx)
-		closed <- websocket.CloseStatus(err)
+		// The demo room's messages follow the welcome; read past them to
+		// the close frame.
+		for {
+			if _, _, err := c.Read(ctx); err != nil {
+				closed <- websocket.CloseStatus(err)
+				return
+			}
+		}
 	}()
 
 	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {

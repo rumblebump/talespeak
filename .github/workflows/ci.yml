@@ -67,7 +67,7 @@ jobs:
               - '**/*.go'
               - 'go.mod'
               - 'go.sum'
-              - 'content/**'   # YAML stories, Lua rule packs, glossaries
+              - 'content/**'   # story packs (YAML, Lua), embedded in the binary
               - 'testdata/**'
             web:
               - 'web/**'
