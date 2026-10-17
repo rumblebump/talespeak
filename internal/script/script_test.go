@@ -111,6 +111,8 @@ func TestLimits(t *testing.T) {
 		{"format precision", `string.format("%.500f", 1)`, ErrScript},
 		{"table.concat", `local s = string.rep("x", 1e6) local t = {} for i = 1, 100 do t[i] = s end table.concat(t)`, ErrScript},
 		{"unpack", `unpack({}, 1, 1e8)`, ErrScript},
+		{"doubling string", `local s = "x" for i = 1, 40 do s = s .. s end`, ErrScript},
+		{"wide concat", `local s = string.rep("x", 1e6) local t = s .. s .. s`, ErrScript},
 		{"string.byte", `string.byte(string.rep("x", 1e6), 1, -1)`, ErrScript},
 		{"gsub", `string.gsub("aaa", "a", "b")`, ErrScript},
 		{"find pattern", `string.find("aaa", "a+")`, ErrScript},
@@ -137,8 +139,8 @@ func TestCallMemory(t *testing.T) {
 	// A long time limit, so the memory budget is what stops these.
 	limits := Limits{Time: 5 * time.Second, CallMemory: 16 << 20, StateMemory: 64 << 20}
 	for name, src := range map[string]string{
-		"growing table":   `local t = {} for i = 1, 1e9 do t[i] = i end`,
-		"doubling string": `local s = "x" for i = 1, 40 do s = s .. s end`,
+		"growing table": `local t = {} for i = 1, 1e9 do t[i] = i end`,
+		"many strings":  `local t = {} for i = 1, 1e9 do t[i] = "x" .. i end`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := New(limits)
@@ -169,7 +171,9 @@ func TestStateMemoryAcrossCalls(t *testing.T) {
 func TestSandboxHidesUnsafeGlobals(t *testing.T) {
 	r := New(DefaultLimits)
 	defer r.Close()
-	names := append([]string{"io", "os", "debug", "package", "channel", "coroutine"}, removedBase...)
+	names := []string{"io", "os", "debug", "package", "channel", "coroutine",
+		"collectgarbage", "dofile", "getfenv", "load", "loadfile", "loadstring",
+		"module", "newproxy", "print", "require", "setfenv", "_printregs"}
 	for _, name := range names {
 		env := load(t, r, `function on_enter() say(type(`+name+`)) end`)
 		h := &recorder{}

@@ -28,6 +28,12 @@ const (
 	// client cannot take every slot. A school class behind one NAT address
 	// needs a seat each, so this stays well above a class size.
 	DefaultMaxConnsPerClient = 100
+	// DefaultConnectBurst and DefaultConnectRate limit how often one client
+	// address may open connections (token bucket per address): a class
+	// behind one NAT address reconnecting at once fits in the burst, a
+	// client reconnecting in a loop does not.
+	DefaultConnectBurst = 60
+	DefaultConnectRate  = 1
 	// DefaultRate and DefaultBurst limit messages per connection
 	// (token bucket: Burst at once, then Rate per second).
 	DefaultRate  = 10
@@ -77,6 +83,12 @@ func WithMaxConns(n int) Option { return func(s *Server) { s.maxConns = n } }
 // WithMaxConnsPerClient sets how many connections one client address may hold.
 func WithMaxConnsPerClient(n int) Option { return func(s *Server) { s.maxPerClient = n } }
 
+// WithConnectRate sets how many connections one client address may open at
+// once (burst) and per second after that (rate).
+func WithConnectRate(rate float64, burst int) Option {
+	return func(s *Server) { s.connectRate, s.connectBurst = rate, burst }
+}
+
 // WithClientIP sets how the client address is found (for example behind a
 // reverse proxy). The default is the TCP peer address.
 func WithClientIP(f func(*http.Request) string) Option { return func(s *Server) { s.clientIP = f } }
@@ -99,16 +111,19 @@ type Server struct {
 	maxPerClient int
 	clientIP     func(*http.Request) string
 	game         Game
+	connectRate  float64
+	connectBurst int
 	rate         float64
 	burst        int
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu        sync.Mutex // guards closed, active, perClient and wg.Add, so Shutdown never races a new connection
+	mu        sync.Mutex // guards closed, active, perClient, connects and wg.Add, so Shutdown never races a new connection
 	closed    bool
 	active    int
 	perClient map[string]int
+	connects  map[string]*bucket // per client address, for the connect rate
 	wg        sync.WaitGroup
 }
 
@@ -119,8 +134,9 @@ func New(version string, log *slog.Logger, opts ...Option) *Server {
 		version: version, log: log,
 		idleTimeout: DefaultIdleTimeout, maxConns: DefaultMaxConns,
 		maxPerClient: DefaultMaxConnsPerClient, clientIP: peerIP,
+		connectRate: DefaultConnectRate, connectBurst: DefaultConnectBurst,
 		rate: DefaultRate, burst: DefaultBurst,
-		ctx: ctx, cancel: cancel, perClient: map[string]int{},
+		ctx: ctx, cancel: cancel, perClient: map[string]int{}, connects: map[string]*bucket{},
 	}
 	for _, o := range opts {
 		o(s)
@@ -141,6 +157,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case s.active >= s.maxConns, s.perClient[client] >= s.maxPerClient:
 		s.mu.Unlock()
 		http.Error(w, "too many connections", http.StatusServiceUnavailable)
+		return
+	case !s.allowConnect(client):
+		s.mu.Unlock()
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "too many new connections", http.StatusTooManyRequests)
 		return
 	}
 	s.active++
@@ -231,6 +252,26 @@ func (s *Server) handle(ctx context.Context, c *websocket.Conn) {
 	}
 }
 
+// maxConnectBuckets bounds the connect-rate map; past it, buckets that have
+// refilled (clients quiet for a while) are dropped. The caller holds mu.
+const maxConnectBuckets = 10000
+
+func (s *Server) allowConnect(client string) bool {
+	b := s.connects[client]
+	if b == nil {
+		if len(s.connects) >= maxConnectBuckets {
+			for k, old := range s.connects {
+				if old.full() {
+					delete(s.connects, k)
+				}
+			}
+		}
+		b = newBucket(s.connectRate, s.connectBurst, time.Now)
+		s.connects[client] = b
+	}
+	return b.allow()
+}
+
 // peerIP is the TCP peer address without the port.
 func peerIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -296,6 +337,11 @@ type bucket struct {
 
 func newBucket(rate float64, burst int, now func() time.Time) *bucket {
 	return &bucket{tokens: float64(burst), rate: rate, burst: float64(burst), last: now(), now: now}
+}
+
+// full reports whether the bucket has refilled completely.
+func (b *bucket) full() bool {
+	return b.tokens+b.now().Sub(b.last).Seconds()*b.rate >= b.burst
 }
 
 func (b *bucket) allow() bool {

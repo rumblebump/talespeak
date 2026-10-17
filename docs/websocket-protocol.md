@@ -10,6 +10,7 @@ Every message, in both directions, is one JSON object with a `type` field.
 | --- | --- | --- |
 | Open connections per server | 1000 | Upgrade refused with HTTP 503 |
 | Open connections per client address | 100 | Upgrade refused with HTTP 503 |
+| New connections per client address | 60 at once, then 1 per second | Upgrade refused with HTTP 429 and `Retry-After` |
 | Message size from the client | 16 KiB | Connection closed (1009, message too big) |
 | Messages per connection | 20 at once, then 10 per second | Connection closed (1008, too many messages) |
 | Silence from the client | 2 minutes | Connection closed (1008, idle timeout); clients ping every 30 s |

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -755,4 +756,33 @@ func TestPerClientConnectionCap(t *testing.T) {
 
 	client = "198.51.100.2" // another address still gets in
 	dialWelcomed(t, url)
+}
+
+func TestConnectRateLimit(t *testing.T) {
+	integration(t)
+	_, url := newServer(t, WithConnectRate(0.001, 3))
+	for range 3 {
+		dialWelcomed(t, url).CloseNow()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, resp, err := websocket.Dial(ctx, url, nil)
+	if err == nil || resp == nil || resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("fourth connection: err = %v, resp = %v; want 429", err, resp)
+	}
+	if resp.Header.Get("Retry-After") == "" {
+		t.Error("429 without Retry-After")
+	}
+}
+
+func TestConnectBucketsArePruned(t *testing.T) {
+	s := New("v", slog.New(slog.NewTextHandler(io.Discard, nil)), WithConnectRate(1e9, 1))
+	for i := range maxConnectBuckets + 10 {
+		s.mu.Lock()
+		s.allowConnect(strconv.Itoa(i))
+		s.mu.Unlock()
+	}
+	if n := len(s.connects); n > maxConnectBuckets {
+		t.Errorf("%d buckets, want at most %d", n, maxConnectBuckets)
+	}
 }

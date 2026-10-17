@@ -24,7 +24,11 @@ function line(text, className) {
   story.append(p);
 }
 
+// stopKeys removes the open dialog's number-key listener, if any.
+let stopKeys = () => {};
+
 function hideDialog() {
+  stopKeys();
   dialog.hidden = true;
   dialogOptions.replaceChildren();
 }
@@ -32,12 +36,11 @@ function hideDialog() {
 // showDialog lists the options as buttons; a click or the option's number
 // key sends the choice once.
 function showDialog(socket, msg) {
+  hideDialog();
   dialogTitle.textContent = String(msg.title);
-  dialogOptions.replaceChildren();
   const options = Array.isArray(msg.options) ? msg.options : [];
   const choose = (n) => {
     hideDialog();
-    document.removeEventListener("keydown", onKey);
     socket.send(JSON.stringify({ type: "choose", id: String(msg.id), option: n }));
   };
   const onKey = (event) => {
@@ -54,7 +57,7 @@ function showDialog(socket, msg) {
     dialogOptions.append(li);
   });
   document.addEventListener("keydown", onKey);
-  socket.addEventListener("close", () => document.removeEventListener("keydown", onKey), { once: true });
+  stopKeys = () => document.removeEventListener("keydown", onKey);
   dialog.hidden = false;
   dialogOptions.querySelector("button")?.focus();
 }

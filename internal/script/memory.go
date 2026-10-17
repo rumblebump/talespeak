@@ -57,10 +57,18 @@ func watchAllocs(ctx context.Context, limit int64, exceeded func()) (stop func()
 	}
 }
 
+// Rough sizes for the state walk, on the high side: a hash entry in a
+// gopher-lua table lives in a map, a key slice and an index map.
+const (
+	sizeString = 16
+	sizeObject = 128
+	sizeEntry  = 96
+)
+
 // retained estimates the bytes reachable from roots, and stops counting
-// once it passes limit. Sizes are rough: what matters is that a table or
-// string growing without bound is caught. It walks with its own stack, so
-// deeply nested tables cannot overflow the Go stack.
+// once it passes limit. What matters is that a table or string growing
+// without bound is caught. It walks with its own stack, so deeply nested
+// tables cannot overflow the Go stack.
 func retained(roots []lua.LValue, limit int64) int64 {
 	seen := map[lua.LValue]struct{}{}
 	var stack []lua.LValue
@@ -68,7 +76,7 @@ func retained(roots []lua.LValue, limit int64) int64 {
 	push := func(v lua.LValue) {
 		switch v := v.(type) {
 		case lua.LString:
-			total += 16 + int64(len(v))
+			total += sizeString + int64(len(v))
 		case *lua.LTable, *lua.LFunction, *lua.LUserData:
 			if _, ok := seen[v]; !ok {
 				seen[v] = struct{}{}
@@ -82,11 +90,11 @@ func retained(roots []lua.LValue, limit int64) int64 {
 	for len(stack) > 0 && total <= limit {
 		v := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
-		total += 64
+		total += sizeObject
 		switch v := v.(type) {
 		case *lua.LTable:
 			v.ForEach(func(k, val lua.LValue) {
-				total += 32
+				total += sizeEntry
 				push(k)
 				push(val)
 			})
@@ -103,4 +111,27 @@ func retained(roots []lua.LValue, limit int64) int64 {
 		}
 	}
 	return total
+}
+
+// stackValues returns the locals and functions of every frame of a paused
+// hook, so what a hook holds while it waits in ui.dialog counts too.
+func stackValues(co *lua.LState) []lua.LValue {
+	var out []lua.LValue
+	for level := 0; level < 256; level++ {
+		dbg, ok := co.GetStack(level)
+		if !ok {
+			return out
+		}
+		if fn, err := co.GetInfo("f", dbg, lua.LNil); err == nil {
+			out = append(out, fn)
+		}
+		for n := 1; ; n++ {
+			name, v := co.GetLocal(dbg, n)
+			if name == "" {
+				break
+			}
+			out = append(out, v)
+		}
+	}
+	return out
 }

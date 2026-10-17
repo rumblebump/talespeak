@@ -23,9 +23,10 @@ type World struct {
 	log  *slog.Logger
 	pack *pack.Pack
 
-	mu   sync.Mutex // guards rt and envs: gopher-lua states are not goroutine safe
-	rt   *script.Runtime
-	envs map[string]*script.Env // room id -> its script's globals
+	mu     sync.Mutex // guards rt, envs and closed: gopher-lua states are not goroutine safe
+	rt     *script.Runtime
+	envs   map[string]*script.Env // room id -> its script's globals
+	closed bool
 }
 
 // NewWorld loads every room script of p. A script that fails to load fails
@@ -46,10 +47,12 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger) (*World, err
 	return w, nil
 }
 
-// Close frees the world's Lua state. Sessions must be gone.
+// Close ends every paused hook and frees the world's Lua state. Sessions
+// still connected get an error for anything they send.
 func (w *World) Close() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.closed = true
 	w.rt.Close()
 }
 
@@ -82,19 +85,36 @@ func (s *session) Handle(m ws.Message) []ws.Message {
 	}
 }
 
-func (s *session) Close() { s.pending = nil }
+// Close ends the hook waiting on this player, if any.
+func (s *session) Close() {
+	s.w.mu.Lock()
+	defer s.w.mu.Unlock()
+	s.drop()
+}
+
+// drop cancels the pending hook. The caller holds w.mu.
+func (s *session) drop() {
+	if s.pending != nil && !s.w.closed {
+		s.w.rt.Cancel(s.pending)
+	}
+	s.pending = nil
+}
 
 // enter moves the player into room and runs its on_enter hook.
 func (s *session) enter(room string) []ws.Message {
-	s.room, s.pending = room, nil
+	s.w.mu.Lock()
+	defer s.w.mu.Unlock()
+	s.drop()
+	s.room = room
 	env := s.w.envs[room]
 	if env == nil {
 		s.DescribeRoom()
 		return s.flush()
 	}
-	s.w.mu.Lock()
+	if s.w.closed {
+		return s.after(nil, script.ErrClosed)
+	}
 	th, err := s.w.rt.Run(s, env, "on_enter", s.name)
-	s.w.mu.Unlock()
 	return s.after(th, err)
 }
 
@@ -106,11 +126,14 @@ func (s *session) choose(m ws.Message) []ws.Message {
 	if m.Option < 1 || m.Option > len(s.pending.Dialog.Options) {
 		return []ws.Message{{Type: "error", Message: "no such option"}}
 	}
+	s.w.mu.Lock()
+	defer s.w.mu.Unlock()
+	if s.w.closed {
+		return s.after(nil, script.ErrClosed)
+	}
 	th := s.pending
 	s.pending = nil
-	s.w.mu.Lock()
 	th, err := s.w.rt.Resume(s, th, m.Option)
-	s.w.mu.Unlock()
 	return s.after(th, err)
 }
 
@@ -118,7 +141,7 @@ func (s *session) choose(m ws.Message) []ws.Message {
 // the dialog it waits on, or an error the player can read.
 func (s *session) after(th *script.Thread, err error) []ws.Message {
 	if err != nil {
-		s.w.log.Warn("room script failed", "room", s.room, "err", err)
+		s.w.log.Warn("room script failed", "room", s.room, "err", logText(err))
 		s.out = append(s.out, ws.Message{Type: "error", Message: playerError(err)})
 		return s.flush()
 	}
@@ -134,11 +157,27 @@ func (s *session) after(th *script.Thread, err error) []ws.Message {
 // playerError says what went wrong without script details; the log has them.
 func playerError(err error) string {
 	switch {
+	case errors.Is(err, script.ErrClosed):
+		return "This world has closed."
 	case errors.Is(err, script.ErrTimeout), errors.Is(err, script.ErrMemory), errors.Is(err, script.ErrStateMemory):
 		return "This room's script hit its limits. Tell the game master."
 	default:
 		return "This room's script failed. Tell the game master."
 	}
+}
+
+// maxLogBytes caps a script error in the log: error() messages are chosen
+// by the script and could be megabytes, or contain fake log lines.
+const maxLogBytes = 500
+
+// logText is err's message cut to maxLogBytes and quoted, so newlines and
+// control characters show as escapes.
+func logText(err error) string {
+	msg := err.Error()
+	if len(msg) > maxLogBytes {
+		msg = msg[:maxLogBytes] + "..."
+	}
+	return strconv.Quote(msg)
 }
 
 func (s *session) flush() []ws.Message {

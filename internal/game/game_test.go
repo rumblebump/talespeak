@@ -206,3 +206,34 @@ func TestDialogOverWebSocket(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+func TestCloseWorldWithPausedSessions(t *testing.T) {
+	demo, err := pack.Load(content.Demo())
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := NewWorld(demo, script.DefaultLimits, quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := w.NewSession() // waits in the demo dialog
+	w.Close()
+	if got := s.Handle(ws.Message{Type: "choose", ID: "d1", Option: 1}); kinds(got) != "error:" || !strings.Contains(got[0].Message, "closed") {
+		t.Errorf("choose after Close: %+v", got)
+	}
+	s.Close() // after the world: no panic
+	if _, first := w.NewSession(); kinds(first) != "error:" {
+		t.Errorf("new session after Close: %+v", first)
+	}
+}
+
+func TestSessionCloseEndsPausedHook(t *testing.T) {
+	w := demoWorld(t)
+	for range 5 {
+		s, _ := w.NewSession()
+		s.Close()
+	}
+	if n := w.rt.Paused(); n != 0 {
+		t.Errorf("%d hooks still paused after their sessions closed", n)
+	}
+}

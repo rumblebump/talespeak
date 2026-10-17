@@ -1,24 +1,26 @@
 # Lua sandbox
 
-Room scripts and, later, rule packs run in [gopher-lua](https://github.com/yuin/gopher-lua) (Lua 5.1, pure Go). Each world has one Lua state. Every script gets its own globals; the libraries below are shared.
+Room scripts and, later, rule packs run in [gopher-lua](https://github.com/yuin/gopher-lua) (Lua 5.1, pure Go). Each world has one Lua state. Every script gets its own globals, and `_G` is that script's own table. The libraries below are shared and read-only: assigning to `string.rep` or `ui.dialog` is an error, and `getmetatable` on a library, a script's globals or a string returns `"locked"`.
 
 ## What a script can use
 
 | Available | Notes |
 | --- | --- |
-| Base functions | `assert`, `error`, `getmetatable`, `ipairs`, `next`, `pairs`, `pcall`, `rawequal`, `rawget`, `rawset`, `select`, `setmetatable`, `tonumber`, `tostring`, `type`, `unpack` (at most 8000 values), `xpcall`, `_G`, `_VERSION` |
-| `string` | All of it except patterns: `string.find` needs `plain = true`; `match`, `gmatch` and `gsub` raise an error. `rep`, `format` and `byte` are size-limited |
-| `table` | All of it; `table.concat` results are at most 1 MiB |
+| Base functions | `assert`, `error`, `getmetatable`, `ipairs`, `next`, `pairs`, `pcall`, `rawequal`, `rawget`, `rawset` (not on libraries), `select`, `setmetatable`, `tonumber`, `tostring`, `type`, `unpack` (at most 8000 values), `xpcall`, `_G`, `_VERSION` |
+| `string` | `byte` (at most 8000 values), `char`, `find` (with `plain = true` only), `format`, `len`, `lower`, `rep`, `reverse`, `sub`, `upper`. `match`, `gmatch`, `gfind` and `gsub` raise an error. `format` takes Lua 5.1's conversions only (`%c %d %i %o %u %x %X %e %E %f %g %G %q %s %%`, widths and precisions of at most two digits) |
+| `table` | `concat`, `getn`, `insert`, `maxn`, `remove`, `sort` |
 | `math` | All of it |
 | `say(text)` | Sends a line to the player (at most 4000 bytes) |
 | `room.describe()` | Sends the current room's title and description |
 | `ui.dialog(title, options)` | Shows 1 to 9 options and waits for the player; returns the option's number and its label |
 
+No string is ever longer than 1 MiB: `..`, `string.rep`, `string.format` and `table.concat` refuse to build one. Numbers passed as counts or positions must be within ±2^31.
+
 Not available: `io`, `os`, `debug`, `package`/`require`, `coroutine`, `channel`, `load`, `loadstring`, `dofile`, `loadfile`, `getfenv`, `setfenv`, `collectgarbage`, `newproxy`, `print`. A script cannot read files, open connections, run programs or load other code.
 
 **Why no patterns:** gopher-lua matches Lua patterns with a backtracking matcher written in Go. The time limit only interrupts Lua code, not Go functions, and a crafted pattern takes exponential time. Patterns come back once there is a matcher with a step limit.
 
-**Why no coroutine library:** hooks already run as coroutines, and `ui.dialog` must pause the hook itself, not a coroutine the script made.
+**Why no coroutine library:** not needed yet, and every hook already waits in `ui.dialog` on its own.
 
 ## Hooks
 
@@ -39,7 +41,9 @@ function on_enter(player)
 end
 ```
 
-The top level of a script runs once when the world starts, for setup. `say`, `room.describe` and `ui.dialog` only work inside hooks.
+The top level of a script runs once when the world starts, for setup. `say`, `room.describe` and `ui.dialog` only work inside hooks. `ui.dialog` can wait anywhere in a hook, also inside `pcall`, a `table.sort` comparator or a metamethod. When the player leaves while a hook waits, `ui.dialog` raises the error "the player left" and the hook runs to its end with its output dropped; it cannot wait again.
+
+The name `__concat` is reserved: every `..` in a script is compiled into a call to it.
 
 ## Limits
 
@@ -50,16 +54,27 @@ The top level of a script runs once when the world starts, for setup. `say`, `ro
 | Memory the world's scripts keep | 64 MiB | The call fails, and so does every later call until the world is restarted |
 | Call depth | 200 | Script error (stack overflow) |
 | Values on the Lua stack | 65536 | Script error (registry overflow) |
-| Output per call | 100 `say` or `room.describe` calls | Script error |
+| Output per call | 100 `say` or `room.describe` calls (`ui.dialog` does not count) | Script error |
 | Script size | 256 KiB | The pack does not load |
 
 A call is everything from starting or resuming a hook until it ends or waits in `ui.dialog`. The time a player takes to answer a dialog does not count.
 
 How they are enforced:
 
-- **Time:** each call runs with a deadline that gopher-lua checks before every instruction. `pcall` cannot swallow it for long: the next instruction outside the `pcall` fails again.
-- **Memory per call:** Go has no per-goroutine allocation counter, so a watcher samples the process's allocated bytes every millisecond while a call runs. Allocations by other goroutines count too; at these budgets that only matters on a heavily loaded server, where the call then fails cleanly.
-- **Memory kept:** after enough allocation since the last check, the engine walks everything reachable from the scripts' globals and adds up rough sizes.
-- **Single expensive Go calls:** functions that could build a huge result in one call (`string.rep`, `string.format` widths, `table.concat`, `unpack`, `string.byte`) check sizes before they run, because the watcher cannot interrupt Go code.
+- **Time:** each call runs with a deadline that gopher-lua checks before every instruction. `pcall` cannot swallow it for long: the next instruction outside the `pcall` fails again. Go functions are not interrupted, so every library function a script gets finishes quickly whatever its arguments; that is why patterns are off and why sizes are checked before work starts.
+- **Memory per call:** Go has no per-goroutine allocation counter, so a watcher samples the process's allocated bytes every millisecond while a call runs. Allocations by other goroutines count too. A story hook usually runs well under a millisecond, so for it to fail, other goroutines would have to allocate 32 MiB within that time; a hook that runs for tens of milliseconds is more exposed on a busy server, and then fails cleanly.
+- **Memory kept:** after enough allocation since the last check, the engine walks everything reachable from the scripts' globals and from the locals of hooks waiting in `ui.dialog`, and adds up sizes estimated on the high side. `string.sub` copies its result, so a short slice never keeps a long string alive unseen.
+- **No single Go call builds a huge result:** `..`, `string.rep`, `string.format`, `table.concat`, `unpack` and `string.byte` check sizes before they run.
 
 When a call fails, the player sees "This room's script failed. Tell the game master." (or "hit its limits"). The log gets the room and the Lua error with its line.
+
+## How hooks wait
+
+Each hook runs on its own goroutine with its own Lua thread. `ui.dialog` blocks that goroutine until the player answers, then gives the hook a fresh time and memory budget. Lua only runs while the world's lock is held, one hook at a time, so the Lua state is never used by two goroutines at once.
+
+## Known gaps
+
+- Compiling a script is not limited: a large script with deep nesting can take about 100 ms and tens of MiB once, when the world starts. Scripts are limited to 256 KiB.
+- One world runs one hook at a time. A slow hook (up to the 100 ms limit) delays the other players of that world.
+- The memory estimate of a waiting hook covers its named locals and functions, not unnamed temporaries.
+
