@@ -38,3 +38,19 @@ caddy validate: Valid configuration
 
 - Shellcheck inside actionlint was turned off (not installed in the sandbox); rerun with it in CI later.
 - `docker build` of the Dockerfile is still untested; it needs the Go module from T-0002.
+
+## CI on PR #1 (first run)
+
+The `image` job ran because the PR adds the Dockerfile, and failed: the build needs `go.mod`/`go.sum`, which do not exist yet.
+
+```sh
+gh api repos/rumblebump/talespeak/actions/runs/39044023213/jobs --jq '.jobs[] | "\(.name) \(.conclusion)"'
+gh api repos/rumblebump/talespeak/check-runs/117429078552/annotations --jq '.[] | "\(.annotation_level): \(.message)"'
+```
+
+```text
+changes success / secrets success / image failure / ci-ok failure
+failure: buildx failed with: ERROR: failed to build: … "/go.sum": not found
+```
+
+Fix: the `changes` job now outputs `has_go` (`go.mod` present), and `go` and `image` only run when it is true.

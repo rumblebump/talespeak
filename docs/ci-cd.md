@@ -19,6 +19,7 @@ Only the jobs a change needs run; docs-only commits finish in well under a minut
 | `Dockerfile` | yes | yes | no | no | yes | main only |
 | `deploy/**` | yes | yes | no | no | no | no (copy to the server by hand) |
 
+- **No Go module yet:** `go` and `image` are skipped until `go.mod` exists (T-0002), because the Docker build needs it.
 - **`ci-ok`** always reports, and is the single required status check for branch protection. Filtering at the trigger level instead would leave required checks waiting forever on docs-only pull requests.
 - **`secrets`** runs gitleaks over the pushed commits on every push, because protocol files with commands are where a token would most likely slip in.
 - **Concurrency:** a new push to the same branch cancels the older run. Deploys never cancel each other.
