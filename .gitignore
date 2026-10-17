@@ -1,0 +1,16 @@
+# secrets and local config
+.env
+deploy/.env
+*.pem
+*.key
+
+# runtime data
+/data/
+deploy/models/
+*.db
+*.db-wal
+*.db-shm
+
+# build output
+/bin/
+/dist/

@@ -1,0 +1,19 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$TALESPEAK_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		# Needed later for multi-threaded in-browser speech recognition (WASM threads)
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Embedder-Policy "require-corp"
+	}
+
+	# WebSocket upgrades are proxied automatically
+	reverse_proxy talespeak:8080
+}

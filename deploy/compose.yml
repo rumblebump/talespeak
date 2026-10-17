@@ -1,0 +1,52 @@
+# Production and dev servers use this same file; only .env differs.
+#   docker compose up -d                      # engine + Caddy
+#   docker compose --profile ai up -d         # also start the optional LLM sidecar
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    environment:
+      TALESPEAK_DOMAIN: ${TALESPEAK_DOMAIN:?set TALESPEAK_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # certificates live here; keep this volume
+      - caddy_config:/config
+    depends_on:
+      - talespeak
+
+  talespeak:
+    image: ghcr.io/${GH_OWNER:?set GH_OWNER in .env}/talespeak:${TALESPEAK_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      TALESPEAK_DATA: /data
+      TALESPEAK_LISTEN: ":8080"
+      TALESPEAK_KIDS_MODE: ${TALESPEAK_KIDS_MODE:-true}
+      TALESPEAK_LLM_URL: ${TALESPEAK_LLM_URL:-} # empty = AI features off
+    volumes:
+      - talespeak_data:/data # SQLite database, uploads, backups
+    expose:
+      - "8080"
+
+  llm:
+    profiles: ["ai"]
+    image: ghcr.io/ggml-org/llama.cpp:server
+    restart: unless-stopped
+    command: >
+      -m /models/${LLM_MODEL_FILE:-model.gguf}
+      --host 0.0.0.0 --port 8081
+      --ctx-size 2048 --threads ${LLM_THREADS:-2}
+    volumes:
+      - ./models:/models:ro
+    expose:
+      - "8081"
+
+volumes:
+  caddy_data:
+  caddy_config:
+  talespeak_data:
