@@ -1,6 +1,4 @@
-{
-	email {$ACME_EMAIL}
-}
+# Certificates come from Let's Encrypt automatically; no account email is needed.
 
 {$TALESPEAK_DOMAIN} {
 	encode zstd gzip

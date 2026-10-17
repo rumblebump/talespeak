@@ -1,6 +1,8 @@
-# Production and dev servers use this same file; only .env differs.
+# Every server uses this same file; only .env differs. CI deploys copy it to
+# ~/talespeak on the server on every deploy (see scripts/deploy.sh).
 #   docker compose up -d                      # engine + Caddy
 #   docker compose --profile ai up -d         # also start the optional LLM sidecar
+#                                             # (or COMPOSE_PROFILES=ai in .env)
 
 services:
   caddy:
@@ -12,13 +14,13 @@ services:
       - "443:443/udp" # HTTP/3
     environment:
       TALESPEAK_DOMAIN: ${TALESPEAK_DOMAIN:?set TALESPEAK_DOMAIN in .env}
-      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data # certificates live here; keep this volume
       - caddy_config:/config
     depends_on:
-      - talespeak
+      talespeak:
+        condition: service_healthy
 
   talespeak:
     image: ghcr.io/${GH_OWNER:?set GH_OWNER in .env}/talespeak:${TALESPEAK_VERSION:-latest}
@@ -26,7 +28,7 @@ services:
     environment:
       TALESPEAK_DATA: /data
       TALESPEAK_LISTEN: ":8080"
-      TALESPEAK_KIDS_MODE: ${TALESPEAK_KIDS_MODE:-true}
+      TALESPEAK_KIDS_MODE: ${TALESPEAK_KIDS_MODE:-false}
       TALESPEAK_LLM_URL: ${TALESPEAK_LLM_URL:-} # empty = AI features off
     volumes:
       - talespeak_data:/data # SQLite database, uploads, backups

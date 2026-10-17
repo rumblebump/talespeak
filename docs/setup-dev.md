@@ -37,14 +37,7 @@ Suggested size with the AI sidecar: 4 vCPU, 8 GB RAM, 80 GB SSD; without it, 2 v
 
 ### 1. Prepare the server
 
-Follow [setup-server.md](setup-server.md) steps 1 to 4 with these `.env` values:
-
-```sh
-TALESPEAK_DOMAIN=dev.talespeak.example.org      # staging: staging.talespeak.example.org
-TALESPEAK_VERSION=edge                          # staging: main
-```
-
-Keep the files in `~/talespeak`; the deploy job runs `cd ~/talespeak && docker compose pull talespeak && docker compose up -d`.
+Install Docker ([setup-server.md](setup-server.md) step 1) and point the domain's DNS at the server. Nothing else: every deploy copies `compose.yml`, `Caddyfile` and a generated `.env` into `~/talespeak` of the deploy user, then runs `docker compose up` and waits for the health check. Server settings (domain, kids mode) live in git in [deploy/env/](../deploy/env/README.md); edit them there, never on the server.
 
 ### 2. Create a deploy user and key
 
@@ -62,7 +55,7 @@ On your machine, create a key used only by GitHub Actions:
 ssh-keygen -t ed25519 -N "" -C "github-actions-dev-deploy" -f ./dev_deploy_key   # one key per server
 ```
 
-Put `dev_deploy_key.pub` into `~deploy/.ssh/authorized_keys` on the server, then move the `~/talespeak` folder into the deploy user's home.
+Put `dev_deploy_key.pub` into `~deploy/.ssh/authorized_keys` on the server.
 
 Note: membership in the `docker` group is effectively root on that machine. Use a server dedicated to the dev or staging instance.
 
@@ -79,14 +72,10 @@ In the repository, **Settings → Environments → New environment** named `dev`
 
 Then set the repository variable (**Settings → Secrets and variables → Actions → Variables**) `DEV_DEPLOY` or `STAGING_DEPLOY` to `true`. Delete the local private key file afterwards. Never paste any of these values into a protocol file, issue or commit.
 
-### 4. Make the image pullable
+### 4. Image access
 
-The first push creates `ghcr.io/OWNER/talespeak`. Set the package to **public** (GitHub → Packages → talespeak → Package settings), or log the server in with a read-only token:
-
-```sh
-echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u OWNER --password-stdin
-```
+Nothing to do. The deploy logs the server into ghcr.io with the job's short-lived token, pulls, and logs out again, so the package can stay private.
 
 ### 5. Check a deploy
 
-Push a code change to `dev` (or merge a release PR into `main` for staging), then watch **Actions → ci → deploy**. Log the check in `protocol/` as described in [protocol/README.md](../protocol/README.md).
+Push a code change to `dev` (or merge a release PR into `main` for staging), then watch **Actions → ci → deploy**. The job fails unless the containers are healthy on the server and `https://<domain>/healthz` reports the commit just built. Log the check in `protocol/` as described in [protocol/README.md](../protocol/README.md).

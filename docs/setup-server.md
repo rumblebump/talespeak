@@ -45,10 +45,9 @@ Edit `.env`:
 
 ```sh
 TALESPEAK_DOMAIN=talespeak.example.org
-ACME_EMAIL=you@example.org     # Let's Encrypt expiry notices
 GH_OWNER=OWNER
 TALESPEAK_VERSION=0.1.0              # pin a release; "latest" also works
-TALESPEAK_KIDS_MODE=true
+TALESPEAK_KIDS_MODE=false            # true on servers where kids chat
 ```
 
 `.env` is the only file with your settings. Keep it private. Email is optional; to turn it on, see [admin-email.md](admin-email.md).

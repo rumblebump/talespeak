@@ -79,6 +79,8 @@ jobs:
               - 'web/**'
               - 'content/**'
               - 'Dockerfile'
+              - 'deploy/**'          # a deploy re-creates the server files, so it needs a fresh image
+              - 'scripts/deploy.sh'
             deps:
               - 'go.mod'
               - 'go.sum'
@@ -249,11 +251,14 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/talespeak:${{ env.CHANNEL }}
             ghcr.io/${{ github.repository_owner }}/talespeak:sha-${{ github.sha }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           build-args: VERSION=${{ env.CHANNEL }}-${{ github.sha }}
           cache-from: type=gha
 
   # dev branch -> dev server, main -> public staging server. Each runs only once
   # its server exists: set the repository variable DEV_DEPLOY or STAGING_DEPLOY to "true".
+  # scripts/deploy.sh copies compose.yml and Caddyfile, writes .env from
+  # deploy/env/<env>.env, runs compose up, and checks /healthz from the outside.
   deploy:
     needs: image
     if: >
@@ -261,21 +266,33 @@ jobs:
       ((github.ref == 'refs/heads/dev' && vars.DEV_DEPLOY == 'true') ||
        (github.ref == 'refs/heads/main' && vars.STAGING_DEPLOY == 'true'))
     runs-on: ubuntu-latest
-    environment: ${{ github.ref == 'refs/heads/main' && 'staging' || 'dev' }}
+    environment:
+      name: ${{ github.ref == 'refs/heads/main' && 'staging' || 'dev' }}
+    permissions:
+      contents: read
+      packages: read # the server pulls the image with this job's short-lived token
     concurrency:
       group: deploy-${{ github.ref_name }}
       cancel-in-progress: false
+    env:
+      CHANNEL: ${{ github.ref == 'refs/heads/main' && 'main' || 'edge' }}
     steps:
-      - name: Deploy over SSH
+      - uses: actions/checkout@v4
+      - name: SSH key
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
-          SSH_TARGET: ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}
         run: |
           install -m 700 -d ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          ssh "$SSH_TARGET" 'cd ~/talespeak && docker compose pull talespeak && docker compose up -d && docker image prune -f'
+      - name: Deploy and check health
+        env:
+          DEPLOY_SSH_TARGET: ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}
+          GH_OWNER: ${{ github.repository_owner }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/deploy.sh "${{ github.ref == 'refs/heads/main' && 'staging' || 'dev' }}" "$CHANNEL" "$CHANNEL-$GITHUB_SHA"
 
   ci-ok:
     needs: [changes, secrets, lint-ci, go, web, e2e, trivy-fs, image, deploy]

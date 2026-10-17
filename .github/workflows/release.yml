@@ -108,26 +108,35 @@ jobs:
         run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --verify-tag
 
   # Production deploy, off until the server exists: set the repository variable
-  # PROD_DEPLOY to "true" and give the "prod" environment a required reviewer.
+  # PROD_DEPLOY to "true", fill in deploy/env/prod.env, and give the "prod"
+  # environment a required reviewer. Same script as dev and staging (ci.yml).
   deploy-prod:
     needs: [image, binaries]
     if: vars.PROD_DEPLOY == 'true'
     runs-on: ubuntu-latest
-    environment: prod
+    environment:
+      name: prod
+    permissions:
+      contents: read
+      packages: read
     concurrency:
       group: deploy-prod
       cancel-in-progress: false
     steps:
-      - name: Deploy over SSH
+      - uses: actions/checkout@v4
+      - name: SSH key
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
-          SSH_TARGET: ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}
-          VERSION: ${{ github.ref_name }}
         run: |
           install -m 700 -d ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          # VERSION is meant to expand here, on the runner
-          # shellcheck disable=SC2029
-          ssh "$SSH_TARGET" "cd ~/talespeak && sed -i 's/^TALESPEAK_VERSION=.*/TALESPEAK_VERSION=${VERSION#v}/' .env && docker compose pull talespeak && docker compose up -d && docker image prune -f"
+      - name: Deploy and check health
+        env:
+          DEPLOY_SSH_TARGET: ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}
+          GH_OWNER: ${{ github.repository_owner }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # image tag 0.3.1 for tag v0.3.1; the binary reports the tag name as its version
+        run: scripts/deploy.sh prod "${GITHUB_REF_NAME#v}" "$GITHUB_REF_NAME"

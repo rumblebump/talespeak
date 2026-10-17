@@ -37,9 +37,15 @@ Pull request runs test the merge result GitHub creates (`refs/pull/N/merge`), so
 | `ci-ok` | always | always | always |
 
 - **Docs-only changes** (`*.md`, `docs/`, `tasks/`, `protocol/`) run only `changes`, `secrets` and `ci-ok`, and finish in well under a minute.
-- **Not built yet:** `go`, `image` and `e2e` are skipped until `go.mod` exists (T-0002); `e2e` also waits for `e2e/package.json` (T-0015).
+- **Not built yet:** `e2e` is skipped until `e2e/package.json` exists (T-0015). The Go code is a placeholder page with `/healthz` until the engine skeleton (T-0002) grows.
 - **`ci-ok`** always reports, and is the single required status check. Filtering at the trigger level instead would leave required checks waiting forever on docs-only pull requests.
 - **Concurrency:** a new push to the same branch cancels the older run. Deploys never cancel each other.
+
+## Deploys
+
+`scripts/deploy.sh` does the same for dev, staging and production. It copies `deploy/compose.yml`, `deploy/Caddyfile` and `deploy/remote-up.sh` to `~/talespeak` on the server, writes `.env` from [deploy/env/](../deploy/env/README.md) plus the image tag, logs the server into ghcr.io with the job's short-lived token, runs `docker compose up --wait` (the engine's Docker health check must pass), and then polls `https://<domain>/healthz` from the runner until it reports the version just built. Any step failing fails the job.
+
+The server needs Docker and the deploy user only; it keeps no hand-edited files.
 
 ## Security scanning
 
