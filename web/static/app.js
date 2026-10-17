@@ -36,6 +36,10 @@ function saveSetting(key, on) {
 /** text turns any server value into a string for display. */
 const text = (v) => (v === undefined || v === null ? "" : String(v));
 
+/** cleanLine cleans a typed line as the engine does: control characters
+ * (newlines included) become spaces, then it is trimmed. */
+const cleanLine = (s) => s.replace(/[\p{Cc}\u2028\u2029]/gu, " ").trim();
+
 /** A picture URL must be a pack image on this server. */
 function imageURL(v) {
   const s = text(v);
@@ -62,6 +66,7 @@ function game() {
     lines: [],
     items: [],
     dialog: null, // { id, title, options, multiple, min, max, ask, strict, speak, hide }
+    sent: null, // the question just answered, until the engine replies
     picked: [], // option numbers ticked in a multiple choice
     picture: { url: "", caption: "" },
     pixelArt: false,
@@ -85,6 +90,7 @@ function game() {
         onMessage: (msg) => this.receive(msg),
         onClose: (retryMs) => {
           this.closeDialog();
+          this.sent = null;
           this.setStatus("offline", "offline · retrying in " + Math.round(retryMs / 1000) + " s");
         },
       });
@@ -97,6 +103,13 @@ function game() {
 
     // receive renders one message from the engine.
     receive(msg) {
+      // An error right after an answer means the engine refused it and the
+      // question is still open: show it again.
+      if (this.sent && msg.type === "error" && !this.dialog) {
+        this.dialog = this.sent;
+        this.picked = [];
+      }
+      if (msg.type !== "pong") this.sent = null;
       switch (msg.type) {
         case "welcome":
           this.setStatus("online", "connected · engine " + text(msg.version));
@@ -223,6 +236,13 @@ function game() {
       this.hint = "";
     },
 
+    // answered closes the question after its answer was sent; receive
+    // reopens it if the engine refuses the answer.
+    answered() {
+      this.sent = this.dialog;
+      this.closeDialog();
+    },
+
     get dialogTitle() {
       if (!this.dialog) return "";
       return this.dialog.hide ? "Listen, then answer." : this.dialog.title;
@@ -269,7 +289,7 @@ function game() {
       const d = this.dialog;
       if (conn.send({ type: "choose", id: d.id, option: n })) {
         this.addLine(d.options[n - 1], "you", true);
-        this.closeDialog();
+        this.answered();
       }
     },
 
@@ -296,15 +316,18 @@ function game() {
       if (conn.send({ type: "choose", id: d.id, choices: this.picked })) {
         const labels = this.picked.map((n) => d.options[n - 1]);
         this.addLine(labels.length ? labels.join(", ") : "(nothing)", "you", true);
-        this.closeDialog();
+        this.answered();
       }
     },
 
     // Typed input
 
     submit() {
-      const line = this.draft.trim();
-      if (line === "") return;
+      const line = cleanLine(this.draft);
+      if (line === "") {
+        this.draft = "";
+        return;
+      }
       if (new TextEncoder().encode(line).length > MAX_INPUT) {
         this.hint = "That is too long.";
         return;
@@ -313,7 +336,7 @@ function game() {
         const d = this.dialog;
         if (conn.send({ type: "answer", id: d.id, text: line })) {
           this.addLine(line, "you", true);
-          this.closeDialog();
+          this.answered();
           this.draft = "";
         }
         return;

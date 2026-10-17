@@ -4,6 +4,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -516,14 +517,20 @@ func (r *Runtime) items(L *lua.LState) int {
 		}
 		id, ok1 := t.RawGetString("id").(lua.LString)
 		label, ok2 := t.RawGetString("label").(lua.LString)
-		if !ok1 || !ok2 || !ValidItemID(string(id)) || label == "" || len(label) > MaxLabelBytes || seen[string(id)] {
-			L.ArgError(1, "each item needs a unique id (a-z, 0-9, _ and -, at most 64) and a label of 1 to 100 bytes")
+		if !ok1 || !ok2 || !ValidItemID(string(id)) || !validLabel(string(label)) || seen[string(id)] {
+			L.ArgError(1, "each item needs a unique id (a-z, 0-9, _ and -, at most 64) and a label: one line of 1 to 100 bytes")
 		}
 		seen[string(id)] = true
 		items[i] = Item{ID: string(id), Label: string(label)}
 	}
 	r.output(L).Items(items)
 	return 0
+}
+
+// validLabel is the rule for item labels in room YAML too: one line of
+// UTF-8 text, 1 to MaxLabelBytes long, not only spaces.
+func validLabel(s string) bool {
+	return strings.TrimSpace(s) != "" && len(s) <= MaxLabelBytes && utf8.ValidString(s) && !strings.ContainsAny(s, "\r\n")
 }
 
 // ValidItemID reports whether id can name an item: 1 to 64 of a-z, 0-9, _

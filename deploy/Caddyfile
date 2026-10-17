@@ -10,7 +10,8 @@
 		# Offline first: the browser may load nothing from another origin.
 		# The engine sends the same policy itself, for servers without Caddy
 		# (internal/server, checked by a test). 'self' covers same-host wss:.
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		# "?" keeps the engine's own value: pack images get a stricter one.
+		?Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		Cross-Origin-Resource-Policy "same-origin"
 		Permissions-Policy "camera=(), geolocation=(), payment=(), usb=(), microphone=(self)"
 		-Server

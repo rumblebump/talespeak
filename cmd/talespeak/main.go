@@ -104,7 +104,7 @@ func serve(args []string) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", packName, err)
 	}
-	world, err := game.NewWorld(p, lim.script, log)
+	world, err := game.NewWorld(p, lim.script, log, game.WithClientBudget(lim.luaClientRate, lim.luaClientBurst))
 	if err != nil {
 		return fmt.Errorf("%s: %w", packName, err)
 	}

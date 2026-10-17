@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rumblebump/talespeak/internal/game"
 	"github.com/rumblebump/talespeak/internal/pack"
 	"github.com/rumblebump/talespeak/internal/script"
 	"github.com/rumblebump/talespeak/internal/ws"
@@ -19,6 +20,8 @@ import (
 type limits struct {
 	script script.Limits
 	pack   pack.Limits
+
+	luaClientRate, luaClientBurst time.Duration
 
 	maxConns, maxConnsPerClient int
 	connectRate                 float64
@@ -34,6 +37,8 @@ type limits struct {
 func loadLimits(getenv func(string) string) (limits, error) {
 	l := limits{
 		script:            script.DefaultLimits,
+		luaClientRate:     game.DefaultClientRate,
+		luaClientBurst:    game.DefaultClientBurst,
 		pack:              pack.DefaultLimits,
 		maxConns:          ws.DefaultMaxConns,
 		maxConnsPerClient: ws.DefaultMaxConnsPerClient,
@@ -94,11 +99,17 @@ func loadLimits(getenv func(string) string) (limits, error) {
 	}
 
 	duration("TALESPEAK_LUA_TIME", &l.script.Time, 10*time.Millisecond, 10*time.Second)
+	// Lua time per client address, per second and at once (internal/game).
+	duration("TALESPEAK_LUA_CLIENT_RATE", &l.luaClientRate, time.Millisecond, 10*time.Second)
+	duration("TALESPEAK_LUA_CLIENT_BURST", &l.luaClientBurst, 10*time.Millisecond, time.Minute)
 	size("TALESPEAK_LUA_CALL_MEMORY", &l.script.CallMemory, 1<<20, 1<<30)
 	size("TALESPEAK_LUA_STATE_MEMORY", &l.script.StateMemory, 1<<20, 4<<30)
 	size("TALESPEAK_PACK_IMAGE_MAX", &l.pack.AssetBytes, 1<<10, 64<<20)
 	size("TALESPEAK_PACK_IMAGES_TOTAL", &l.pack.AssetsBytes, 1<<10, 4<<30)
 	count("TALESPEAK_MAX_CONNS", &l.maxConns, 1, 1_000_000)
+	if getenv("TALESPEAK_MAX_CONNS_PER_CLIENT") == "" {
+		l.maxConnsPerClient = min(l.maxConnsPerClient, l.maxConns) // a small server lowers both at once
+	}
 	count("TALESPEAK_MAX_CONNS_PER_CLIENT", &l.maxConnsPerClient, 1, 1_000_000)
 	rate("TALESPEAK_CONNECT_RATE", &l.connectRate, 0.01, 1_000_000)
 	count("TALESPEAK_CONNECT_BURST", &l.connectBurst, 1, 1_000_000)
@@ -131,8 +142,11 @@ func parseBytes(s string) (int64, error) {
 			break
 		}
 	}
-	n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
-	if err != nil || n < 0 || n > (1<<62)/unit {
+	if s == "" || strings.Trim(s, "0123456789") != "" {
+		return 0, errors.New("not a size")
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n > (1<<62)/unit {
 		return 0, errors.New("not a size")
 	}
 	return n * unit, nil

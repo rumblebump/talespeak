@@ -74,8 +74,9 @@ type Item struct {
 // Game is what a connection plays once it is welcomed.
 type Game interface {
 	// NewSession starts a player's session and returns it with the
-	// messages to send first.
-	NewSession() (Session, []Message)
+	// messages to send first. client is what the per-client limits count
+	// by: the client's address, or for IPv6 its /64.
+	NewSession(client string) (Session, []Message)
 }
 
 // Session is one player's connection to a Game.
@@ -206,13 +207,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.SetReadLimit(MaxMessageBytes)
-	s.handle(s.ctx, c)
+	s.handle(s.ctx, c, client)
 }
 
 // handle runs one connection. Shutdown and the idle timeout close it from
 // timers rather than by cancelling the read: the library drops a connection
 // without a close frame when an operation's context ends.
-func (s *Server) handle(ctx context.Context, c *websocket.Conn) {
+func (s *Server) handle(ctx context.Context, c *websocket.Conn, client string) {
 	defer c.CloseNow()
 	stop := context.AfterFunc(ctx, func() {
 		c.Close(websocket.StatusGoingAway, "server shutting down")
@@ -230,7 +231,7 @@ func (s *Server) handle(ctx context.Context, c *websocket.Conn) {
 	var session Session
 	if s.game != nil {
 		var first []Message
-		session, first = s.game.NewSession()
+		session, first = s.game.NewSession(client)
 		defer session.Close()
 		if err := writeAll(c, first); err != nil {
 			return

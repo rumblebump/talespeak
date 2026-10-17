@@ -243,3 +243,52 @@ func TestWords(t *testing.T) {
 		t.Errorf("words is writable: %v", err)
 	}
 }
+
+func TestInstancesHaveTheirOwnGlobals(t *testing.T) {
+	r := New(DefaultLimits)
+	defer r.Close()
+	sc, err := r.Compile("i.lua", `n = 0 function on_enter() n = n + 1 say(tostring(n)) end`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := r.Instance(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := r.Instance(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &recorder{}
+	for _, env := range []*Env{a, a, b} {
+		if _, err := r.Run(h, env, "on_enter", "p"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := strings.Join(h.out, "|"); got != "say:1|say:2|say:1" {
+		t.Errorf("out = %q", got)
+	}
+	if len(r.envs) != 2 {
+		t.Fatalf("envs = %d", len(r.envs))
+	}
+	r.Release(a)
+	r.Release(a) // twice is fine
+	if len(r.envs) != 1 {
+		t.Errorf("envs after Release = %d", len(r.envs))
+	}
+}
+
+func TestInstanceFailureIsNotKept(t *testing.T) {
+	r := New(DefaultLimits)
+	defer r.Close()
+	sc, err := r.Compile("f.lua", `error("top level fails")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Instance(sc); !errors.Is(err, ErrScript) {
+		t.Fatalf("Instance = %v", err)
+	}
+	if len(r.envs) != 0 {
+		t.Errorf("a failed instance is still counted: %d", len(r.envs))
+	}
+}

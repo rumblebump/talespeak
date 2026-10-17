@@ -69,6 +69,9 @@ var (
 	ErrStateMemory = errors.New("world scripts keep too much memory")
 	ErrScript      = errors.New("script error")
 	ErrClosed      = errors.New("world closed")
+	// ErrAnswer is an answer the question does not accept; the hook stays
+	// paused and can be answered again.
+	ErrAnswer = errors.New("answer not accepted")
 )
 
 // errLeft ends a paused hook whose player left.
@@ -184,10 +187,10 @@ type result struct {
 type Runtime struct {
 	L      *lua.LState
 	limits Limits
-	lib    *lua.LTable          // shared globals, the __index of every Env
-	locked map[*lua.LTable]bool // read-only tables that rawset refuses
-	envs   []lua.LValue         // every loaded script's globals, for measuring the state
-	paused map[*Thread]struct{} // hooks waiting in ui.dialog
+	lib    *lua.LTable              // shared globals, the __index of every Env
+	locked map[*lua.LTable]bool     // read-only tables that rawset refuses
+	envs   map[*lua.LTable]struct{} // the globals of every Instance not released, for measuring the state
+	paused map[*Thread]struct{}     // hooks waiting in ui.dialog
 
 	cur          *call // the call in progress, nil between calls
 	sinceWalk    int64 // bytes allocated by calls since the state was last measured
@@ -214,7 +217,7 @@ func New(limits Limits) *Runtime {
 		RegistryMaxSize:     64 * 1024,
 		MinimizeStackMemory: true,
 	})
-	r := &Runtime{L: L, limits: limits, locked: map[*lua.LTable]bool{}, paused: map[*Thread]struct{}{}}
+	r := &Runtime{L: L, limits: limits, locked: map[*lua.LTable]bool{}, paused: map[*Thread]struct{}{}, envs: map[*lua.LTable]struct{}{}}
 	r.lib = r.openSandbox()
 	return r
 }
@@ -232,9 +235,16 @@ func (r *Runtime) Close() {
 	r.L.Close()
 }
 
-// Load compiles and runs a script's top level in a new Env. name is used in
+// Script is a compiled script. Each Instance of it has its own globals, so
+// every player can run it with their own state.
+type Script struct {
+	name  string
+	proto *lua.FunctionProto
+}
+
+// Compile checks and compiles a script without running it. name is used in
 // error messages, for example "scripts/cell.lua".
-func (r *Runtime) Load(name, src string) (*Env, error) {
+func (r *Runtime) Compile(name, src string) (*Script, error) {
 	if r.closed {
 		return nil, ErrClosed
 	}
@@ -252,20 +262,46 @@ func (r *Runtime) Load(name, src string) (*Env, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrScript, err)
 	}
-	fn := r.L.NewFunctionFromProto(proto)
+	return &Script{name: name, proto: proto}, nil
+}
+
+// Instance runs the script's top level in a new Env. The Env counts toward
+// the state's memory until Release.
+func (r *Runtime) Instance(s *Script) (*Env, error) {
+	if r.closed {
+		return nil, ErrClosed
+	}
+	fn := r.L.NewFunctionFromProto(s.proto)
 	env := r.newEnv()
 	fn.Env = env
+	r.envs[env] = struct{}{}
 
 	th, err := r.start(nil, fn)
 	if err != nil {
+		delete(r.envs, env)
 		return nil, err
 	}
 	if th != nil { // ui.dialog refuses to wait without a player, so this is a bug
 		r.Cancel(th)
-		return nil, fmt.Errorf("%w: %s waits in ui.dialog outside a hook", ErrScript, name)
+		delete(r.envs, env)
+		return nil, fmt.Errorf("%w: %s waits in ui.dialog outside a hook", ErrScript, s.name)
 	}
-	r.envs = append(r.envs, env)
 	return &Env{table: env}, nil
+}
+
+// Release forgets env: its globals no longer count toward the state's
+// memory and can be freed. Cancel its paused hooks first.
+func (r *Runtime) Release(e *Env) {
+	delete(r.envs, e.table)
+}
+
+// Load compiles a script and runs its top level in a new Env.
+func (r *Runtime) Load(name, src string) (*Env, error) {
+	s, err := r.Compile(name, src)
+	if err != nil {
+		return nil, err
+	}
+	return r.Instance(s)
 }
 
 // HasHook reports whether the script defines a global function name.
@@ -296,32 +332,33 @@ func (r *Runtime) Run(host Host, env *Env, hook, player string, args ...string) 
 
 // Resume continues a paused hook with the player's choices (1-based): one
 // for ui.dialog, which returns it and its label, and Min to Max for
-// ui.select. An answer the dialog does not accept (see Dialog.Check) is an
-// error and leaves the hook paused. On any other error the hook is gone.
+// ui.select. An answer the dialog does not accept (see Dialog.Check) leaves
+// the hook paused, with an error wrapping ErrAnswer. On any other error the
+// hook is gone.
 func (r *Runtime) Resume(host Host, th *Thread, choices ...int) (*Thread, error) {
 	if _, ok := r.paused[th]; !ok || r.closed {
 		return nil, fmt.Errorf("%w: hook is not waiting", ErrScript)
 	}
 	choices, err := th.Dialog.Check(choices)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrAnswer, err)
 	}
 	return r.answer(host, th, &answer{choices: choices})
 }
 
 // Answer continues a hook paused in ui.ask with the player's typed text,
 // which ui.ask returns. The caller cleans the text (one line, no control
-// characters); Answer refuses an empty or too long one and leaves the hook
-// paused. On any other error the hook is gone.
+// characters); Answer refuses an empty or too long one with ErrAnswer and
+// leaves the hook paused. On any other error the hook is gone.
 func (r *Runtime) Answer(host Host, th *Thread, text string) (*Thread, error) {
 	if _, ok := r.paused[th]; !ok || r.closed {
 		return nil, fmt.Errorf("%w: hook is not waiting", ErrScript)
 	}
 	if !th.Dialog.Ask {
-		return nil, errors.New("this question wants a choice")
+		return nil, fmt.Errorf("%w: this question wants a choice", ErrAnswer)
 	}
 	if text == "" || len(text) > MaxAnswerBytes {
-		return nil, fmt.Errorf("an answer is 1 to %d bytes", MaxAnswerBytes)
+		return nil, fmt.Errorf("%w: an answer is 1 to %d bytes", ErrAnswer, MaxAnswerBytes)
 	}
 	return r.answer(host, th, &answer{text: text})
 }
@@ -450,7 +487,10 @@ func (r *Runtime) checkState() error {
 		return nil
 	}
 	r.sinceWalk = 0
-	roots := append([]lua.LValue{r.L.G.Global, r.L.G.Registry}, r.envs...)
+	roots := []lua.LValue{r.L.G.Global, r.L.G.Registry}
+	for env := range r.envs {
+		roots = append(roots, env)
+	}
 	for th := range r.paused {
 		roots = append(roots, stackValues(th.co)...)
 	}

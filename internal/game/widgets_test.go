@@ -2,8 +2,10 @@ package game
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rumblebump/talespeak/content"
 	"github.com/rumblebump/talespeak/internal/pack"
@@ -46,7 +48,7 @@ func expect(t *testing.T, step string, got, want []string) {
 // there).
 func TestDemoMatchesProtocolDoc(t *testing.T) {
 	w := shippedDemo(t)
-	s, first := w.NewSession()
+	s, first := w.NewSession("")
 	defer s.Close()
 	got := jsonLines(t, first)
 	if len(got) != 3 || !strings.HasPrefix(got[0], `{"type":"room","id":"cell","title":"A damp cell","text":"Stone walls, `) ||
@@ -88,7 +90,7 @@ func TestDemoMatchesProtocolDoc(t *testing.T) {
 
 func TestInput(t *testing.T) {
 	w := scriptWorld(t, `function on_input(player, text) say("[" .. text .. "]") end`, script.DefaultLimits, quiet)
-	s, _ := w.NewSession()
+	s, _ := w.NewSession("")
 	defer s.Close()
 	for in, want := range map[string]string{
 		"open door":                        "[open door]",
@@ -113,7 +115,7 @@ func TestInput(t *testing.T) {
 
 func TestInputWithoutHook(t *testing.T) {
 	w := scriptWorld(t, `x = 1`, script.DefaultLimits, quiet)
-	s, _ := w.NewSession()
+	s, _ := w.NewSession("")
 	defer s.Close()
 	if got := s.Handle(ws.Message{Type: "input", Text: "hello"}); len(got) != 1 || got[0].Text != "Nothing happens." {
 		t.Errorf("got %+v", got)
@@ -123,7 +125,7 @@ func TestInputWithoutHook(t *testing.T) {
 func TestInputWaitsForOpenDialog(t *testing.T) {
 	w := scriptWorld(t, `function on_enter() ui.dialog("?", {"a"}) say("answered") end
 function on_input() say("typed") end`, script.DefaultLimits, quiet)
-	s, _ := w.NewSession()
+	s, _ := w.NewSession("")
 	defer s.Close()
 	if got := s.Handle(ws.Message{Type: "input", Text: "hi"}); kinds(got) != "error:" {
 		t.Errorf("input during dialog = %+v", got)
@@ -139,7 +141,7 @@ function on_input() say("typed") end`, script.DefaultLimits, quiet)
 func TestClick(t *testing.T) {
 	w := scriptWorld(t, `function on_enter() ui.items({{id = "box", label = "a box"}}) end
 function on_click(player, id) say("clicked " .. id) ui.items({}) end`, script.DefaultLimits, quiet)
-	s, first := w.NewSession()
+	s, first := w.NewSession("")
 	defer s.Close()
 	if kinds(first) != "items:" || len(first[0].Items) != 1 || first[0].Items[0] != (ws.Item{ID: "box", Label: "a box"}) {
 		t.Fatalf("first = %+v", first)
@@ -159,7 +161,7 @@ function on_click(player, id) say("clicked " .. id) ui.items({}) end`, script.De
 
 func TestRoomItemsFromYAML(t *testing.T) {
 	w := shippedDemo(t)
-	s, first := w.NewSession()
+	s, first := w.NewSession("")
 	defer s.Close()
 	if len(first[0].Items) != 4 {
 		t.Fatalf("room items = %+v", first[0].Items)
@@ -171,7 +173,7 @@ func TestRoomItemsFromYAML(t *testing.T) {
 
 func TestSelectAnswers(t *testing.T) {
 	w := scriptWorld(t, `function on_enter() local n = ui.select("?", {"a", "b", "c"}, {min = 0, max = 2}) say("n" .. #n) end`, script.DefaultLimits, quiet)
-	s, first := w.NewSession()
+	s, first := w.NewSession("")
 	defer s.Close()
 	if kinds(first) != "select:d1" || first[0].Min != 0 || first[0].Max != 2 {
 		t.Fatalf("first = %+v", first)
@@ -195,7 +197,7 @@ func TestSelectAnswers(t *testing.T) {
 
 func TestImageMessage(t *testing.T) {
 	w := shippedDemo(t)
-	s, _ := w.NewSession()
+	s, _ := w.NewSession("")
 	defer s.Close()
 	sess := s.(*session)
 	if sess.Image("missing.png", "") {
@@ -215,7 +217,7 @@ func TestAskAnswers(t *testing.T) {
   local a = ui.ask("Spell it", {strict = true, speak = true, show = false})
   say("got [" .. a .. "]", {speak = true})
 end`, script.DefaultLimits, quiet)
-	s, first := w.NewSession()
+	s, first := w.NewSession("")
 	defer s.Close()
 	if kinds(first) != "ask:d1" || !first[0].Strict || !first[0].Speak || !first[0].Hide || len(first[0].Options) != 0 {
 		t.Fatalf("first = %+v", first)
@@ -242,12 +244,93 @@ end`, script.DefaultLimits, quiet)
 
 func TestAnswerOnChoiceDialog(t *testing.T) {
 	w := scriptWorld(t, `function on_enter() ui.dialog("?", {"a"}) end`, script.DefaultLimits, quiet)
-	s, _ := w.NewSession()
+	s, _ := w.NewSession("")
 	defer s.Close()
 	if got := s.Handle(ws.Message{Type: "answer", ID: "d1", Text: "a"}); kinds(got) != "error:" {
 		t.Errorf("answer on a dialog = %+v", got)
 	}
 	if got := s.Handle(ws.Message{Type: "choose", ID: "d1", Option: 1}); len(got) != 0 {
 		t.Errorf("dialog closed by the answer: %+v", got)
+	}
+}
+
+// Each player runs their own instance of a room script: what one player
+// typed never reaches another through script globals (T-0004 security
+// review), and a closed session's globals are released.
+func TestScriptStateIsPerPlayer(t *testing.T) {
+	w := scriptWorld(t, `last = "nothing"
+function on_input(player, text) say("before: " .. last) last = text end`, script.DefaultLimits, quiet)
+	a, _ := w.NewSession("")
+	defer a.Close()
+	b, _ := w.NewSession("")
+	defer b.Close()
+	a.Handle(ws.Message{Type: "input", Text: "secret of a"})
+	if got := b.Handle(ws.Message{Type: "input", Text: "hello"}); len(got) != 1 || got[0].Text != "before: nothing" {
+		t.Errorf("b sees %+v", got)
+	}
+	if got := a.Handle(ws.Message{Type: "input", Text: "again"}); len(got) != 1 || got[0].Text != "before: secret of a" {
+		t.Errorf("a's own state = %+v", got)
+	}
+}
+
+func TestClosedSessionsReleaseTheirState(t *testing.T) {
+	limits := script.Limits{Time: time.Second, CallMemory: 64 << 20, StateMemory: 8 << 20}
+	w := scriptWorld(t, `keep = {} function on_enter() keep[1] = string.rep("x", 1e6) .. "!" say("ok") end`, limits, quiet)
+	for i := range 50 {
+		s, first := w.NewSession("")
+		s.Close()
+		if kinds(first) != "text:" {
+			t.Fatalf("session %d = %+v: closed sessions' state still counts", i, first)
+		}
+	}
+}
+
+// One client address shares a Lua time budget across its sessions (T-0004
+// security review): flooding typed lines cannot keep the world busy.
+func TestClientLuaBudget(t *testing.T) {
+	w, err := NewWorld(packWith(`function on_enter() ui.dialog("?", {"a"}) end
+function on_input() say("ran") end`), script.DefaultLimits, quiet, WithClientBudget(100*time.Millisecond, time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	now := time.Unix(1000, 0)
+	w.now = func() time.Time { now = now.Add(600 * time.Millisecond); return now } // every call "takes" 600 ms
+	a, first := w.NewSession("10.0.0.1")
+	defer a.Close()
+	if kinds(first) != "dialog:d1" {
+		t.Fatalf("first = %+v", first)
+	}
+	// 1 s burst: the first session's two calls used 1.2 s (start and on_enter).
+	b, first := w.NewSession("10.0.0.1")
+	defer b.Close()
+	if kinds(first) != "error:" || !strings.Contains(first[0].Message, "Too much at once") {
+		t.Fatalf("second session of the same address = %+v", first)
+	}
+	// Answering is refused too, and the question stays open.
+	if got := a.Handle(ws.Message{Type: "choose", ID: "d1", Option: 1}); kinds(got) != "error:" || !strings.Contains(got[0].Message, "Too much") {
+		t.Fatalf("choose while busy = %+v", got)
+	}
+	// Another address is not affected.
+	c, first := w.NewSession("10.0.0.2")
+	defer c.Close()
+	if kinds(first) != "dialog:d1" {
+		t.Errorf("other address = %+v", first)
+	}
+	// After waiting, the budget has refilled: 30 s at 100 ms/s covers the debt.
+	now = now.Add(30 * time.Second)
+	if got := a.Handle(ws.Message{Type: "choose", ID: "d1", Option: 1}); len(got) != 0 {
+		t.Errorf("choose after waiting = %+v", got)
+	}
+}
+
+func TestClientBudgetsStayBounded(t *testing.T) {
+	w := scriptWorld(t, `function on_enter() end`, script.DefaultLimits, quiet)
+	for i := range maxBudgets + 50 {
+		s, _ := w.NewSession("c" + strconv.Itoa(i))
+		s.Close()
+	}
+	if n := len(w.budgets); n > maxBudgets {
+		t.Errorf("%d budgets kept, cap %d", n, maxBudgets)
 	}
 }

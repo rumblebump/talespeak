@@ -1,6 +1,6 @@
 # Lua sandbox
 
-Room scripts and, later, rule packs run in [gopher-lua](https://github.com/yuin/gopher-lua) (Lua 5.1, pure Go). Each world has one Lua state. Every script gets its own globals, and `_G` is that script's own table. The libraries below are shared and read-only: assigning to `string.rep` or `ui.dialog` is an error, and `getmetatable` on a library, a script's globals or a string returns `"locked"`.
+Room scripts and, later, rule packs run in [gopher-lua](https://github.com/yuin/gopher-lua) (Lua 5.1, pure Go). Each world has one Lua state. Every script gets its own globals for every player, and `_G` is that table. The libraries below are shared and read-only: assigning to `string.rep` or `ui.dialog` is an error, and `getmetatable` on a library, a script's globals or a string returns `"locked"`.
 
 ## What a script can use
 
@@ -10,7 +10,7 @@ Room scripts and, later, rule packs run in [gopher-lua](https://github.com/yuin/
 | `string` | `byte` (at most 8000 values), `char`, `find` (with `plain = true` only), `format`, `len`, `lower`, `rep`, `reverse`, `sub`, `upper`. `match`, `gmatch`, `gfind` and `gsub` raise an error. `format` takes Lua 5.1's conversions only (`%c %d %i %o %u %x %X %e %E %f %g %G %q %s %%`, widths and precisions of at most two digits); `%s` takes strings and numbers |
 | `table` | `concat`, `getn`, `insert`, `maxn`, `remove`, `sort` (at most 20000 entries) |
 | `math` | All of it |
-| `say(text [, {speak = true, show = false}])` | Sends a line to the player (at most 4000 bytes). `speak = true` reads it aloud even when the player has not turned read aloud on; `show = false` (needs `speak`) only reads it aloud, for listening exercises, and shows it when the device has no local voice |
+| `say(text [, {speak = true, show = false}])` | Sends a line to the player (at most 4000 bytes). `speak = true` reads it aloud even when the player has not turned read aloud on; `show = false` (needs `speak`) only reads it aloud, for listening exercises, and shows it when the device has no local voice. The text still reaches the player's browser (speech runs there), so `show = false` is not for secrets such as the answer to a graded question |
 | `room.describe()` | Sends the current room's title, description and clickable items |
 | `ui.dialog(title, options)` | Shows 1 to 9 options and waits for the player; returns the option's number and its label |
 | `ui.select(title, options [, {min = 1, max = #options}])` | Multiple choice: the player picks `min` to `max` of 1 to 9 options; returns two lists, the numbers picked (ascending) and their labels |
@@ -68,7 +68,7 @@ function on_click(player, item)
 end
 ```
 
-**Globals belong to the world.** Every player of a world runs the same script state: a global or top-level local set for one player is seen by all. Keep per-player progress out of globals until profiles store it (T-0010).
+**Script state is per player and lasts a session.** Every player runs their own instance of each room script: the top level runs when the player first enters the room, and globals and top-level locals belong to that player alone. Nothing a player types or does reaches another player through script variables. They are gone when the player disconnects; progress that must last, and state a party shares on purpose, is stored in the database through `state.player` and `state.world` (T-0018).
 
 **Checking answers:** `words.same` ignores only case and extra spaces. A check that forgives small typos comes with Whisp (T-0005).
 
@@ -109,6 +109,7 @@ Each hook runs on its own goroutine with its own Lua thread. `ui.dialog` blocks 
 ## Known gaps
 
 - Compiling a script is not limited: a large script with deep nesting can take about 100 ms and tens of MiB once, when the world starts. Scripts are limited to 256 KiB.
+- A script's top level runs again for every player who enters its room, so heavy setup there costs time and memory per player; keep it small.
 - One world runs one hook at a time. A slow hook (up to the 100 ms limit) delays the other players of that world.
 - A Go library function waiting with its caller (a comparator of `table.sort` waiting in `ui.dialog`) holds its own small state outside the estimate.
 

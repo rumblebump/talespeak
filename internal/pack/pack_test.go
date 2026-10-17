@@ -230,6 +230,8 @@ func FuzzLoad(f *testing.F) {
 	f.Add("id: t\ntitle: T\nstart: r\n---\n", "id: r\ntitle: R\ndescription: >-\n  a\n  b\n", "")
 	f.Add("{id: t, title: T, start: r}", "{id: r, title: R, description: d, script: ../r.lua}", "")
 	f.Add("id: &a t\ntitle: *a\nstart: r\n", "id: r\ntitle: R\ndescription: !!binary aGk=\n", "")
+	f.Add(goodPack, goodRoom+"items:\n  - {id: straw, label: heap of straw}\n  - {id: door, label: \"a\\nb\"}\n", "")
+	f.Add(goodPack, goodRoom+"items: [{id: a, label: x}, {id: a, label: y}]\n", "")
 	f.Fuzz(func(t *testing.T, packYAML, roomYAML, script string) {
 		p, err := Load(fstest.MapFS{
 			"pack.yaml":     {Data: []byte(packYAML)},
@@ -252,6 +254,16 @@ func FuzzLoad(f *testing.F) {
 		for id, r := range p.Rooms {
 			if id != r.ID || !idPattern.MatchString(r.ID) || checkTitle(r.Title) != nil || len(r.Description) > MaxDescriptionBytes || strings.TrimSpace(r.Description) == "" {
 				t.Fatalf("accepted room %+v", r)
+			}
+			if len(r.Items) > MaxItems {
+				t.Fatalf("room %q has %d items", id, len(r.Items))
+			}
+			seen := map[string]bool{}
+			for _, it := range r.Items {
+				if !idPattern.MatchString(it.ID) || seen[it.ID] || strings.TrimSpace(it.Label) == "" || len(it.Label) > MaxLabelBytes || strings.ContainsAny(it.Label, "\r\n") {
+					t.Fatalf("accepted item %+v", it)
+				}
+				seen[it.ID] = true
 			}
 			if r.Script != "" && (r.Script != "r.lua" || r.Source != script) {
 				t.Fatalf("room %q script %q source %q", id, r.Script, r.Source)

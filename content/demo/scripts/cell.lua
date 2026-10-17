@@ -3,8 +3,10 @@
 -- scratches a picture whose detail depends on a dice roll, and the lock a
 -- riddle the player has to spell out.
 --
--- Globals and top-level locals belong to the world, shared by every player,
--- so the script keeps no per-player state; that comes with profiles (T-0010).
+-- Every player runs their own copy of this script: globals are theirs and
+-- last until they leave. Lasting progress comes with state.player (T-0018).
+
+local found_nail = false
 
 function on_enter(player)
   room.describe()
@@ -62,6 +64,10 @@ function talk(player)
 end
 
 function search()
+  if found_nail then
+    say("Only straw is left.")
+    return
+  end
   local _, kept = ui.select("Under the straw you find a few things. What do you keep? Pick up to two.", {
     "A bent nail",
     "A smooth pebble",
@@ -70,6 +76,7 @@ function search()
   say("You keep: " .. table.concat(kept, ", ") .. ".")
   for _, label in ipairs(kept) do
     if label == "A bent nail" then
+      found_nail = true
       say("The nail might open the lock.")
     end
   end

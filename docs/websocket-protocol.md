@@ -15,6 +15,7 @@ Admins can change these defaults with environment variables ([admin-limits.md](a
 | New connections per client address | 60 at once, then 1 per second | Upgrade refused with HTTP 429 and `Retry-After` |
 | Message size from the client | 16 KiB | Connection closed (1009, message too big) |
 | Messages per connection | 20 at once, then 10 per second | Connection closed (1008, too many messages) |
+| Script time per client address | 2 s at once, then 250 ms per second | The message gets an `error` ("Too much at once: wait a moment, then try again."); a question stays open |
 | Silence from the client | 2 minutes | Connection closed (1008, idle timeout); clients ping every 30 s |
 | Binary frame, or text that is not one JSON object (including `null` and arrays) | | Connection closed (1003) |
 
