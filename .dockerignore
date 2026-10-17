@@ -1,0 +1,11 @@
+.git
+.github
+docs
+tasks
+protocol
+deploy
+*.md
+.env
+data
+dist
+bin
