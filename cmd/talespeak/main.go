@@ -16,11 +16,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/rumblebump/talespeak/internal/clientip"
 	"github.com/rumblebump/talespeak/internal/server"
+	"github.com/rumblebump/talespeak/internal/store/sqlite"
+	"github.com/rumblebump/talespeak/internal/ws"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -28,6 +32,9 @@ var version = "dev"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return // usage was already printed
+		}
 		fmt.Fprintln(os.Stderr, "talespeak:", err)
 		os.Exit(1)
 	}
@@ -58,27 +65,53 @@ func serve(args []string) error {
 	if err := fl.Parse(args); err != nil {
 		return err
 	}
+	if fl.NArg() > 0 {
+		return fmt.Errorf("serve: unexpected arguments %q", fl.Args())
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if err := os.MkdirAll(*data, 0o750); err != nil {
+		return fmt.Errorf("data directory: %w", err)
+	}
+	db, err := sqlite.Open(ctx, filepath.Join(*data, "talespeak.db"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	proxies, err := clientip.New(envOr("TALESPEAK_TRUSTED_PROXIES", clientip.DefaultTrusted))
+	if err != nil {
+		return err
+	}
+	log := slog.Default()
+	sockets := ws.New(version, log, ws.WithClientIP(proxies.IP))
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           server.New(version),
+		Handler:           server.New(server.Options{Version: version, Store: db, WebSocket: sockets}),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second, // the WebSocket handler clears both for its connections
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    32 << 10,
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
-	slog.Info("talespeak started", "version", version, "listen", *listen, "data", *data)
+	log.Info("talespeak started", "version", version, "listen", *listen, "data", *data)
 
 	select {
 	case err := <-errc:
 		return err
 	case <-ctx.Done():
 	}
-	slog.Info("shutting down")
+	log.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	// WebSockets are hijacked connections that http.Server.Shutdown does not close.
+	if err := sockets.Shutdown(shutdownCtx); err != nil {
+		log.Warn("websockets did not close in time", "err", err)
+	}
 	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

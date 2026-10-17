@@ -37,7 +37,7 @@ Pull request runs test the merge result GitHub creates (`refs/pull/N/merge`), so
 | `ci-ok` | always | always | always |
 
 - **Docs-only changes** (`*.md`, `docs/`, `tasks/`, `protocol/`) run only `changes`, `secrets` and `ci-ok`, and finish in well under a minute.
-- **Not built yet:** `e2e` is skipped until `e2e/package.json` exists (T-0015). The Go code is a placeholder page with `/healthz` until the engine skeleton (T-0002) grows.
+- **Not built yet:** `e2e` is skipped until `e2e/package.json` exists (T-0015). The engine so far is the T-0002 skeleton: SQLite store, `/healthz`, and a `/ws` endpoint with ping and pong.
 - **`ci-ok`** always reports, and is the single required status check. Filtering at the trigger level instead would leave required checks waiting forever on docs-only pull requests.
 - **Concurrency:** a new push to the same branch cancels the older run. Deploys never cancel each other.
 
