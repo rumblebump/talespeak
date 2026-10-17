@@ -220,33 +220,89 @@ func TestPlayerError(t *testing.T) {
 	}
 }
 
-// Once the world's scripts keep too much, every later session fails too
-// (until the world restarts). Each player has their own globals, so the
-// sessions stay open to keep theirs.
-func TestStateMemoryFailsEveryLaterSession(t *testing.T) {
-	limits := script.Limits{Time: time.Second, CallMemory: 64 << 20, StateMemory: 8 << 20}
-	w := scriptWorld(t, `keep = {} function on_enter() keep[#keep + 1] = string.rep("x", 1e6) .. #keep say("ok") end`, limits, quiet)
-	failed := -1
-	for i := range 50 {
+// When the world's scripts together keep too much, new players are told
+// the world is full; once players leave it works again (T-0004 security
+// re-review: it used to fail every call until a restart).
+func TestFullWorldRecovers(t *testing.T) {
+	limits := script.Limits{Time: time.Second, CallMemory: 64 << 20, PlayerMemory: 2 << 20, StateMemory: 8 << 20}
+	w := scriptWorld(t, `keep = {} function on_enter() keep[1] = string.rep("x", 1e6) .. "!" say("ok") end`, limits, quiet)
+	var open []ws.Session
+	full := false
+	for range 50 {
 		s, first := w.NewSession("")
-		defer s.Close()
+		open = append(open, s)
 		if kinds(first) == "error:" {
-			if !strings.Contains(first[0].Message, "limits") {
+			if !strings.Contains(first[0].Message, "full") {
 				t.Fatalf("message = %q", first[0].Message)
 			}
-			failed = i
+			full = true
 			break
 		}
 	}
-	if failed < 0 {
-		t.Fatal("50 sessions keeping 1 MiB each never hit an 8 MiB state limit")
+	if !full {
+		t.Fatal("50 sessions keeping 1 MiB each never filled an 8 MiB world")
 	}
-	for range 3 {
-		s, first := w.NewSession("")
+	for _, s := range open {
 		s.Close()
-		if kinds(first) != "error:" {
-			t.Errorf("session after the limit = %+v", first)
+	}
+	for i := range 3 {
+		s, first := w.NewSession("")
+		defer s.Close()
+		if kinds(first) != "text:" {
+			t.Errorf("session %d after the others left = %+v", i, first)
 		}
+	}
+}
+
+// Many players of a pack with a word list at the top level: each player's
+// instance keeps its own copy, so the world limit must allow for a full
+// server (T-0004 security re-review: 303 sessions broke the world).
+func TestManyPlayersWithTopLevelData(t *testing.T) {
+	w := scriptWorld(t, `words = {} for i = 1, 2000 do words[i] = "word" .. i end
+function on_enter() say(words[#words]) end`, script.DefaultLimits, quiet)
+	var open []ws.Session
+	defer func() {
+		for _, s := range open {
+			s.Close()
+		}
+	}()
+	for i := range 400 {
+		s, first := w.NewSession("")
+		open = append(open, s)
+		if kinds(first) != "text:" {
+			t.Fatalf("session %d = %+v", i, first)
+		}
+	}
+}
+
+// One player keeping too much loses only their own state in that room: the
+// next visit starts a new instance, and other players are not affected.
+func TestPlayerMemoryResetsOnlyThatPlayer(t *testing.T) {
+	limits := script.Limits{Time: time.Second, CallMemory: 64 << 20, PlayerMemory: 2 << 20, StateMemory: 64 << 20}
+	w := scriptWorld(t, `keep = {} function on_enter() say("n" .. #keep) end
+function on_input(p, text) keep[#keep + 1] = string.rep("x", 1e6) .. #keep say("kept") end`, limits, quiet)
+	a, _ := w.NewSession("")
+	defer a.Close()
+	b, _ := w.NewSession("")
+	defer b.Close()
+	if got := b.Handle(ws.Message{Type: "input", Text: "x"}); kinds(got) != "text:" {
+		t.Fatalf("b = %+v", got)
+	}
+	var got []ws.Message
+	for range 10 {
+		if got = a.Handle(ws.Message{Type: "input", Text: "x"}); kinds(got) != "text:" {
+			break
+		}
+	}
+	// The output so far, then the error.
+	if !strings.HasSuffix(kinds(got), "error:") || !strings.Contains(got[len(got)-1].Message, "limits") {
+		t.Fatalf("a keeping 10 MiB with a 2 MiB player limit = %+v", got)
+	}
+	if got := a.Handle(ws.Message{Type: "input", Text: "x"}); kinds(got) != "text:" || got[0].Text != "kept" {
+		t.Errorf("a after the reset = %+v", got)
+	}
+	if got := b.Handle(ws.Message{Type: "input", Text: "x"}); kinds(got) != "text:" {
+		t.Errorf("b after a's reset = %+v", got)
 	}
 }
 
@@ -314,7 +370,7 @@ func FuzzSessionHandle(f *testing.F) {
 		}
 		valid := typ == "choose" && id == "d1" && option >= 1 && option <= 3
 		if !valid {
-			if kinds(got) != "error:" {
+			if !isError(got) {
 				t.Fatalf("invalid message answered with %+v", got)
 			}
 			if again := kinds(s.Handle(ws.Message{Type: "choose", ID: "d1", Option: 2})); again != "text:" {

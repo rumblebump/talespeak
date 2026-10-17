@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,6 +41,12 @@ var ErrBusy = errors.New("this address used up its script time")
 
 // maxBudgets bounds the per-client budget map, as in package ws.
 const maxBudgets = 10000
+
+// budgetPrefix is how much of an IPv6 address the Lua time budget counts
+// by. Connections count by /64 (package ws), but one home or school often
+// has a /56 or a /48: counting by /64 would give it hundreds of budgets.
+// The budget only shares time, so a wide key costs little.
+const budgetPrefix = 48
 
 // Option configures a World.
 type Option func(*World)
@@ -117,11 +124,24 @@ func (w *World) Close() {
 }
 
 // NewSession places a new player in the start room. client is the
-// player's address key for the Lua time budget; "" has no budget (tests and
-// local tools).
+// player's address key from package ws, which the Lua time budget counts by;
+// "" has no budget (tests and local tools).
 func (w *World) NewSession(client string) (ws.Session, []ws.Message) {
-	s := &session{w: w, name: DefaultPlayerName, client: client}
+	s := &session{w: w, name: DefaultPlayerName, client: budgetKey(client)}
 	return s, s.enter(w.pack.Start)
+}
+
+// budgetKey widens an IPv6 key to budgetPrefix bits.
+func budgetKey(client string) string {
+	p, err := netip.ParsePrefix(client)
+	if err != nil || !p.Addr().Is6() || p.Bits() <= budgetPrefix {
+		return client
+	}
+	wide, err := p.Addr().Prefix(budgetPrefix)
+	if err != nil {
+		return client
+	}
+	return wide.String()
 }
 
 // timed runs f, a call into Lua, and charges its time to client. It
@@ -134,7 +154,9 @@ func (w *World) timed(client string, f func() error) error {
 	now := w.now()
 	b := w.budgets[client]
 	if b == nil {
-		w.pruneBudgets(now)
+		if !w.pruneBudgets(now) {
+			return ErrBusy
+		}
 		b = &budget{left: w.burst, last: now}
 		w.budgets[client] = b
 	}
@@ -150,23 +172,21 @@ func (w *World) timed(client string, f func() error) error {
 	return err
 }
 
-// pruneBudgets keeps the map bounded: past maxBudgets, budgets that have
-// refilled are dropped, then any. The caller holds w.mu.
-func (w *World) pruneBudgets(now time.Time) {
+// pruneBudgets makes room for a new budget: past maxBudgets, budgets that
+// have refilled are dropped. Budgets still used up are kept, so a client
+// cannot push its own out of the map to get a full one; when every budget
+// is in use it reports false and the new client waits. The caller holds
+// w.mu.
+func (w *World) pruneBudgets(now time.Time) bool {
 	if len(w.budgets) < maxBudgets {
-		return
+		return true
 	}
 	for k, b := range w.budgets {
 		if b.left+now.Sub(b.last).Seconds()*w.rate >= w.burst {
 			delete(w.budgets, k)
 		}
 	}
-	for k := range w.budgets {
-		if len(w.budgets) < maxBudgets {
-			break
-		}
-		delete(w.budgets, k)
-	}
+	return len(w.budgets) < maxBudgets
 }
 
 // session is one player. Its methods are called from the connection's
@@ -243,6 +263,16 @@ func (s *session) env(room string) (*script.Env, error) {
 	return env, nil
 }
 
+// reset frees the player's instance of room's script, which keeps too much
+// to run again; the next call starts a new one. The caller holds w.mu.
+func (s *session) reset(room string) {
+	if env := s.envs[room]; env != nil {
+		s.drop()
+		s.w.rt.Release(env)
+		delete(s.envs, room)
+	}
+}
+
 // drop cancels the pending hook. The caller holds w.mu.
 func (s *session) drop() {
 	if s.pending != nil && !s.w.closed {
@@ -289,7 +319,7 @@ func (s *session) choose(m ws.Message) []ws.Message {
 		choices = []int{m.Option}
 	}
 	if _, err := s.pending.Dialog.Check(choices); err != nil {
-		return []ws.Message{{Type: "error", Message: "no such option: " + err.Error()}}
+		return s.refused("no such option: " + err.Error())
 	}
 	s.w.mu.Lock()
 	defer s.w.mu.Unlock()
@@ -305,11 +335,11 @@ func (s *session) answer(m ws.Message) []ws.Message {
 		return []ws.Message{{Type: "error", Message: "no such question"}}
 	}
 	if len(m.Text) > MaxInputBytes {
-		return []ws.Message{{Type: "error", Message: "That is too long: at most " + strconv.Itoa(MaxInputBytes) + " bytes."}}
+		return s.refused("That is too long: at most " + strconv.Itoa(MaxInputBytes) + " bytes.")
 	}
 	text := cleanInput(m.Text)
 	if text == "" {
-		return []ws.Message{{Type: "error", Message: "Type an answer."}}
+		return s.refused("Type an answer.")
 	}
 	s.w.mu.Lock()
 	defer s.w.mu.Unlock()
@@ -335,16 +365,23 @@ func (s *session) run1(f func() (*script.Thread, error)) (*script.Thread, error)
 // else the old hook is done. The caller holds w.mu.
 func (s *session) resumed(th *script.Thread, err error) []ws.Message {
 	if errors.Is(err, ErrBusy) { // nothing ran: the question stays open
-		return []ws.Message{{Type: "error", Message: busyMessage}}
+		return s.refused(busyMessage)
 	}
 	if errors.Is(err, script.ErrAnswer) {
 		if s.pending.Dialog.Ask {
-			return []ws.Message{{Type: "error", Message: "Type an answer."}}
+			return s.refused("Type an answer.")
 		}
-		return []ws.Message{{Type: "error", Message: "no such option"}}
+		return s.refused("no such option")
 	}
 	s.pending = nil
 	return s.after(th, err)
+}
+
+// refused answers an answer to the open question that was not taken: the
+// error carries the question's id, which tells the client the question is
+// still open and can be answered again.
+func (s *session) refused(msg string) []ws.Message {
+	return []ws.Message{{Type: "error", ID: s.dialogID, Message: msg}}
 }
 
 // input runs the room's on_input(player, text) hook with a typed line.
@@ -412,6 +449,9 @@ func (s *session) after(th *script.Thread, err error) []ws.Message {
 	}
 	if err != nil {
 		s.w.log.Warn("room script failed", "room", s.room, "err", logText(err))
+		if errors.Is(err, script.ErrStateMemory) {
+			s.reset(s.room)
+		}
 		s.out = append(s.out, ws.Message{Type: "error", Message: playerError(err)})
 		return s.flush()
 	}
@@ -440,6 +480,8 @@ func playerError(err error) string {
 	switch {
 	case errors.Is(err, script.ErrClosed):
 		return "This world has closed."
+	case errors.Is(err, script.ErrFull):
+		return "This world is full right now. Try again later."
 	case errors.Is(err, script.ErrTimeout), errors.Is(err, script.ErrMemory), errors.Is(err, script.ErrStateMemory):
 		return "This room's script hit its limits. Tell the game master."
 	default:

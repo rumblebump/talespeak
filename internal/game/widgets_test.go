@@ -185,7 +185,7 @@ func TestSelectAnswers(t *testing.T) {
 		{Type: "choose", ID: "d1", Choices: []int{0}},
 		{Type: "choose", ID: "d2", Choices: []int{1}},
 	} {
-		if got := s.Handle(bad); kinds(got) != "error:" {
+		if got := s.Handle(bad); !isError(got) {
 			t.Errorf("%+v = %+v", bad, got)
 		}
 	}
@@ -229,7 +229,7 @@ end`, script.DefaultLimits, quiet)
 		{Type: "answer", ID: "d1", Text: strings.Repeat("x", MaxInputBytes+1)},
 		{Type: "input", Text: "x"},
 	} {
-		if got := s.Handle(bad); kinds(got) != "error:" {
+		if got := s.Handle(bad); !isError(got) {
 			t.Errorf("%+v = %+v", bad, got)
 		}
 	}
@@ -308,7 +308,7 @@ function on_input() say("ran") end`), script.DefaultLimits, quiet, WithClientBud
 		t.Fatalf("second session of the same address = %+v", first)
 	}
 	// Answering is refused too, and the question stays open.
-	if got := a.Handle(ws.Message{Type: "choose", ID: "d1", Option: 1}); kinds(got) != "error:" || !strings.Contains(got[0].Message, "Too much") {
+	if got := a.Handle(ws.Message{Type: "choose", ID: "d1", Option: 1}); kinds(got) != "error:d1" || !strings.Contains(got[0].Message, "Too much") {
 		t.Fatalf("choose while busy = %+v", got)
 	}
 	// Another address is not affected.
@@ -332,5 +332,68 @@ func TestClientBudgetsStayBounded(t *testing.T) {
 	}
 	if n := len(w.budgets); n > maxBudgets {
 		t.Errorf("%d budgets kept, cap %d", n, maxBudgets)
+	}
+}
+
+// A client cannot push its own used-up budget out of a full map to get a
+// fresh one (T-0004 security re-review): budgets in debt are kept, and a new
+// client waits until one refills.
+func TestUsedBudgetsAreNotEvicted(t *testing.T) {
+	w := scriptWorld(t, `function on_enter() end`, script.DefaultLimits, quiet)
+	now := time.Unix(1e9, 0)
+	w.now = func() time.Time { return now }
+	for i := range maxBudgets {
+		w.budgets["c"+strconv.Itoa(i)] = &budget{left: -1, last: now}
+	}
+	s, first := w.NewSession("new")
+	s.Close()
+	if !isError(first) || !strings.Contains(first[0].Message, "Too much") {
+		t.Errorf("new client while every budget is used up = %+v", first)
+	}
+	if w.budgets["c0"] == nil || len(w.budgets) != maxBudgets {
+		t.Errorf("used-up budgets evicted: %d left", len(w.budgets))
+	}
+	now = now.Add(time.Minute) // every budget has refilled
+	s, first = w.NewSession("new")
+	s.Close()
+	if isError(first) {
+		t.Errorf("new client after the others refilled = %+v", first)
+	}
+}
+
+func TestBudgetKey(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                        "",
+		"192.0.2.1":               "192.0.2.1",
+		"2001:db8:1:2::/64":       "2001:db8:1::/48",
+		"2001:db8:1:ff00::/56":    "2001:db8:1::/48",
+		"2001:db8::/32":           "2001:db8::/32",
+		"::ffff:192.0.2.1":        "::ffff:192.0.2.1",
+		"not an address":          "not an address",
+		"2001:db8:1:2::1/128":     "2001:db8:1::/48",
+		"2001:db8:ffff:ffff::/64": "2001:db8:ffff::/48",
+	} {
+		if got := budgetKey(in); got != want {
+			t.Errorf("budgetKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Two /64s of one /48 share one Lua time budget.
+func TestIPv6PrefixSharesBudget(t *testing.T) {
+	w, err := NewWorld(packWith(`function on_enter() ui.dialog("?", {"a"}) end`), script.DefaultLimits, quiet, WithClientBudget(100*time.Millisecond, time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(w.Close)
+	now := time.Unix(1e9, 0)
+	w.now = func() time.Time { return now }
+	a, _ := w.NewSession("2001:db8:1:1::/64")
+	defer a.Close()
+	w.budgets["2001:db8:1::/48"].left = -1
+	b, first := w.NewSession("2001:db8:1:2::/64")
+	defer b.Close()
+	if !isError(first) || !strings.Contains(first[0].Message, "Too much") {
+		t.Errorf("second /64 of the same /48 = %+v", first)
 	}
 }

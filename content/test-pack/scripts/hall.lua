@@ -24,6 +24,9 @@ function on_click(player, item)
   elseif item == "voice" then
     say("Only heard, never read.", {speak = true, show = false})
     say("Heard and read.", {speak = true})
+  elseif item == "trapdoor" then
+    ui.dialog("Open the trapdoor?", {"Yes", "No"})
+    error("the trapdoor is stuck")
   end
 end
 

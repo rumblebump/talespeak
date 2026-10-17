@@ -6,7 +6,8 @@
 #     is followed, never loaded; vendored files are covered by their
 #     checksums instead (scripts/vendor.sh)
 #   - no HTML sinks: server text is only shown with x-text or textContent
-#   - no URL bindings other than the picture's src, which app.js validates
+#   - no URL bindings or URL assignments other than the picture's src,
+#     which app.js validates, and no style bindings
 set -eu
 cd "$(dirname "$0")/.."
 fail=0
@@ -40,9 +41,10 @@ report() {
   fi
 }
 
-# Comment lines (// or * or #) may name URLs; code and markup may not.
+# Only // comment lines of JavaScript and Go files may name URLs (and hold
+# //go:embed); every other line, CSS and markup included, may not.
 report "external URLs in web/ (above): the client must load everything from its own server" <<EOF2
-$(grep -rnIiE '[a-z][a-z0-9+.-]*://[a-z0-9[]|(^|[^:a-z0-9])//[a-z0-9[]|url\([^)]*//' "$tmp/web" | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|\*|#)' || true)
+$(grep -rnIiE '[a-z][a-z0-9+.-]*://[a-z0-9[]|(^|[^:a-z0-9])//[a-z0-9[]|url\([^)]*//' "$tmp/web" | grep -vE '^[^:]+\.(js|go):[0-9]+:[[:space:]]*//' || true)
 EOF2
 
 report "HTML sinks in web/ (above): show untrusted text with x-text or textContent" <<EOF2
@@ -50,7 +52,11 @@ $(grep -rnIE 'x-html|innerHTML|outerHTML|insertAdjacentHTML|setHTMLUnsafe|create
 EOF2
 
 report "URL bindings in web/ (above): only the picture's src is allowed, and app.js validates it" <<EOF2
-$(grep -rnIE '(:|x-bind:)(href|src|action|formaction|srcset|data|poster)=' "$tmp/web" | grep -vF ':src="picture.url"' || true)
+$(grep -rnIE '(:|x-bind:)(href|src|action|formaction|srcset|data|poster|style)=' "$tmp/web" | grep -vF ':src="picture.url"' || true)
+EOF2
+
+report "URL assignments in web/ (above): the client never loads or opens a URL from script" <<EOF2
+$(grep -rnIE '\.(src|href|srcset|action|formAction|poster|data)[[:space:]]*=[^=]|location[[:space:]]*=[^=]|location\.(href|assign|replace)|window\.open|\.style\.|setProperty\(|new (Image|Audio|Worker|SharedWorker|EventSource)\(|importScripts|import\(|fetch\(' "$tmp/web" || true)
 EOF2
 
 scripts/vendor.sh check || fail=1

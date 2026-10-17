@@ -19,7 +19,7 @@ Admins can change these defaults with environment variables ([admin-limits.md](a
 | Silence from the client | 2 minutes | Connection closed (1008, idle timeout); clients ping every 30 s |
 | Binary frame, or text that is not one JSON object (including `null` and arrays) | | Connection closed (1003) |
 
-Per-client limits count IPv6 clients by their /64 network. The client address is the TCP peer, unless the peer is a trusted proxy: then it is the rightmost `X-Forwarded-For` entry that is not a trusted proxy. `TALESPEAK_TRUSTED_PROXIES` (comma-separated CIDR prefixes) sets the trusted proxies; the default is loopback and the private ranges, which covers Caddy in the same Docker network. Narrow it to the proxy's own address when untrusted clients share the private network with the engine; an unset or empty value means the default. The per-client limit stays well above a school class, because a class behind one NAT address shares it.
+Per-client limits count IPv6 clients by their /64 network; the Lua time budget counts them by /48, since one home or school often has a /56 or a /48. The client address is the TCP peer, unless the peer is a trusted proxy: then it is the rightmost `X-Forwarded-For` entry that is not a trusted proxy. `TALESPEAK_TRUSTED_PROXIES` (comma-separated CIDR prefixes) sets the trusted proxies; the default is loopback and the private ranges, which covers Caddy in the same Docker network. Narrow it to the proxy's own address when untrusted clients share the private network with the engine; an unset or empty value means the default. The per-client limit stays well above a school class, because a class behind one NAT address shares it.
 
 ## Messages
 
@@ -39,11 +39,11 @@ Per-client limits count IPv6 clients by their /64 network. The client address is
 | client → server | `answer` | `id`, `text` | The typed answer to the open `ask` |
 | client → server | `input` | `text` | A line the player typed, outside a question; runs the room's `on_input` |
 | client → server | `click` | `item` | The player clicked one of the items they were shown; runs the room's `on_click` |
-| server → client | `error` | `message` | The client sent something the server does not understand or cannot take now, or a room script failed; the connection stays open |
+| server → client | `error` | `message`, `id` | The client sent something the server does not understand or cannot take now, or a room script failed; the connection stays open. `id` is set only when an answer to the open question was not taken: the question with that `id` is still open and can be answered again |
 
 An item is `{"id": "straw", "label": "heap of straw"}`. `speak` and `hide` on a question work as on `text`, for its title.
 
-A question's `id` is valid until it is answered: an answer with an older `id`, the wrong kind of answer, an option out of range, or a number of choices outside `min` to `max` gets an `error` and the question stays open. While a question is open, `input` and `click` get an `error` ("Answer the open question first."). `input` and `answer` take at most 500 bytes; control characters become spaces and the text is trimmed. When the room has no `on_input` or `on_click`, the answer is the text "Nothing happens.".
+A question's `id` is valid until it is answered: an answer with an older `id`, the wrong kind of answer, an option out of range, or a number of choices outside `min` to `max` gets an `error` and the question stays open; an option or answer the open question refuses (or one sent while the address used up its script time) gets an `error` with that question's `id`. An `error` without `id` after an answer means the question is gone, for example because the script failed. While a question is open, `input` and `click` get an `error` ("Answer the open question first."). `input` and `answer` take at most 500 bytes; control characters become spaces and the text is trimmed. When the room has no `on_input` or `on_click`, the answer is the text "Nothing happens.".
 
 Text fields are plain text: clients show them with `textContent` or `x-text`, never as HTML. An image `url` always has the form `/packs/<pack id>/assets/<file>` on the same server; the client refuses any other.
 

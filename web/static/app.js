@@ -103,9 +103,10 @@ function game() {
 
     // receive renders one message from the engine.
     receive(msg) {
-      // An error right after an answer means the engine refused it and the
-      // question is still open: show it again.
-      if (this.sent && msg.type === "error" && !this.dialog) {
+      // An error with the id of the question just answered means the
+      // engine refused the answer and the question is still open: show it
+      // again. Any other error means the question is gone.
+      if (this.sent && msg.type === "error" && msg.id === this.sent.id && !this.dialog) {
         this.dialog = this.sent;
         this.picked = [];
       }

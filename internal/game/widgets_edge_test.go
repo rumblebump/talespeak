@@ -205,7 +205,7 @@ func TestAnswerGrownByCleaningKeepsQuestion(t *testing.T) {
 	if len(cleanInput(in)) <= script.MaxAnswerBytes {
 		t.Fatalf("cleaned length %d: the test needs a longer result", len(cleanInput(in)))
 	}
-	if got := s.Handle(ws.Message{Type: "answer", ID: "d1", Text: in}); kinds(got) != "error:" {
+	if got := s.Handle(ws.Message{Type: "answer", ID: "d1", Text: in}); kinds(got) != "error:d1" {
 		t.Errorf("grown answer = %+v", got)
 	}
 	if n := w.rt.Paused(); n != 1 {
@@ -245,7 +245,7 @@ end`, script.DefaultLimits, quiet)
 		{Type: "choose", ID: "d1", Choices: []int{1 << 40}},
 		{Type: "answer", ID: "d1", Text: "a"},
 	} {
-		if got := s.Handle(m); kinds(got) != "error:" {
+		if got := s.Handle(m); !isError(got) {
 			t.Errorf("%+v = %+v", m.Choices[:min(len(m.Choices), 3)], got)
 		}
 	}
@@ -265,7 +265,7 @@ func TestChooseDialogIgnoresChoices(t *testing.T) {
 	w := scriptWorld(t, `function on_enter() local n = ui.dialog("?", {"a", "b"}) say("n" .. n) end`, script.DefaultLimits, quiet)
 	s, _ := w.NewSession("")
 	defer s.Close()
-	if got := s.Handle(ws.Message{Type: "choose", ID: "d1", Choices: []int{1}}); kinds(got) != "error:" {
+	if got := s.Handle(ws.Message{Type: "choose", ID: "d1", Choices: []int{1}}); kinds(got) != "error:d1" {
 		t.Errorf("choices without option = %+v", got)
 	}
 	if got := s.Handle(ws.Message{Type: "choose", ID: "d1", Option: 2, Choices: []int{1}}); len(got) != 1 || got[0].Text != "n2" {

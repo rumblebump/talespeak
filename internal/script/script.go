@@ -28,14 +28,19 @@ type Limits struct {
 	Time time.Duration
 	// CallMemory is how many bytes one call may allocate.
 	CallMemory int64
-	// StateMemory is how many bytes the world's Lua state may keep,
-	// including what paused hooks hold.
+	// PlayerMemory is how many bytes one Instance may keep, with what its
+	// paused hooks hold: one player's state in one room. 0 means
+	// StateMemory.
+	PlayerMemory int64
+	// StateMemory is how many bytes all Instances of the world together
+	// may keep.
 	StateMemory int64
 }
 
 // DefaultLimits suit story scripts: they describe, branch and wait, so
-// anything near these limits is a bug or an attack.
-var DefaultLimits = Limits{Time: 100 * time.Millisecond, CallMemory: 32 << 20, StateMemory: 64 << 20}
+// anything near these limits is a bug or an attack. A word list of 10000
+// entries keeps about 1.5 MiB.
+var DefaultLimits = Limits{Time: 100 * time.Millisecond, CallMemory: 32 << 20, PlayerMemory: 4 << 20, StateMemory: 256 << 20}
 
 const (
 	// MaxScriptBytes is the largest script Load accepts.
@@ -64,11 +69,17 @@ const (
 
 // Errors a call can end with. Script errors wrap ErrScript.
 var (
-	ErrTimeout     = errors.New("script ran too long")
-	ErrMemory      = errors.New("script used too much memory")
-	ErrStateMemory = errors.New("world scripts keep too much memory")
-	ErrScript      = errors.New("script error")
-	ErrClosed      = errors.New("world closed")
+	ErrTimeout = errors.New("script ran too long")
+	ErrMemory  = errors.New("script used too much memory")
+	// ErrStateMemory is an Instance keeping more than PlayerMemory. Every
+	// later call on it fails too; Release it and start a new one.
+	ErrStateMemory = errors.New("script keeps too much memory")
+	// ErrFull is a world whose Instances together keep more than
+	// StateMemory: the call fails, and new Instances are refused until
+	// others are released.
+	ErrFull   = errors.New("world scripts keep too much memory")
+	ErrScript = errors.New("script error")
+	ErrClosed = errors.New("world closed")
 	// ErrAnswer is an answer the question does not accept; the hook stays
 	// paused and can be answered again.
 	ErrAnswer = errors.New("answer not accepted")
@@ -173,6 +184,7 @@ type Thread struct {
 	Dialog Dialog
 
 	co       *lua.LState
+	env      *lua.LTable  // the globals of the Instance it runs in
 	resume   chan *answer // the player's answer; nil ends the hook
 	events   chan result  // the end of each call: a dialog, or the hook's end
 	canceled bool         // set on the hook's goroutine once resume sent nil
@@ -187,15 +199,23 @@ type result struct {
 type Runtime struct {
 	L      *lua.LState
 	limits Limits
-	lib    *lua.LTable              // shared globals, the __index of every Env
-	locked map[*lua.LTable]bool     // read-only tables that rawset refuses
-	envs   map[*lua.LTable]struct{} // the globals of every Instance not released, for measuring the state
-	paused map[*Thread]struct{}     // hooks waiting in ui.dialog
+	lib    *lua.LTable               // shared globals, the __index of every Env
+	locked map[*lua.LTable]bool      // read-only tables that rawset refuses
+	envs   map[*lua.LTable]*envState // every Instance not released, by its globals
+	paused map[*Thread]struct{}      // hooks waiting in ui.dialog
+	shared map[lua.LValue]struct{}   // what every Instance reaches but none keeps: the libraries
 
-	cur          *call // the call in progress, nil between calls
-	sinceWalk    int64 // bytes allocated by calls since the state was last measured
-	stateExceeds bool  // set once the state is over StateMemory; every later call fails
-	closed       bool
+	cur    *call // the call in progress, nil between calls
+	total  int64 // the sum of kept and sinceWalk over envs: at least what they keep
+	closed bool
+}
+
+// envState is what one Instance keeps, as last measured, plus what its
+// calls allocated since: it keeps at most kept+sinceWalk.
+type envState struct {
+	kept      int64
+	sinceWalk int64
+	broken    bool // over PlayerMemory; every later call fails
 }
 
 // call is one stretch of Lua running: its budgets, and what Go functions
@@ -217,8 +237,12 @@ func New(limits Limits) *Runtime {
 		RegistryMaxSize:     64 * 1024,
 		MinimizeStackMemory: true,
 	})
-	r := &Runtime{L: L, limits: limits, locked: map[*lua.LTable]bool{}, paused: map[*Thread]struct{}{}, envs: map[*lua.LTable]struct{}{}}
+	if limits.PlayerMemory <= 0 || limits.PlayerMemory > limits.StateMemory {
+		limits.PlayerMemory = limits.StateMemory
+	}
+	r := &Runtime{L: L, limits: limits, locked: map[*lua.LTable]bool{}, paused: map[*Thread]struct{}{}, envs: map[*lua.LTable]*envState{}}
 	r.lib = r.openSandbox()
+	r.shared = map[lua.LValue]struct{}{r.lib: {}, L.G.Global: {}, L.G.Registry: {}}
 	return r
 }
 
@@ -266,33 +290,41 @@ func (r *Runtime) Compile(name, src string) (*Script, error) {
 }
 
 // Instance runs the script's top level in a new Env. The Env counts toward
-// the state's memory until Release.
+// the world's memory until Release. It fails with ErrFull while the world's
+// Instances keep too much.
 func (r *Runtime) Instance(s *Script) (*Env, error) {
 	if r.closed {
 		return nil, ErrClosed
 	}
+	if r.full() {
+		return nil, ErrFull
+	}
 	fn := r.L.NewFunctionFromProto(s.proto)
-	env := r.newEnv()
-	fn.Env = env
-	r.envs[env] = struct{}{}
+	env := &Env{table: r.newEnv()}
+	fn.Env = env.table
+	r.envs[env.table] = &envState{}
 
-	th, err := r.start(nil, fn)
+	th, err := r.start(nil, env.table, fn)
 	if err != nil {
-		delete(r.envs, env)
+		r.Release(env)
 		return nil, err
 	}
 	if th != nil { // ui.dialog refuses to wait without a player, so this is a bug
 		r.Cancel(th)
-		delete(r.envs, env)
+		r.Release(env)
 		return nil, fmt.Errorf("%w: %s waits in ui.dialog outside a hook", ErrScript, s.name)
 	}
-	return &Env{table: env}, nil
+	return env, nil
 }
 
-// Release forgets env: its globals no longer count toward the state's
-// memory and can be freed. Cancel its paused hooks first.
+// Release forgets env: its globals no longer count toward the world's
+// memory and can be freed, and later calls on it fail. Cancel its paused
+// hooks first.
 func (r *Runtime) Release(e *Env) {
-	delete(r.envs, e.table)
+	if st := r.envs[e.table]; st != nil {
+		r.total -= st.kept + st.sinceWalk
+		delete(r.envs, e.table)
+	}
 }
 
 // Load compiles a script and runs its top level in a new Env.
@@ -321,13 +353,19 @@ func (r *Runtime) Run(host Host, env *Env, hook, player string, args ...string) 
 	if !ok {
 		return nil, nil
 	}
+	switch st := r.envs[env.table]; {
+	case st == nil:
+		return nil, fmt.Errorf("%w: the script instance was released", ErrScript)
+	case st.broken:
+		return nil, ErrStateMemory
+	}
 	p := r.L.NewTable()
 	p.RawSetString("name", lua.LString(player))
 	values := []lua.LValue{p}
 	for _, a := range args {
 		values = append(values, lua.LString(a))
 	}
-	return r.start(host, fn, values...)
+	return r.start(host, env.table, fn, values...)
 }
 
 // Resume continues a paused hook with the player's choices (1-based): one
@@ -364,10 +402,6 @@ func (r *Runtime) Answer(host Host, th *Thread, text string) (*Thread, error) {
 }
 
 func (r *Runtime) answer(host Host, th *Thread, a *answer) (*Thread, error) {
-	if r.stateExceeds {
-		r.Cancel(th)
-		return nil, ErrStateMemory
-	}
 	delete(r.paused, th)
 	r.begin(host, th, r.limits.Time)
 	th.resume <- a
@@ -392,13 +426,11 @@ func (r *Runtime) Cancel(th *Thread) {
 // Paused is the number of hooks waiting in ui.dialog.
 func (r *Runtime) Paused() int { return len(r.paused) }
 
-// start runs fn(args...) on a new hook goroutine until it ends or waits.
-func (r *Runtime) start(host Host, fn *lua.LFunction, args ...lua.LValue) (*Thread, error) {
-	if r.stateExceeds {
-		return nil, ErrStateMemory
-	}
+// start runs fn(args...) of env on a new hook goroutine until it ends or
+// waits.
+func (r *Runtime) start(host Host, env *lua.LTable, fn *lua.LFunction, args ...lua.LValue) (*Thread, error) {
 	co, _ := r.L.NewThread()
-	th := &Thread{co: co, resume: make(chan *answer), events: make(chan result)}
+	th := &Thread{co: co, env: env, resume: make(chan *answer), events: make(chan result)}
 	r.begin(host, th, r.limits.Time)
 	go th.main(r.cur.ctx, fn, args)
 	return r.wait(th)
@@ -441,7 +473,13 @@ func (r *Runtime) wait(th *Thread) (*Thread, error) {
 	c := r.cur
 	r.cur = nil
 	cause := context.Cause(c.ctx)
-	r.sinceWalk += c.end()
+	if st := r.envs[th.env]; st != nil {
+		n := c.end()
+		st.sinceWalk += n
+		r.total += n
+	} else {
+		c.end()
+	}
 
 	if res.err != nil {
 		if cause != nil && !errors.Is(cause, context.Canceled) {
@@ -452,13 +490,13 @@ func (r *Runtime) wait(th *Thread) (*Thread, error) {
 	if res.dialog != nil {
 		th.Dialog = *res.dialog
 		r.paused[th] = struct{}{}
-		if err := r.checkState(); err != nil {
+		if err := r.checkState(th.env); err != nil {
 			r.Cancel(th)
 			return nil, err
 		}
 		return th, nil
 	}
-	return nil, r.checkState()
+	return nil, r.checkState(th.env)
 }
 
 // pause is called by ui.dialog, ui.select and ui.ask on the hook
@@ -480,23 +518,61 @@ func (r *Runtime) pause(L *lua.LState, d *Dialog) *answer {
 	return a
 }
 
-// checkState measures what the state keeps once enough has been allocated
-// since the last measurement for it to have grown past the limit.
-func (r *Runtime) checkState() error {
-	if r.sinceWalk < r.limits.StateMemory/8 {
+// checkState measures what env keeps once its calls allocated enough
+// since the last measurement for it to have grown past PlayerMemory, and
+// what the world keeps once the sum of what every Instance may keep is past
+// StateMemory.
+func (r *Runtime) checkState(env *lua.LTable) error {
+	st := r.envs[env]
+	if st == nil {
 		return nil
 	}
-	r.sinceWalk = 0
-	roots := []lua.LValue{r.L.G.Global, r.L.G.Registry}
-	for env := range r.envs {
-		roots = append(roots, env)
+	if st.sinceWalk >= r.limits.PlayerMemory/8 {
+		var paused []*Thread
+		for th := range r.paused {
+			if th.env == env {
+				paused = append(paused, th)
+			}
+		}
+		r.measure(env, st, paused)
+		if st.kept > r.limits.PlayerMemory {
+			st.broken = true
+			return ErrStateMemory
+		}
 	}
-	for th := range r.paused {
-		roots = append(roots, stackValues(th.co)...)
-	}
-	if retained(roots, r.limits.StateMemory) > r.limits.StateMemory {
-		r.stateExceeds = true
-		return ErrStateMemory
+	if r.full() {
+		return ErrFull
 	}
 	return nil
+}
+
+// full reports whether the world's Instances keep more than StateMemory. It
+// measures the Instances that ran since their last measurement only when
+// the cheap upper bound is past the limit.
+func (r *Runtime) full() bool {
+	if r.total <= r.limits.StateMemory {
+		return false
+	}
+	paused := map[*lua.LTable][]*Thread{}
+	for th := range r.paused {
+		paused[th.env] = append(paused[th.env], th)
+	}
+	for env, st := range r.envs {
+		if st.sinceWalk > 0 {
+			r.measure(env, st, paused[env])
+		}
+	}
+	return r.total > r.limits.StateMemory
+}
+
+// measure walks what env keeps: its globals and the stacks of its paused
+// hooks, without the shared libraries.
+func (r *Runtime) measure(env *lua.LTable, st *envState, paused []*Thread) {
+	roots := []lua.LValue{env}
+	for _, th := range paused {
+		roots = append(roots, stackValues(th.co)...)
+	}
+	kept := retained(roots, r.shared, r.limits.PlayerMemory)
+	r.total += kept - st.kept - st.sinceWalk
+	st.kept, st.sinceWalk = kept, 0
 }

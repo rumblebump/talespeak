@@ -39,7 +39,7 @@ test("reconnects after the connection drops and starts a new session", async ({ 
   // A new session: the story starts again and the room's own items are back.
   await expect(story(page).locator(".room-title")).toHaveText(["Test hall"]);
   await expect(story(page)).not.toContainText("Lamp answer");
-  await expect(page.getByRole("navigation").getByRole("button")).toHaveCount(7);
+  await expect(page.getByRole("navigation").getByRole("button")).toHaveCount(8);
   await input.press("Enter");
   await expect(story(page)).toContainText("You typed: hello?");
 });
@@ -125,4 +125,18 @@ test("an answer the engine refuses leaves the question answerable", async ({ pag
   await input.press("Enter");
   await expect(story(page)).toContainText("Riddle: true piano");
   await expect(story(page).locator(".error")).not.toContainText(["Answer the open question first."]);
+});
+
+// A script that fails right after its question was answered: the error has
+// no question id, so the client must not show the question again (T-0004
+// security re-review: it re-opened the question in a loop and the player
+// was stuck until a reload).
+test("a script failing after an answer does not reopen the question", async ({ page }) => {
+  await open(page);
+  await page.getByRole("button", { name: "trapdoor" }).click();
+  await page.getByRole("button", { name: "Yes" }).click();
+  await expect(story(page).locator(".error")).toHaveText("This room's script failed. Tell the game master.");
+  await expect(page.getByRole("group", { name: "Open the trapdoor?" })).toBeHidden();
+  await page.getByRole("button", { name: "lamp" }).click();
+  await expect(page.getByRole("group", { name: "Light the lamp?" })).toBeVisible();
 });

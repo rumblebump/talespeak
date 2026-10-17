@@ -82,13 +82,14 @@ The name `__concat` is reserved: every `..` in a script is compiled into a call 
 | --- | --- | --- |
 | Time per call | 100 ms | The call stops with "script ran too long" |
 | Memory allocated per call | 32 MiB | The call stops with "script used too much memory" |
-| Memory the world's scripts keep | 64 MiB | The call fails, and so does every later call until the world is restarted |
+| Memory one player's instance of a script keeps | 4 MiB | The call fails; the player's state in that room starts over on their next action |
+| Memory all instances of a world keep together | 256 MiB | The call fails, and new players and rooms are refused ("This world is full right now") until others leave |
 | Call depth | 200 | Script error (stack overflow) |
 | Values on the Lua stack | 65536 | Script error (registry overflow) |
 | Output per call | 100 calls of `say`, `room.describe`, `ui.items` and `ui.image` (questions do not count) | Script error |
 | Script size | 256 KiB | The pack does not load |
 
-Time per call and both memory limits can be changed by the admin ([admin-limits.md](admin-limits.md)); the others are part of the pack format.
+Time per call and the memory limits can be changed by the admin ([admin-limits.md](admin-limits.md)); the others are part of the pack format.
 
 A call is everything from starting or resuming a hook until it ends or waits in `ui.dialog`. The time a player takes to answer a dialog does not count.
 
@@ -96,7 +97,7 @@ How they are enforced:
 
 - **Time:** each call runs with a deadline that gopher-lua checks before every instruction. `pcall` cannot swallow it for long: the next instruction outside the `pcall` fails again. Go functions are not interrupted, so every library function a script gets finishes quickly whatever its arguments; that is why patterns are off and why sizes are checked before work starts.
 - **Memory per call:** Go has no per-goroutine allocation counter, so a watcher samples the process's allocated bytes every millisecond while a call runs. Allocations by other goroutines count too. A story hook usually runs well under a millisecond, so for it to fail, other goroutines would have to allocate 32 MiB within that time; a hook that runs for tens of milliseconds is more exposed on a busy server, and then fails cleanly.
-- **Memory kept:** after enough allocation since the last check, the engine walks everything reachable from the scripts' globals and from the locals and temporaries of hooks waiting in `ui.dialog`, and adds up sizes estimated on the high side. `string.sub` copies its result, so a short slice never keeps a long string alive unseen. Varargs are off because gopher-lua keeps them where the walk cannot see them.
+- **Memory kept:** every player's instance is measured on its own. After an instance's calls allocated an eighth of its limit since the last check, the engine walks everything reachable from its globals and from the locals and temporaries of its hooks waiting in `ui.dialog` (not the shared libraries), and adds up sizes estimated on the high side. The world's total is the sum of the last measurements plus what was allocated since, so it is never too low; only when that sum passes the world's limit are the instances that ran measured again. `string.sub` copies its result, so a short slice never keeps a long string alive unseen. Varargs are off because gopher-lua keeps them where the walk cannot see them.
 - **Sorting:** `table.sort` without a comparator runs in Go, so it takes at most 20000 entries (a few milliseconds).
 - **No single Go call builds a huge result:** `..`, `string.rep`, `string.format`, `table.concat`, `unpack` and `string.byte` check sizes before they run.
 
@@ -109,7 +110,7 @@ Each hook runs on its own goroutine with its own Lua thread. `ui.dialog` blocks 
 ## Known gaps
 
 - Compiling a script is not limited: a large script with deep nesting can take about 100 ms and tens of MiB once, when the world starts. Scripts are limited to 256 KiB.
-- A script's top level runs again for every player who enters its room, so heavy setup there costs time and memory per player; keep it small.
+- A script's top level runs again for every player who enters its room, and each player's instance keeps its own copy of what it sets up, so a long word list costs memory per player and room (see the memory limits above). Data shared read-only between players is planned with T-0018.
 - One world runs one hook at a time. A slow hook (up to the 100 ms limit) delays the other players of that world.
 - A Go library function waiting with its caller (a comparator of `table.sort` waiting in `ui.dialog`) holds its own small state outside the estimate.
 

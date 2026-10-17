@@ -44,6 +44,11 @@ func kinds(ms []ws.Message) string {
 	return strings.Join(parts, " ")
 }
 
+// isError reports whether ms is one error, with or without a question id.
+func isError(ms []ws.Message) bool {
+	return len(ms) == 1 && ms[0].Type == "error"
+}
+
 func TestDemoFlow(t *testing.T) {
 	w := demoWorld(t)
 	s, first := w.NewSession("")
@@ -80,7 +85,7 @@ func TestChooseRejectsBadOptions(t *testing.T) {
 	s, _ := w.NewSession("")
 	defer s.Close()
 	for _, opt := range []int{0, -1, 4, 1 << 30} {
-		if got := s.Handle(ws.Message{Type: "choose", ID: "d1", Option: opt}); kinds(got) != "error:" {
+		if got := s.Handle(ws.Message{Type: "choose", ID: "d1", Option: opt}); kinds(got) != "error:d1" {
 			t.Errorf("option %d: %+v", opt, got)
 		}
 	}

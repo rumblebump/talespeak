@@ -17,3 +17,5 @@ items:
     label: spelling
   - id: voice
     label: voice
+  - id: trapdoor
+    label: trapdoor

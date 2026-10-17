@@ -104,6 +104,10 @@ func loadLimits(getenv func(string) string) (limits, error) {
 	duration("TALESPEAK_LUA_CLIENT_BURST", &l.luaClientBurst, 10*time.Millisecond, time.Minute)
 	size("TALESPEAK_LUA_CALL_MEMORY", &l.script.CallMemory, 1<<20, 1<<30)
 	size("TALESPEAK_LUA_STATE_MEMORY", &l.script.StateMemory, 1<<20, 4<<30)
+	if getenv("TALESPEAK_LUA_PLAYER_MEMORY") == "" {
+		l.script.PlayerMemory = min(l.script.PlayerMemory, l.script.StateMemory) // a small world lowers both at once
+	}
+	size("TALESPEAK_LUA_PLAYER_MEMORY", &l.script.PlayerMemory, 64<<10, 1<<30)
 	size("TALESPEAK_PACK_IMAGE_MAX", &l.pack.AssetBytes, 1<<10, 64<<20)
 	size("TALESPEAK_PACK_IMAGES_TOTAL", &l.pack.AssetsBytes, 1<<10, 4<<30)
 	count("TALESPEAK_MAX_CONNS", &l.maxConns, 1, 1_000_000)
@@ -118,6 +122,9 @@ func loadLimits(getenv func(string) string) (limits, error) {
 	// The client pings every 30 s, so less than 45 s would drop idle players.
 	duration("TALESPEAK_IDLE_TIMEOUT", &l.idleTimeout, 45*time.Second, 24*time.Hour)
 
+	if l.script.StateMemory < l.script.PlayerMemory {
+		errs = append(errs, fmt.Errorf("TALESPEAK_LUA_STATE_MEMORY (%s) is smaller than TALESPEAK_LUA_PLAYER_MEMORY (%s)", formatBytes(l.script.StateMemory), formatBytes(l.script.PlayerMemory)))
+	}
 	if l.pack.AssetsBytes < l.pack.AssetBytes {
 		errs = append(errs, fmt.Errorf("TALESPEAK_PACK_IMAGES_TOTAL (%s) is smaller than TALESPEAK_PACK_IMAGE_MAX (%s)", formatBytes(l.pack.AssetsBytes), formatBytes(l.pack.AssetBytes)))
 	}

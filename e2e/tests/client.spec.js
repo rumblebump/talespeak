@@ -13,7 +13,7 @@ test("room and text renderer", async ({ page }) => {
 test("clickable items, dialog answered with the mouse", async ({ page }) => {
   await open(page);
   const items = page.getByRole("navigation", { name: "Things you can click" });
-  await expect(items.getByRole("button")).toHaveText(["lamp", "chest", "painting", "broken lever", "riddle", "spelling", "voice"]);
+  await expect(items.getByRole("button")).toHaveText(["lamp", "chest", "painting", "broken lever", "riddle", "spelling", "voice", "trapdoor"]);
   await items.getByRole("button", { name: "lamp" }).click();
   const dialog = page.getByRole("group", { name: "Light the lamp?" });
   await expect(dialog).toBeVisible();

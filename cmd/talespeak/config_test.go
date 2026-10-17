@@ -72,7 +72,9 @@ func TestLoadLimitsSets(t *testing.T) {
 		{"TALESPEAK_LUA_CALL_MEMORY", "1GiB", func(l limits) bool { return l.script.CallMemory == 1<<30 }},
 		{"TALESPEAK_LUA_CALL_MEMORY", "2097152", func(l limits) bool { return l.script.CallMemory == 2<<20 }},
 		{"TALESPEAK_LUA_STATE_MEMORY", "4GiB", func(l limits) bool { return l.script.StateMemory == 4<<30 }},
-		{"TALESPEAK_LUA_STATE_MEMORY", "1024KiB", func(l limits) bool { return l.script.StateMemory == 1<<20 }},
+		{"TALESPEAK_LUA_STATE_MEMORY", "1024KiB", func(l limits) bool { return l.script.StateMemory == 1<<20 && l.script.PlayerMemory == 1<<20 }},
+		{"TALESPEAK_LUA_PLAYER_MEMORY", "64KiB", func(l limits) bool { return l.script.PlayerMemory == 64<<10 }},
+		{"TALESPEAK_LUA_PLAYER_MEMORY", "16MiB", func(l limits) bool { return l.script.PlayerMemory == 16<<20 }},
 		{"TALESPEAK_PACK_IMAGE_MAX", "1KiB", func(l limits) bool { return l.pack.AssetBytes == 1<<10 }},
 		{"TALESPEAK_PACK_IMAGE_MAX", "64MiB", func(l limits) bool { return l.pack.AssetBytes == 64<<20 }},
 		{"TALESPEAK_PACK_IMAGES_TOTAL", "4GiB", func(l limits) bool { return l.pack.AssetsBytes == 4<<30 }},
@@ -121,6 +123,8 @@ func TestLoadLimitsRefuses(t *testing.T) {
 		{"TALESPEAK_LUA_CALL_MEMORY", "-1MiB"},
 		{"TALESPEAK_LUA_CALL_MEMORY", "MiB"},
 		{"TALESPEAK_LUA_STATE_MEMORY", "5GiB"},
+		{"TALESPEAK_LUA_PLAYER_MEMORY", "63KiB"},
+		{"TALESPEAK_LUA_PLAYER_MEMORY", "2GiB"},
 		{"TALESPEAK_LUA_STATE_MEMORY", "99999999999999999999"},
 		{"TALESPEAK_PACK_IMAGE_MAX", "1023"},
 		{"TALESPEAK_PACK_IMAGE_MAX", "65MiB"},
@@ -205,6 +209,8 @@ func TestLoadLimitsCrossChecks(t *testing.T) {
 		// Unset, the per-client limit follows a lower server maximum.
 		{"max below the default per client", map[string]string{"TALESPEAK_MAX_CONNS": "50"}, ""},
 		{"per client set above max", map[string]string{"TALESPEAK_MAX_CONNS": "50", "TALESPEAK_MAX_CONNS_PER_CLIENT": "100"}, "larger than TALESPEAK_MAX_CONNS (50)"},
+		{"player memory above world", map[string]string{"TALESPEAK_LUA_STATE_MEMORY": "8MiB", "TALESPEAK_LUA_PLAYER_MEMORY": "9MiB"}, "TALESPEAK_LUA_STATE_MEMORY (8MiB) is smaller than TALESPEAK_LUA_PLAYER_MEMORY (9MiB)"},
+		{"player memory equal to world", map[string]string{"TALESPEAK_LUA_STATE_MEMORY": "8MiB", "TALESPEAK_LUA_PLAYER_MEMORY": "8MiB"}, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
