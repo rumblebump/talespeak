@@ -31,6 +31,9 @@ var version = "dev"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return // usage was already printed
+		}
 		fmt.Fprintln(os.Stderr, "talespeak:", err)
 		os.Exit(1)
 	}
@@ -61,6 +64,9 @@ func serve(args []string) error {
 	if err := fl.Parse(args); err != nil {
 		return err
 	}
+	if fl.NArg() > 0 {
+		return fmt.Errorf("serve: unexpected arguments %q", fl.Args())
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -80,6 +86,8 @@ func serve(args []string) error {
 		Addr:              *listen,
 		Handler:           server.New(server.Options{Version: version, Store: db, WebSocket: sockets}),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second, // the WebSocket handler clears both for its connections
 		IdleTimeout:       2 * time.Minute,
 		MaxHeaderBytes:    32 << 10,
 	}

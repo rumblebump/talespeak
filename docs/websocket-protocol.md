@@ -8,9 +8,11 @@ Every message, in both directions, is one JSON object with a `type` field.
 
 | Limit | Value | When exceeded |
 | --- | --- | --- |
+| Open connections per server | 1000 | Upgrade refused with HTTP 503 |
 | Message size from the client | 16 KiB | Connection closed (1009, message too big) |
+| Messages per connection | 20 at once, then 10 per second | Connection closed (1008, too many messages) |
 | Silence from the client | 2 minutes | Connection closed (1008, idle timeout); clients ping every 30 s |
-| Message that is not a JSON object | | Connection closed (1003) |
+| Binary frame, or text that is not one JSON object (including `null` and arrays) | | Connection closed (1003) |
 
 ## Messages
 

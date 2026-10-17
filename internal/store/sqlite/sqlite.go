@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	_ "github.com/ncruces/go-sqlite3/driver" // registers the "sqlite3" driver
 
@@ -35,17 +36,42 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, errors.New("sqlite: empty path")
 	}
 	dsn := "file:" + (&url.URL{Path: path}).EscapedPath() +
-		"?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)&_pragma=foreign_keys(1)&_txlock=immediate"
+		"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_txlock=immediate"
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: open: %w", err)
 	}
 	s := &Store{db: db}
+	if err := s.enableWAL(ctx); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := s.migrate(ctx); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return s, nil
+}
+
+// enableWAL switches the file to write-ahead logging, which is stored in the
+// file itself. busy_timeout does not cover this switch, so two processes
+// opening a new file at once retry here instead of failing.
+func (s *Store) enableWAL(ctx context.Context) error {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var mode string
+		err := s.db.QueryRowContext(ctx, `PRAGMA journal_mode = wal`).Scan(&mode)
+		if err == nil && mode == "wal" {
+			return nil
+		}
+		if err == nil {
+			err = fmt.Errorf("journal mode is %q", mode)
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return fmt.Errorf("sqlite: enable WAL: %w", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // migrate applies every embedded migration that has not run yet, each in its
@@ -63,11 +89,16 @@ func (s *Store) migrate(ctx context.Context) error {
 		return err
 	}
 	sort.Strings(files)
+	seen := map[int]string{}
 	for _, f := range files {
 		version, err := migrationVersion(f)
 		if err != nil {
 			return err
 		}
+		if other, dup := seen[version]; dup {
+			return fmt.Errorf("sqlite: migrations %s and %s share version %d", other, f, version)
+		}
+		seen[version] = f
 		if err := s.apply(ctx, version, f); err != nil {
 			return err
 		}
@@ -102,12 +133,14 @@ func (s *Store) apply(ctx context.Context, version int, file string) error {
 	return tx.Commit()
 }
 
-// migrationVersion reads 12 from "migrations/0012_name.sql".
+// migrationVersion reads 12 from "migrations/0012_name.sql". The number must
+// be exactly four digits.
 func migrationVersion(file string) (int, error) {
 	name := strings.TrimPrefix(file, "migrations/")
 	num, _, ok := strings.Cut(name, "_")
+	digits := len(num) == 4 && strings.Trim(num, "0123456789") == ""
 	v, err := strconv.Atoi(num)
-	if !ok || err != nil || v <= 0 {
+	if !ok || !digits || err != nil || v <= 0 {
 		return 0, fmt.Errorf("sqlite: bad migration name %q (want NNNN_name.sql)", name)
 	}
 	return v, nil

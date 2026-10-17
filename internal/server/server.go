@@ -14,10 +14,14 @@ import (
 
 // ContentSecurityPolicy matches deploy/Caddyfile, so a server without Caddy is
 // just as strict: the browser may load nothing from another origin.
+// A test reads deploy/Caddyfile and fails when the two drift apart.
 const ContentSecurityPolicy = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; " +
 	"img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self'; " +
 	"worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; frame-ancestors 'none'; " +
 	"base-uri 'self'; form-action 'self'"
+
+// PermissionsPolicy allows only the microphone (speech input), and only for this site.
+const PermissionsPolicy = "camera=(), geolocation=(), payment=(), usb=(), microphone=(self)"
 
 // Health is the body of GET /healthz.
 type Health struct {
@@ -76,6 +80,9 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		h.Set("Cross-Origin-Embedder-Policy", "require-corp")
+		h.Set("Permissions-Policy", PermissionsPolicy)
 		next.ServeHTTP(w, r)
 	})
 }

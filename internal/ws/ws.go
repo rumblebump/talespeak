@@ -3,9 +3,9 @@
 package ws
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -18,9 +18,16 @@ import (
 const (
 	// MaxMessageBytes is the largest message a client may send.
 	MaxMessageBytes = 16 << 10
-	// IdleTimeout closes a connection that sends nothing for this long.
+	// DefaultIdleTimeout closes a connection that sends nothing for this long.
 	// Clients send a ping well within it.
-	IdleTimeout  = 2 * time.Minute
+	DefaultIdleTimeout = 2 * time.Minute
+	// DefaultMaxConns caps open connections; more get 503.
+	DefaultMaxConns = 1000
+	// DefaultRate and DefaultBurst limit messages per connection
+	// (token bucket: Burst at once, then Rate per second).
+	DefaultRate  = 10
+	DefaultBurst = 20
+
 	writeTimeout = 10 * time.Second
 )
 
@@ -31,37 +38,82 @@ type Message struct {
 	Message string `json:"message,omitempty"`
 }
 
+// Option changes a Server's limits.
+type Option func(*Server)
+
+// WithIdleTimeout sets how long a client may stay silent.
+func WithIdleTimeout(d time.Duration) Option { return func(s *Server) { s.idleTimeout = d } }
+
+// WithMaxConns sets how many connections may be open at once.
+func WithMaxConns(n int) Option { return func(s *Server) { s.maxConns = n } }
+
+// WithRateLimit sets the per-connection message rate (per second) and burst.
+func WithRateLimit(rate float64, burst int) Option {
+	return func(s *Server) { s.rate, s.burst = rate, burst }
+}
+
 // Server accepts WebSocket connections and tracks them for shutdown.
 type Server struct {
-	version string
-	log     *slog.Logger
+	version     string
+	log         *slog.Logger
+	idleTimeout time.Duration
+	maxConns    int
+	rate        float64
+	burst       int
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu     sync.Mutex // guards closed and wg.Add, so Shutdown never races a new connection
+	mu     sync.Mutex // guards closed, active and wg.Add, so Shutdown never races a new connection
 	closed bool
+	active int
 	wg     sync.WaitGroup
 }
 
 // New returns a Server that greets clients with version.
-func New(version string, log *slog.Logger) *Server {
+func New(version string, log *slog.Logger, opts ...Option) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Server{version: version, log: log, ctx: ctx, cancel: cancel}
+	s := &Server{
+		version: version, log: log,
+		idleTimeout: DefaultIdleTimeout, maxConns: DefaultMaxConns,
+		rate: DefaultRate, burst: DefaultBurst,
+		ctx: ctx, cancel: cancel,
+	}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 // ServeHTTP upgrades the request. Cross-origin upgrades are refused: the
 // Origin header must match the Host the request came in on.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
-	if s.closed {
+	switch {
+	case s.closed:
 		s.mu.Unlock()
 		http.Error(w, "shutting down", http.StatusServiceUnavailable)
 		return
+	case s.active >= s.maxConns:
+		s.mu.Unlock()
+		http.Error(w, "too many connections", http.StatusServiceUnavailable)
+		return
 	}
+	s.active++
 	s.wg.Add(1)
 	s.mu.Unlock()
-	defer s.wg.Done()
+	defer func() {
+		s.mu.Lock()
+		s.active--
+		s.mu.Unlock()
+		s.wg.Done()
+	}()
+
+	// The http.Server's read and write timeouts would otherwise also apply to
+	// the hijacked connection and cut every WebSocket after a few seconds.
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(time.Time{})
+	_ = rc.SetWriteDeadline(time.Time{})
 
 	c, err := websocket.Accept(w, r, nil) // nil options = same-origin only
 	if err != nil {
@@ -72,40 +124,38 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handle(s.ctx, c)
 }
 
-// handle runs one connection. Reads and writes use their own timeouts, not
-// the server context: the library drops a connection without a close frame
-// when an operation's context is cancelled, so shutdown sends a proper close
-// from AfterFunc instead.
+// handle runs one connection. Shutdown and the idle timeout close it from
+// timers rather than by cancelling the read: the library drops a connection
+// without a close frame when an operation's context ends.
 func (s *Server) handle(ctx context.Context, c *websocket.Conn) {
 	defer c.CloseNow()
 	stop := context.AfterFunc(ctx, func() {
 		c.Close(websocket.StatusGoingAway, "server shutting down")
 	})
 	defer stop()
+	idle := time.AfterFunc(s.idleTimeout, func() {
+		c.Close(websocket.StatusPolicyViolation, "idle timeout")
+	})
+	defer idle.Stop()
+	limit := newBucket(s.rate, s.burst, time.Now)
 
 	if err := write(c, Message{Type: "welcome", Version: s.version}); err != nil {
 		return
 	}
 	for {
-		readCtx, cancel := context.WithTimeout(context.Background(), IdleTimeout)
-		var m Message
-		err := wsjson.Read(readCtx, c, &m)
-		cancel()
-		switch {
-		case err == nil:
-		case ctx.Err() != nil:
-			return // AfterFunc is closing the connection
-		case errors.Is(err, context.DeadlineExceeded):
-			c.Close(websocket.StatusPolicyViolation, "idle timeout")
+		typ, data, err := c.Read(context.Background())
+		if err != nil {
+			return // closed by the client, the size limit, shutdown or the idle timer
+		}
+		idle.Reset(s.idleTimeout)
+
+		if !limit.allow() {
+			c.Close(websocket.StatusPolicyViolation, "too many messages")
 			return
-		case websocket.CloseStatus(err) != -1:
-			return // client closed
-		default:
-			var syntaxErr *json.SyntaxError
-			var typeErr *json.UnmarshalTypeError
-			if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
-				c.Close(websocket.StatusUnsupportedData, "messages must be JSON objects")
-			}
+		}
+		m, ok := decode(typ, data)
+		if !ok {
+			c.Close(websocket.StatusUnsupportedData, "messages must be JSON objects in text frames")
 			return
 		}
 
@@ -120,6 +170,21 @@ func (s *Server) handle(ctx context.Context, c *websocket.Conn) {
 			return
 		}
 	}
+}
+
+// decode accepts only text frames holding one JSON object.
+func decode(typ websocket.MessageType, data []byte) (Message, bool) {
+	var m Message
+	if typ != websocket.MessageText {
+		return m, false
+	}
+	if t := bytes.TrimLeft(data, " \t\r\n"); len(t) == 0 || t[0] != '{' {
+		return m, false
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return m, false
+	}
+	return m, true
 }
 
 func write(c *websocket.Conn, m Message) error {
@@ -143,4 +208,26 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// bucket is a token bucket: burst tokens, refilled at rate per second.
+type bucket struct {
+	tokens, rate, burst float64
+	last                time.Time
+	now                 func() time.Time
+}
+
+func newBucket(rate float64, burst int, now func() time.Time) *bucket {
+	return &bucket{tokens: float64(burst), rate: rate, burst: float64(burst), last: now(), now: now}
+}
+
+func (b *bucket) allow() bool {
+	t := b.now()
+	b.tokens = min(b.burst, b.tokens+t.Sub(b.last).Seconds()*b.rate)
+	b.last = t
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
 }
