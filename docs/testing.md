@@ -1,6 +1,6 @@
 # Testing
 
-Every feature ships with its tests in the same pull request. Quick tests run on every change to `dev`; the full set runs on release PRs into `main` ([ci-cd.md](ci-cd.md)). Manual and blackbox checks against a server are logged in [protocol/](../protocol/README.md).
+Every feature ships with its tests in the same pull request. Quick tests run on pull requests into `dev`; the full set runs on everything merged into `dev` and on release PRs into `main` ([ci-cd.md](ci-cd.md)). Manual and blackbox checks against a server are logged in [protocol/](../protocol/README.md).
 
 ## Layers
 

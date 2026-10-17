@@ -1,10 +1,10 @@
 # One workflow for the dev branch, the main branch and all pull requests.
 #
-#   push to dev, PR to dev   quick checks: secrets, vet, short tests, build, Trivy fs
-#   PR to main (release PR)   full checks: race + integration tests, govulncheck,
-#                             Playwright, image build + Trivy image scan
-#   push to dev               also pushes the "edge" image and deploys the dev server
-#   push to main              pushes the "main" image and deploys staging (may break)
+#   PR into dev               quick checks: secrets, vet, short tests, build, Trivy fs
+#   push to dev (after merge) full checks for what changed: race + integration tests,
+#                             fuzz, govulncheck, Playwright; "edge" image, dev server
+#   PR into main (release PR) full checks on everything, image build + Trivy image scan
+#   push to main              full checks, "main" image, deploys staging (may break)
 #
 # Tags (v*) are created from main and handled by release.yml.
 # A cheap "changes" job decides which jobs run, and "ci-ok" always reports so it
@@ -28,8 +28,8 @@ permissions:
   contents: read
 
 env:
-  # Full checks on release PRs into main and on main itself.
-  FULL: ${{ (github.event_name == 'pull_request' && github.base_ref == 'main') || github.ref == 'refs/heads/main' }}
+  # Full-depth tests on pushes to dev and main and on release PRs; quick on PRs into dev.
+  FULL: ${{ github.event_name == 'push' || github.base_ref == 'main' }}
   # renovate: datasource=docker depName=zricethezav/gitleaks
   GITLEAKS_VERSION: v8.30.1
   # renovate: datasource=docker depName=rhysd/actionlint
@@ -149,12 +149,13 @@ jobs:
       # and a scan that fails on any external URL in web/.
       - run: echo "web checks go here"
 
-  # Browser tests against a real server binary with the test pack. Full runs only.
+  # Browser tests against a real server binary with the test pack. Not on PRs into dev.
   e2e:
     needs: [changes, go]
     if: >
       always() && needs.changes.outputs.has_e2e == 'true' && needs.changes.outputs.has_go == 'true' &&
-      (github.base_ref == 'main' || github.ref == 'refs/heads/main') &&
+      (github.base_ref == 'main' || github.ref == 'refs/heads/main' ||
+       (github.event_name == 'push' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.web == 'true'))) &&
       !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     steps:

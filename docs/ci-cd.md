@@ -1,12 +1,12 @@
 # CI/CD plan
 
-Branches decide how much runs. Day-to-day work gets quick checks; a release gets everything.
+Branches decide how much runs. Pull requests into `dev` get quick checks, everything merged into `dev` gets the full tests for what changed, and a release gets everything.
 
 ## Branches and environments
 
 | Branch or ref | Purpose | Checks | Image tag | Deploys to |
 | --- | --- | --- | --- | --- |
-| `dev` (default branch) | Day-to-day work; feature PRs and Renovate PRs target it | Quick | `edge` | Dev server |
+| `dev` (default branch) | Day-to-day work; feature PRs and Renovate PRs target it | Full, for what changed | `edge` | Dev server |
 | PR into `dev` | Feature, fix, dependency update | Quick, on the merge result | none | none |
 | PR `dev` → `main` | Release candidate | Full, on the merge result | built and scanned, not pushed | none |
 | `main` | Released code | Full | `main` | Public staging (may break) |
@@ -23,18 +23,18 @@ Pull request runs test the merge result GitHub creates (`refs/pull/N/merge`), so
 
 ## What runs where (`ci.yml`)
 
-| Job | Push to `dev`, PR into `dev` | PR into `main`, push to `main` |
-| --- | --- | --- |
-| `changes` | always | always |
-| `secrets` (gitleaks) | always | always |
-| `lint-ci` (actionlint, Renovate config) | when `.github/` or `renovate.json` changed | same |
-| `go` | when Go or content changed: `go vet`, `go test -short`, build | always: `go vet`, `go test -race` with coverage, short fuzz runs, govulncheck, build |
-| `web` | when `web/` or `e2e/` changed | same |
-| `e2e` (Playwright) | no | always, against a real server binary |
-| `trivy-fs` | when `go.mod`, `go.sum`, `Dockerfile`, `deploy/`, `web/vendor/` or `e2e/package*.json` changed | always |
-| `image` | push to `dev` with code changes: Trivy scan, then amd64 + arm64 pushed as `edge` | always: Trivy scan; on push to `main` also pushed as `main` |
-| `deploy` | push to `dev` when `DEV_DEPLOY` is `true` | push to `main` when `STAGING_DEPLOY` is `true` |
-| `ci-ok` | always | always |
+| Job | PR into `dev` | Push to `dev` | PR into `main`, push to `main` |
+| --- | --- | --- | --- |
+| `changes` | always | always | always |
+| `secrets` (gitleaks) | always | always | always |
+| `lint-ci` (actionlint, Renovate config) | when `.github/` or `renovate.json` changed | same | same |
+| `go` | when Go or content changed: `go vet`, `go test -short`, build | when Go or content changed: `go vet`, `go test -race` with coverage, short fuzz runs, govulncheck, build | always, full like a push to `dev` |
+| `web` | when `web/` or `e2e/` changed | same | same |
+| `e2e` (Playwright) | no | when Go, content or web changed | always |
+| `trivy-fs` | when `go.mod`, `go.sum`, `Dockerfile`, `deploy/`, `web/vendor/` or `e2e/package*.json` changed | same | always |
+| `image` | no | with code changes: Trivy scan, then amd64 + arm64 pushed as `edge` | always: Trivy scan; on push to `main` also pushed as `main` |
+| `deploy` | no | dev server, when `DEV_DEPLOY` is `true` | push to `main`: staging, when `STAGING_DEPLOY` is `true` |
+| `ci-ok` | always | always | always |
 
 - **Docs-only changes** (`*.md`, `docs/`, `tasks/`, `protocol/`) run only `changes`, `secrets` and `ci-ok`, and finish in well under a minute.
 - **Not built yet:** `go`, `image` and `e2e` are skipped until `go.mod` exists (T-0002); `e2e` also waits for `e2e/package.json` (T-0015).
