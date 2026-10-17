@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -13,7 +14,6 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
-	"github.com/rumblebump/talespeak/content"
 	"github.com/rumblebump/talespeak/internal/pack"
 	"github.com/rumblebump/talespeak/internal/script"
 	"github.com/rumblebump/talespeak/internal/ws"
@@ -23,7 +23,7 @@ var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 func demoWorld(t *testing.T) *World {
 	t.Helper()
-	demo, err := pack.Load(content.Demo())
+	demo, err := pack.Load(os.DirFS("testdata/dialog"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestDialogOverWebSocket(t *testing.T) {
 }
 
 func TestCloseWorldWithPausedSessions(t *testing.T) {
-	demo, err := pack.Load(content.Demo())
+	demo, err := pack.Load(os.DirFS("testdata/dialog"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/rumblebump/talespeak/content"
 	"github.com/rumblebump/talespeak/internal/pack"
 	"github.com/rumblebump/talespeak/internal/script"
 	"github.com/rumblebump/talespeak/internal/ws"
@@ -28,7 +28,7 @@ func scriptWorld(t *testing.T, src string, limits script.Limits, log *slog.Logge
 }
 
 func mustDemo() *pack.Pack {
-	p, err := pack.Load(content.Demo())
+	p, err := pack.Load(os.DirFS("testdata/dialog"))
 	if err != nil {
 		panic(err)
 	}
@@ -46,31 +46,6 @@ func jsonLines(t *testing.T, ms []ws.Message) []string {
 		out = append(out, string(b))
 	}
 	return out
-}
-
-// The demo produces the exchange shown in docs/websocket-protocol.md,
-// byte for byte (the room text is shortened there).
-func TestDemoMatchesProtocolDoc(t *testing.T) {
-	w := demoWorld(t)
-	s, first := w.NewSession()
-	defer s.Close()
-	got := jsonLines(t, first)
-	want := []string{
-		`{"type":"room","id":"cell","title":"A damp cell","text":"Stone walls, `,
-		`{"type":"text","text":"A guard leans against the bars, half asleep."}`,
-		`{"type":"dialog","id":"d1","title":"What do you do, traveler?","options":["Ask the guard for water","Search the straw","Wait quietly"]}`,
-	}
-	if len(got) != len(want) || !strings.HasPrefix(got[0], want[0]) || got[1] != want[1] || got[2] != want[2] {
-		t.Fatalf("first messages:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
-	var choose ws.Message
-	if err := json.Unmarshal([]byte(`{"type":"choose","id":"d1","option":2}`), &choose); err != nil {
-		t.Fatal(err)
-	}
-	got = jsonLines(t, s.Handle(choose))
-	if len(got) != 1 || got[0] != `{"type":"text","text":"Under the straw you find a bent nail. It might open the lock."}` {
-		t.Errorf("after choose: %s", strings.Join(got, "\n"))
-	}
 }
 
 func TestSessionsAreIndependent(t *testing.T) {

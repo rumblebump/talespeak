@@ -54,6 +54,21 @@ type Message struct {
 	Text    string   `json:"text,omitempty"`
 	Options []string `json:"options,omitempty"`
 	Option  int      `json:"option,omitempty"`
+	Choices []int    `json:"choices,omitempty"`
+	Min     int      `json:"min,omitempty"`
+	Max     int      `json:"max,omitempty"`
+	Items   []Item   `json:"items,omitempty"`
+	Item    string   `json:"item,omitempty"`
+	URL     string   `json:"url,omitempty"`
+	Strict  bool     `json:"strict,omitempty"`
+	Speak   bool     `json:"speak,omitempty"`
+	Hide    bool     `json:"hide,omitempty"`
+}
+
+// Item is something the player can click.
+type Item struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
 }
 
 // Game is what a connection plays once it is welcomed.

@@ -1,0 +1,5 @@
+# A tiny pack for the browser tests (e2e/): every renderer once.
+# T-0015 adds a second room, a timer and a soundboard.
+id: test-pack
+title: Test pack
+start: hall

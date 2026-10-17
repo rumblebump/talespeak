@@ -15,13 +15,20 @@ The browser client renders text, dialogs and clickable items sent as structured 
 
 - [ ] Message protocol documented in docs/
 - [ ] Text, dialog and clickable item renderers
-- [ ] Keyboard and mouse both work
-- [ ] Plain JavaScript (ES modules, no build step), Alpine.js CSP build vendored in web/vendor/ with version and checksum, own CSS
+- [ ] Typed input (keywords) reaching a Lua `on_input` hook; clicks on items reaching `on_click`
+- [ ] Multiple choice (`ui.select`), several options picked at once
+- [ ] Pack images (`assets/`, served by the engine) shown as a popup with `ui.image`
+- [ ] Read aloud with the browser's local voices (speechSynthesis), off by default
+- [ ] Keyboard and mouse both work; usable at phone width; light and dark theme, large text option
+- [ ] Plain JavaScript (ES modules, no build step), Alpine.js CSP build vendored in web/static/vendor/ with version and checksum, own CSS
 - [ ] Runs under the strict CSP with no console violations; no external URL anywhere in web/
 - [ ] Untrusted text only via x-text or textContent
 - [ ] Playwright tests for every renderer (see T-0015)
 
 ## Notes
+
+Scope widened by Carl 2026-10-17: typed input, multiple choice, read aloud and pack images. Speech to text is T-0017.
+
 
 Decided by Carl 2026-10-17: plain JS with Alpine.js and self-written CSS (replaces the TypeScript and esbuild idea).
 

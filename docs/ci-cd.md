@@ -31,13 +31,13 @@ Pull request runs test the merge result GitHub creates (`refs/pull/N/merge`), so
 | `go` | when Go or content changed: `go vet`, `go test -short`, build | when Go or content changed: `go vet`, `go test -race` with coverage, short fuzz runs, govulncheck, build | always, full like a push to `dev` |
 | `web` | when `web/` or `e2e/` changed | same | same |
 | `e2e` (Playwright) | no | when Go, content or web changed | always |
-| `trivy-fs` | when `go.mod`, `go.sum`, `Dockerfile`, `deploy/`, `web/vendor/` or `e2e/package*.json` changed | same | always |
+| `trivy-fs` | when `go.mod`, `go.sum`, `Dockerfile`, `deploy/`, `web/vendor.json`, `web/static/vendor/` or `e2e/package*.json` changed | same | always |
 | `image` | no | with code changes: Trivy scan, then amd64 + arm64 pushed as `edge` | always: Trivy scan; on push to `main` also pushed as `main` |
 | `deploy` | no | dev server, when `DEV_DEPLOY` is `true` | push to `main`: staging, when `STAGING_DEPLOY` is `true` |
 | `ci-ok` | always | always | always |
 
 - **Docs-only changes** (`*.md`, `docs/`, `tasks/`, `protocol/`) run only `changes`, `secrets` and `ci-ok`, and finish in well under a minute.
-- **Not built yet:** `e2e` is skipped until `e2e/package.json` exists (T-0015). The engine so far is the T-0002 skeleton: SQLite store, `/healthz`, and a `/ws` endpoint with ping and pong.
+- **Web checks:** the `web` job runs `scripts/check-web.sh` (module syntax, no external URL, no HTML sinks, vendored checksums) and `scripts/vendor.sh verify` ([web-client.md](web-client.md)). The `e2e` job runs the Playwright tests in both projects (desktop and phone).
 - **`ci-ok`** always reports, and is the single required status check. Filtering at the trigger level instead would leave required checks waiting forever on docs-only pull requests.
 - **Concurrency:** a new push to the same branch cancels the older run. Deploys never cancel each other.
 

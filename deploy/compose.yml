@@ -32,6 +32,19 @@ services:
       # CIDR list whose X-Forwarded-For is believed; empty in .env keeps the engine default (loopback + private ranges, which include Caddy)
       TALESPEAK_TRUSTED_PROXIES: ${TALESPEAK_TRUSTED_PROXIES:-}
       TALESPEAK_LLM_URL: ${TALESPEAK_LLM_URL:-} # empty = AI features off
+      # Resource limits (docs/admin-limits.md); empty keeps the engine default.
+      TALESPEAK_LUA_TIME: ${TALESPEAK_LUA_TIME:-}
+      TALESPEAK_LUA_CALL_MEMORY: ${TALESPEAK_LUA_CALL_MEMORY:-}
+      TALESPEAK_LUA_STATE_MEMORY: ${TALESPEAK_LUA_STATE_MEMORY:-}
+      TALESPEAK_PACK_IMAGE_MAX: ${TALESPEAK_PACK_IMAGE_MAX:-}
+      TALESPEAK_PACK_IMAGES_TOTAL: ${TALESPEAK_PACK_IMAGES_TOTAL:-}
+      TALESPEAK_MAX_CONNS: ${TALESPEAK_MAX_CONNS:-}
+      TALESPEAK_MAX_CONNS_PER_CLIENT: ${TALESPEAK_MAX_CONNS_PER_CLIENT:-}
+      TALESPEAK_CONNECT_RATE: ${TALESPEAK_CONNECT_RATE:-}
+      TALESPEAK_CONNECT_BURST: ${TALESPEAK_CONNECT_BURST:-}
+      TALESPEAK_MESSAGE_RATE: ${TALESPEAK_MESSAGE_RATE:-}
+      TALESPEAK_MESSAGE_BURST: ${TALESPEAK_MESSAGE_BURST:-}
+      TALESPEAK_IDLE_TIMEOUT: ${TALESPEAK_IDLE_TIMEOUT:-}
     volumes:
       - talespeak_data:/data # SQLite database, uploads, backups
     expose:

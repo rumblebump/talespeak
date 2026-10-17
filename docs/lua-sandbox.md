@@ -10,9 +10,14 @@ Room scripts and, later, rule packs run in [gopher-lua](https://github.com/yuin/
 | `string` | `byte` (at most 8000 values), `char`, `find` (with `plain = true` only), `format`, `len`, `lower`, `rep`, `reverse`, `sub`, `upper`. `match`, `gmatch`, `gfind` and `gsub` raise an error. `format` takes Lua 5.1's conversions only (`%c %d %i %o %u %x %X %e %E %f %g %G %q %s %%`, widths and precisions of at most two digits); `%s` takes strings and numbers |
 | `table` | `concat`, `getn`, `insert`, `maxn`, `remove`, `sort` (at most 20000 entries) |
 | `math` | All of it |
-| `say(text)` | Sends a line to the player (at most 4000 bytes) |
-| `room.describe()` | Sends the current room's title and description |
+| `say(text [, {speak = true, show = false}])` | Sends a line to the player (at most 4000 bytes). `speak = true` reads it aloud even when the player has not turned read aloud on; `show = false` (needs `speak`) only reads it aloud, for listening exercises, and shows it when the device has no local voice |
+| `room.describe()` | Sends the current room's title, description and clickable items |
 | `ui.dialog(title, options)` | Shows 1 to 9 options and waits for the player; returns the option's number and its label |
+| `ui.select(title, options [, {min = 1, max = #options}])` | Multiple choice: the player picks `min` to `max` of 1 to 9 options; returns two lists, the numbers picked (ascending) and their labels |
+| `ui.ask(question [, {strict = true, speak = true, show = false}])` | Waits for a typed answer and returns it: one line of at most 500 bytes, trimmed, control characters turned into spaces. `strict = true` gives no typing help (no autocorrect, autocomplete or suggestions, clickable items hidden), for spelling practice and riddles. `speak` and `show` as in `say`, for the question |
+| `ui.items({{id = "straw", label = "heap of straw"}, ...})` | Replaces what the player can click (at most 20; ids like room ids, labels 1 to 100 bytes); `{}` clears them. A click runs `on_click` |
+| `ui.image(name [, caption])` | Shows an image from the pack's `assets/` folder as a popup, with a caption of at most 200 bytes; an unknown name is an error |
+| `words.normalize(s)`, `words.same(a, b)` | Lowercase, trim and collapse spaces; `same` compares two answers that way, the exact check for spelling |
 
 No string is ever longer than 1 MiB: `..`, `string.rep`, `string.format` and `table.concat` refuse to build one. Numbers passed as counts or positions must be within ±2^31. Varargs (`...`) are not available.
 
@@ -29,6 +34,8 @@ A room script defines global functions the engine calls:
 | Hook | When | Argument |
 | --- | --- | --- |
 | `on_enter(player)` | A player enters the room | `player.name` |
+| `on_input(player, text)` | The player typed a line (outside a question) | the line, cleaned as for `ui.ask` |
+| `on_click(player, id)` | The player clicked an item they were shown | the item's id |
 
 ```lua
 function on_enter(player)
@@ -41,7 +48,31 @@ function on_enter(player)
 end
 ```
 
-The top level of a script runs once when the world starts, for setup. `say`, `room.describe` and `ui.dialog` only work inside hooks. `ui.dialog` can wait anywhere in a hook, also inside `pcall`, a `table.sort` comparator or a metamethod. When the player leaves while a hook waits, `ui.dialog` raises the error "the player left" and the hook runs to its end with its output dropped, within 5 ms; it cannot wait again.
+While a hook waits in `ui.dialog`, `ui.select` or `ui.ask`, the player's typed lines and clicks are refused until they answer.
+
+```lua
+function on_click(player, item)
+  if item == "lock" then
+    local answer = ui.ask("What word opens the lock?", { strict = true })
+    if words.same(answer, "cell") then
+      say("The lock opens!")
+    end
+  elseif item == "scratches" then
+    -- the picture depends on a dice roll
+    if math.random(1, 20) >= 10 then
+      ui.image("wall-map-clear.png", "A map scratched into the wall.")
+    else
+      ui.image("wall-map-faint.png", "Faint scratches.")
+    end
+  end
+end
+```
+
+**Globals belong to the world.** Every player of a world runs the same script state: a global or top-level local set for one player is seen by all. Keep per-player progress out of globals until profiles store it (T-0010).
+
+**Checking answers:** `words.same` ignores only case and extra spaces. A check that forgives small typos comes with Whisp (T-0005).
+
+The top level of a script runs once when the world starts, for setup. `say`, `room.describe` and the `ui` functions only work inside hooks. `ui.dialog`, `ui.select` and `ui.ask` can wait anywhere in a hook, also inside `pcall`, a `table.sort` comparator or a metamethod. When the player leaves while a hook waits, `ui.dialog` raises the error "the player left" and the hook runs to its end with its output dropped, within 5 ms; it cannot wait again.
 
 The name `__concat` is reserved: every `..` in a script is compiled into a call to it.
 
@@ -54,8 +85,10 @@ The name `__concat` is reserved: every `..` in a script is compiled into a call 
 | Memory the world's scripts keep | 64 MiB | The call fails, and so does every later call until the world is restarted |
 | Call depth | 200 | Script error (stack overflow) |
 | Values on the Lua stack | 65536 | Script error (registry overflow) |
-| Output per call | 100 `say` or `room.describe` calls (`ui.dialog` does not count) | Script error |
+| Output per call | 100 calls of `say`, `room.describe`, `ui.items` and `ui.image` (questions do not count) | Script error |
 | Script size | 256 KiB | The pack does not load |
+
+Time per call and both memory limits can be changed by the admin ([admin-limits.md](admin-limits.md)); the others are part of the pack format.
 
 A call is everything from starting or resuming a hook until it ends or waits in `ui.dialog`. The time a player takes to answer a dialog does not count.
 

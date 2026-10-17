@@ -3,30 +3,88 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
   <title>Talespeak</title>
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/app.js"></script>
 </head>
-<body>
+<body x-data="game" @keydown.window="onKey">
+  <header class="bar">
+    <span class="brand">talespeak</span>
+    <span class="status" :data-state="state" x-text="statusText" role="status">loading…</span>
+    <span class="settings">
+      <button type="button" class="toggle" x-cloak x-show="canSpeak" :aria-pressed="readAloud" @click="toggleReadAloud" x-text="readAloudLabel">read aloud</button>
+      <button type="button" class="toggle" :aria-pressed="largeText" @click="toggleLargeText" x-text="largeTextLabel">large text</button>
+    </span>
+  </header>
+
   <main>
-    <pre class="banner">
+    <pre class="banner" aria-hidden="true">
  _____     _
 |_   _|_ _| | ___  ___ _ __   ___  __ _| | __
   | |/ _` | |/ _ \/ __| '_ \ / _ \/ _` | |/ /
-  | | (_| | |  __/\__ \ |_) |  __/ (_| |   <
+  | | (_| | |  __/\__ \ |_) |  __/ (_| |   &lt;
   |_|\__,_|_|\___||___/ .__/ \___|\__,_|_|\_\
                       |_|</pre>
-    <p>Motivating for language and dungeons.</p>
-    <p id="status" class="status" data-state="connecting" aria-live="polite">loading…</p>
-    <section id="story" class="story" aria-live="polite"></section>
-    <div id="dialog" class="dialog" hidden>
-      <p id="dialog-title" class="dialog-title"></p>
-      <ol id="dialog-options" class="dialog-options"></ol>
+    <noscript><p class="error">Talespeak needs JavaScript to talk to the server.</p></noscript>
+
+    <section class="story" x-ref="story" aria-live="polite" aria-label="Story">
+      <template x-for="line in lines" :key="line.n">
+        <p :class="line.kind"><span x-text="line.text"></span><template x-if="line.speech"><button type="button" class="replay" @click="replay(line)">listen again</button></template></p>
+      </template>
+    </section>
+
+    <nav class="items" x-cloak x-show="showItems" aria-label="Things you can click">
+      <span class="muted">you see:</span>
+      <template x-for="item in items" :key="item.id">
+        <button type="button" class="item" x-text="item.label" @click="click(item)"></button>
+      </template>
+    </nav>
+
+    <div class="dialog" x-ref="dialog" x-cloak x-show="dialog" role="group" :aria-label="dialogTitle">
+      <p class="dialog-title"><span x-text="dialogTitle"></span><template x-if="canReplayQuestion"><button type="button" class="replay" @click="replayQuestion">listen again</button></template></p>
+      <p class="muted" x-show="isAsk">Type your answer below.</p>
+      <ol class="dialog-options" x-ref="singleList" x-show="isSingle">
+        <template x-for="(label, i) in dialogOptions" :key="i">
+          <li><button type="button" class="option" x-text="label" @click="choose(i + 1)"></button></li>
+        </template>
+      </ol>
+      <ol class="dialog-options" x-ref="multiList" x-show="isMultiple">
+        <template x-for="(label, i) in dialogOptions" :key="i">
+          <li>
+            <label class="option">
+              <input type="checkbox" :checked="isPicked(i + 1)" @change="toggle(i + 1, $event)">
+              <span x-text="label"></span>
+            </label>
+          </li>
+        </template>
+      </ol>
+      <p class="dialog-actions" x-show="isMultiple">
+        <button type="button" class="confirm" :disabled="!canConfirm" @click="confirm">ok</button>
+        <span class="muted" x-text="selectHint"></span>
+      </p>
     </div>
-    <p class="muted">&gt; The engine is still being built: one room, one Lua script.<span class="cursor">_</span></p>
+
+    <p class="hint" x-cloak x-show="hint" x-text="hint" role="alert"></p>
   </main>
-  <footer>
-    <a href="https://github.com/rumblebump/talespeak">Source code</a> · AGPL-3.0-or-later
-  </footer>
+
+  <form class="prompt" @submit.prevent="submit">
+    <label for="command" class="prompt-sign" aria-label="What you do">&gt;</label>
+    <input id="command" x-ref="command" x-model="draft" @keydown="onInputKey" :placeholder="placeholder"
+           :autocorrect="autocorrect" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="500" enterkeyhint="send">
+    <button type="submit">send</button>
+  </form>
+
+  <dialog class="picture" x-ref="picture" @close="pictureClosed" aria-label="Picture">
+    <figure>
+      <img :src="picture.url" :alt="picture.caption" :class="pictureClass" @load="pictureLoaded">
+      <figcaption x-text="picture.caption"></figcaption>
+    </figure>
+    <button type="button" class="close" @click="closePicture">close</button>
+  </dialog>
+
+  <!-- AGPL section 13: players can get the source. A link to follow, not a resource the page loads,
+       so it works offline; it is the one external URL scripts/check-web.sh allows. -->
+  <footer>Talespeak · AGPL-3.0-or-later · <a href="https://github.com/rumblebump/talespeak" rel="noopener noreferrer">source code</a></footer>
 </body>
 </html>

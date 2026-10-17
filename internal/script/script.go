@@ -47,10 +47,19 @@ const (
 	MaxOutputs = 100
 	// MaxTextBytes caps one say() text.
 	MaxTextBytes = 4000
-	// MaxDialogOptions, MaxTitleBytes and MaxOptionBytes bound ui.dialog.
+	// MaxDialogOptions, MaxTitleBytes and MaxOptionBytes bound ui.dialog
+	// and ui.select.
 	MaxDialogOptions = 9
 	MaxTitleBytes    = 200
 	MaxOptionBytes   = 200
+	// MaxItems, MaxItemIDBytes and MaxLabelBytes bound ui.items.
+	MaxItems       = 20
+	MaxItemIDBytes = 64
+	MaxLabelBytes  = 100
+	// MaxCaptionBytes bounds the caption of ui.image.
+	MaxCaptionBytes = 200
+	// MaxAnswerBytes bounds a typed answer to ui.ask.
+	MaxAnswerBytes = 500
 )
 
 // Errors a call can end with. Script errors wrap ErrScript.
@@ -72,29 +81,98 @@ const cancelTime = 5 * time.Millisecond
 
 // Host receives what a script sends to the player during a call.
 type Host interface {
-	Say(text string)
+	Say(text string, how Voice)
 	DescribeRoom()
+	// Items replaces the things in the room the player can click.
+	Items(items []Item)
+	// Image shows one of the pack's images; it reports false when the pack
+	// has no image of that name.
+	Image(name, caption string) bool
 }
 
-// Dialog is a question a paused hook waits on.
+// Voice says how a line reaches the player, set by say(text, {speak =
+// true, show = false}): Speak reads it aloud even when the player has not
+// turned read aloud on, Hide shows it only when it cannot be spoken.
+type Voice struct {
+	Speak bool
+	Hide  bool
+}
+
+// Item is something the player can click, set with ui.items.
+type Item struct {
+	ID    string
+	Label string
+}
+
+// Dialog is a question a paused hook waits on: ui.dialog, ui.select or
+// ui.ask.
 type Dialog struct {
 	Title   string
 	Options []string
+	// Multiple is set by ui.select: the player picks Min to Max options.
+	Multiple bool
+	Min, Max int
+	// Ask is set by ui.ask: the player types the answer, and Options is
+	// empty. Strict asks the client for no typing help.
+	Ask    bool
+	Strict bool
+	// Voice is how the title reaches the player.
+	Voice Voice
+}
+
+// answer is what a paused hook gets back: choices for ui.dialog and
+// ui.select, text for ui.ask.
+type answer struct {
+	choices []int
+	text    string
+}
+
+// Check returns the player's answer to d in ascending order, or an error
+// when it is not one d accepts: one option for ui.dialog, Min to Max
+// different options for ui.select.
+func (d *Dialog) Check(choices []int) ([]int, error) {
+	n := len(d.Options)
+	if d.Ask {
+		return nil, errors.New("this question wants a typed answer")
+	}
+	if !d.Multiple {
+		if len(choices) != 1 || choices[0] < 1 || choices[0] > n {
+			return nil, errors.New("pick one of the options")
+		}
+		return []int{choices[0]}, nil
+	}
+	if len(choices) < d.Min || len(choices) > d.Max {
+		return nil, fmt.Errorf("pick %d to %d options", d.Min, d.Max)
+	}
+	seen := make([]bool, n+1)
+	for _, c := range choices {
+		if c < 1 || c > n || seen[c] {
+			return nil, errors.New("options must be different numbers of the dialog's options")
+		}
+		seen[c] = true
+	}
+	out := make([]int, 0, len(choices))
+	for c := 1; c <= n; c++ {
+		if seen[c] {
+			out = append(out, c)
+		}
+	}
+	return out, nil
 }
 
 // Env is the global environment of one loaded script. Its globals do not
 // leak into other scripts, and the shared libraries are read-only.
 type Env struct{ table *lua.LTable }
 
-// Thread is a hook paused in ui.dialog. Resume it with the player's choice,
-// or Cancel it when the player leaves.
+// Thread is a hook paused in ui.dialog or ui.select. Resume it with the
+// player's choice, or Cancel it when the player leaves.
 type Thread struct {
 	Dialog Dialog
 
 	co       *lua.LState
-	resume   chan int    // the player's choice; 0 ends the hook
-	events   chan result // the end of each call: a dialog, or the hook's end
-	canceled bool        // set on the hook's goroutine once resume sent 0
+	resume   chan *answer // the player's answer; nil ends the hook
+	events   chan result  // the end of each call: a dialog, or the hook's end
+	canceled bool         // set on the hook's goroutine once resume sent nil
 }
 
 type result struct {
@@ -196,9 +274,10 @@ func (e *Env) HasHook(name string) bool {
 	return ok
 }
 
-// Run calls hook(player) from env. It returns a Thread when the hook waits
-// in ui.dialog, and nil when it finished or the script has no such hook.
-func (r *Runtime) Run(host Host, env *Env, hook, player string) (*Thread, error) {
+// Run calls hook(player, args...) from env. It returns a Thread when the
+// hook waits in ui.dialog, and nil when it finished or the script has no
+// such hook.
+func (r *Runtime) Run(host Host, env *Env, hook, player string, args ...string) (*Thread, error) {
 	if r.closed {
 		return nil, ErrClosed
 	}
@@ -208,26 +287,53 @@ func (r *Runtime) Run(host Host, env *Env, hook, player string) (*Thread, error)
 	}
 	p := r.L.NewTable()
 	p.RawSetString("name", lua.LString(player))
-	return r.start(host, fn, p)
+	values := []lua.LValue{p}
+	for _, a := range args {
+		values = append(values, lua.LString(a))
+	}
+	return r.start(host, fn, values...)
 }
 
-// Resume continues a paused hook; ui.dialog returns choice (1-based) and the
-// option's label. A choice out of range is an error and leaves the hook
-// paused. On any other error the hook is gone.
-func (r *Runtime) Resume(host Host, th *Thread, choice int) (*Thread, error) {
+// Resume continues a paused hook with the player's choices (1-based): one
+// for ui.dialog, which returns it and its label, and Min to Max for
+// ui.select. An answer the dialog does not accept (see Dialog.Check) is an
+// error and leaves the hook paused. On any other error the hook is gone.
+func (r *Runtime) Resume(host Host, th *Thread, choices ...int) (*Thread, error) {
 	if _, ok := r.paused[th]; !ok || r.closed {
 		return nil, fmt.Errorf("%w: hook is not waiting", ErrScript)
 	}
-	if choice < 1 || choice > len(th.Dialog.Options) {
-		return nil, fmt.Errorf("choice %d out of range", choice)
+	choices, err := th.Dialog.Check(choices)
+	if err != nil {
+		return nil, err
 	}
+	return r.answer(host, th, &answer{choices: choices})
+}
+
+// Answer continues a hook paused in ui.ask with the player's typed text,
+// which ui.ask returns. The caller cleans the text (one line, no control
+// characters); Answer refuses an empty or too long one and leaves the hook
+// paused. On any other error the hook is gone.
+func (r *Runtime) Answer(host Host, th *Thread, text string) (*Thread, error) {
+	if _, ok := r.paused[th]; !ok || r.closed {
+		return nil, fmt.Errorf("%w: hook is not waiting", ErrScript)
+	}
+	if !th.Dialog.Ask {
+		return nil, errors.New("this question wants a choice")
+	}
+	if text == "" || len(text) > MaxAnswerBytes {
+		return nil, fmt.Errorf("an answer is 1 to %d bytes", MaxAnswerBytes)
+	}
+	return r.answer(host, th, &answer{text: text})
+}
+
+func (r *Runtime) answer(host Host, th *Thread, a *answer) (*Thread, error) {
 	if r.stateExceeds {
 		r.Cancel(th)
 		return nil, ErrStateMemory
 	}
 	delete(r.paused, th)
 	r.begin(host, th, r.limits.Time)
-	th.resume <- choice
+	th.resume <- a
 	return r.wait(th)
 }
 
@@ -240,8 +346,8 @@ func (r *Runtime) Cancel(th *Thread) {
 	}
 	delete(r.paused, th)
 	r.begin(nil, th, cancelTime)
-	th.resume <- 0
-	// After the 0, ui.dialog refuses to wait again, so the next event is
+	th.resume <- nil
+	// After the nil, ui.dialog refuses to wait again, so the next event is
 	// the hook's end.
 	_, _ = r.wait(th)
 }
@@ -255,7 +361,7 @@ func (r *Runtime) start(host Host, fn *lua.LFunction, args ...lua.LValue) (*Thre
 		return nil, ErrStateMemory
 	}
 	co, _ := r.L.NewThread()
-	th := &Thread{co: co, resume: make(chan int), events: make(chan result)}
+	th := &Thread{co: co, resume: make(chan *answer), events: make(chan result)}
 	r.begin(host, th, r.limits.Time)
 	go th.main(r.cur.ctx, fn, args)
 	return r.wait(th)
@@ -318,21 +424,23 @@ func (r *Runtime) wait(th *Thread) (*Thread, error) {
 	return nil, r.checkState()
 }
 
-// pause is called by ui.dialog on the hook goroutine: it ends the current
-// call, waits for the player and continues under the next call's budgets.
-func (r *Runtime) pause(L *lua.LState, d *Dialog) (int, string) {
+// pause is called by ui.dialog, ui.select and ui.ask on the hook
+// goroutine: it ends the current call, waits for the player and continues
+// under the next call's budgets. It returns the answer Resume or Answer
+// accepted.
+func (r *Runtime) pause(L *lua.LState, d *Dialog) *answer {
 	th := r.cur.thread
 	if th.canceled {
 		L.RaiseError(errLeft)
 	}
 	th.events <- result{dialog: d}
-	choice := <-th.resume // the caller has called begin
+	a := <-th.resume // the caller has called begin
 	L.SetContext(r.cur.ctx)
-	if choice == 0 {
+	if a == nil {
 		th.canceled = true
 		L.RaiseError(errLeft)
 	}
-	return choice, d.Options[choice-1]
+	return a
 }
 
 // checkState measures what the state keeps once enough has been allocated

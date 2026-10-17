@@ -72,6 +72,8 @@ jobs:
             web:
               - 'web/**'
               - 'e2e/**'
+              - 'scripts/check-web.sh'
+              - 'scripts/vendor.sh'
             image:
               - '**/*.go'
               - 'go.mod'
@@ -85,7 +87,8 @@ jobs:
               - 'go.mod'
               - 'go.sum'
               - 'Dockerfile'
-              - 'web/vendor/**'
+              - 'web/vendor.json'
+              - 'web/static/vendor/**'
               - 'e2e/package*.json'
               - 'deploy/**'
             ci:
@@ -147,9 +150,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Filled in with the client (T-0004): JS syntax and type check (tsc --checkJs),
-      # and a scan that fails on any external URL in web/.
-      - run: echo "web checks go here"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      # Module syntax, no external URL in web/, no HTML sinks, vendored files match web/vendor.json.
+      - run: ./scripts/check-web.sh
+      # Each vendored file is byte for byte its npm package (catches a Renovate bump without an update).
+      - run: ./scripts/vendor.sh verify
 
   # Browser tests against a real server binary with the test pack. Not on PRs into dev.
   e2e:
@@ -175,7 +182,7 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
-          npx playwright test --project=chromium
+          npx playwright test
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
