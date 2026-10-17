@@ -10,7 +10,6 @@ Nothing here.
 
 | Id | Title | Type | Priority |
 | --- | --- | --- | --- |
-| [T-0003](open/T-0003-lua-runtime-spike.md) | Lua runtime, YAML room and dialog coroutine | feature | high |
 | [T-0004](open/T-0004-terminal-web-client.md) | Terminal-style web client renderer | feature | high |
 | [T-0005](open/T-0005-whisp-prototype.md) | Whisp tiers 0 and 1 prototype and benchmark | research | high |
 | [T-0006](open/T-0006-kids-chat-filter.md) | Kids mode chat filter | feature | high |
@@ -31,3 +30,4 @@ Nothing here.
 | --- | --- | --- | --- |
 | [T-0001](done/T-0001-repo-bootstrap.md) | Repository bootstrap | chore | high |
 | [T-0002](done/T-0002-engine-skeleton.md) | Engine skeleton: HTTP, WebSocket, storage interface | feature | high |
+| [T-0003](done/T-0003-lua-runtime-spike.md) | Lua runtime, YAML room and dialog coroutine | feature | high |

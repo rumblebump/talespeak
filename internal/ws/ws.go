@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -28,6 +29,12 @@ const (
 	// client cannot take every slot. A school class behind one NAT address
 	// needs a seat each, so this stays well above a class size.
 	DefaultMaxConnsPerClient = 100
+	// DefaultConnectBurst and DefaultConnectRate limit how often one client
+	// address may open connections (token bucket per address): a class
+	// behind one NAT address reconnecting at once fits in the burst, a
+	// client reconnecting in a loop does not.
+	DefaultConnectBurst = 60
+	DefaultConnectRate  = 1
 	// DefaultRate and DefaultBurst limit messages per connection
 	// (token bucket: Burst at once, then Rate per second).
 	DefaultRate  = 10
@@ -36,11 +43,33 @@ const (
 	writeTimeout = 10 * time.Second
 )
 
-// Message is the envelope of every message in both directions.
+// Message is the envelope of every message in both directions. Which fields
+// a type uses is listed in docs/websocket-protocol.md.
 type Message struct {
-	Type    string `json:"type"`
-	Version string `json:"version,omitempty"`
-	Message string `json:"message,omitempty"`
+	Type    string   `json:"type"`
+	Version string   `json:"version,omitempty"`
+	Message string   `json:"message,omitempty"`
+	ID      string   `json:"id,omitempty"`
+	Title   string   `json:"title,omitempty"`
+	Text    string   `json:"text,omitempty"`
+	Options []string `json:"options,omitempty"`
+	Option  int      `json:"option,omitempty"`
+}
+
+// Game is what a connection plays once it is welcomed.
+type Game interface {
+	// NewSession starts a player's session and returns it with the
+	// messages to send first.
+	NewSession() (Session, []Message)
+}
+
+// Session is one player's connection to a Game.
+type Session interface {
+	// Handle answers a message from the player. ping is answered by the
+	// server and never reaches Handle.
+	Handle(Message) []Message
+	// Close ends the session when the connection ends.
+	Close()
 }
 
 // Option changes a Server's limits.
@@ -55,9 +84,19 @@ func WithMaxConns(n int) Option { return func(s *Server) { s.maxConns = n } }
 // WithMaxConnsPerClient sets how many connections one client address may hold.
 func WithMaxConnsPerClient(n int) Option { return func(s *Server) { s.maxPerClient = n } }
 
+// WithConnectRate sets how many connections one client address may open at
+// once (burst) and per second after that (rate).
+func WithConnectRate(rate float64, burst int) Option {
+	return func(s *Server) { s.connectRate, s.connectBurst = rate, burst }
+}
+
 // WithClientIP sets how the client address is found (for example behind a
 // reverse proxy). The default is the TCP peer address.
 func WithClientIP(f func(*http.Request) string) Option { return func(s *Server) { s.clientIP = f } }
+
+// WithGame sets what connections play. Without one, the server answers only
+// ping.
+func WithGame(g Game) Option { return func(s *Server) { s.game = g } }
 
 // WithRateLimit sets the per-connection message rate (per second) and burst.
 func WithRateLimit(rate float64, burst int) Option {
@@ -72,16 +111,20 @@ type Server struct {
 	maxConns     int
 	maxPerClient int
 	clientIP     func(*http.Request) string
+	game         Game
+	connectRate  float64
+	connectBurst int
 	rate         float64
 	burst        int
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu        sync.Mutex // guards closed, active, perClient and wg.Add, so Shutdown never races a new connection
+	mu        sync.Mutex // guards closed, active, perClient, connects and wg.Add, so Shutdown never races a new connection
 	closed    bool
 	active    int
 	perClient map[string]int
+	connects  map[string]*bucket // per client address, for the connect rate
 	wg        sync.WaitGroup
 }
 
@@ -92,8 +135,9 @@ func New(version string, log *slog.Logger, opts ...Option) *Server {
 		version: version, log: log,
 		idleTimeout: DefaultIdleTimeout, maxConns: DefaultMaxConns,
 		maxPerClient: DefaultMaxConnsPerClient, clientIP: peerIP,
+		connectRate: DefaultConnectRate, connectBurst: DefaultConnectBurst,
 		rate: DefaultRate, burst: DefaultBurst,
-		ctx: ctx, cancel: cancel, perClient: map[string]int{},
+		ctx: ctx, cancel: cancel, perClient: map[string]int{}, connects: map[string]*bucket{},
 	}
 	for _, o := range opts {
 		o(s)
@@ -104,7 +148,7 @@ func New(version string, log *slog.Logger, opts ...Option) *Server {
 // ServeHTTP upgrades the request. Cross-origin upgrades are refused: the
 // Origin header must match the Host the request came in on.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	client := s.clientIP(r)
+	client := clientKey(s.clientIP(r))
 	s.mu.Lock()
 	switch {
 	case s.closed:
@@ -114,6 +158,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case s.active >= s.maxConns, s.perClient[client] >= s.maxPerClient:
 		s.mu.Unlock()
 		http.Error(w, "too many connections", http.StatusServiceUnavailable)
+		return
+	case !s.allowConnect(client):
+		s.mu.Unlock()
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "too many new connections", http.StatusTooManyRequests)
 		return
 	}
 	s.active++
@@ -163,6 +212,15 @@ func (s *Server) handle(ctx context.Context, c *websocket.Conn) {
 	if err := write(c, Message{Type: "welcome", Version: s.version}); err != nil {
 		return
 	}
+	var session Session
+	if s.game != nil {
+		var first []Message
+		session, first = s.game.NewSession()
+		defer session.Close()
+		if err := writeAll(c, first); err != nil {
+			return
+		}
+	}
 	for {
 		typ, data, err := c.Read(context.Background())
 		if err != nil {
@@ -180,17 +238,59 @@ func (s *Server) handle(ctx context.Context, c *websocket.Conn) {
 			return
 		}
 
-		var reply Message
-		switch m.Type {
-		case "ping":
-			reply = Message{Type: "pong"}
+		var replies []Message
+		switch {
+		case m.Type == "ping":
+			replies = []Message{{Type: "pong"}}
+		case session != nil:
+			replies = session.Handle(m)
 		default:
-			reply = Message{Type: "error", Message: "unknown message type"}
+			replies = []Message{{Type: "error", Message: "unknown message type"}}
 		}
-		if err := write(c, reply); err != nil {
+		if err := writeAll(c, replies); err != nil {
 			return
 		}
 	}
+}
+
+// maxConnectBuckets bounds the connect-rate map; past it, buckets that have
+// refilled (clients quiet for a while) are dropped. The caller holds mu.
+const maxConnectBuckets = 10000
+
+func (s *Server) allowConnect(client string) bool {
+	b := s.connects[client]
+	if b == nil {
+		if len(s.connects) >= maxConnectBuckets {
+			for k, old := range s.connects {
+				if old.full() {
+					delete(s.connects, k)
+				}
+			}
+		}
+		for k := range s.connects { // still full: drop any one, the map stays bounded
+			if len(s.connects) < maxConnectBuckets {
+				break
+			}
+			delete(s.connects, k)
+		}
+		b = newBucket(s.connectRate, s.connectBurst, time.Now)
+		s.connects[client] = b
+	}
+	return b.allow()
+}
+
+// clientKey is what the per-client limits count by: the address, or for
+// IPv6 its /64, which one home or school network usually gets as a whole.
+func clientKey(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil || !a.Is6() || a.Is4In6() {
+		return ip
+	}
+	p, err := a.Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return p.String()
 }
 
 // peerIP is the TCP peer address without the port.
@@ -215,6 +315,15 @@ func decode(typ websocket.MessageType, data []byte) (Message, bool) {
 		return m, false
 	}
 	return m, true
+}
+
+func writeAll(c *websocket.Conn, ms []Message) error {
+	for _, m := range ms {
+		if err := write(c, m); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func write(c *websocket.Conn, m Message) error {
@@ -249,6 +358,11 @@ type bucket struct {
 
 func newBucket(rate float64, burst int, now func() time.Time) *bucket {
 	return &bucket{tokens: float64(burst), rate: rate, burst: float64(burst), last: now(), now: now}
+}
+
+// full reports whether the bucket has refilled completely.
+func (b *bucket) full() bool {
+	return b.tokens+b.now().Sub(b.last).Seconds()*b.rate >= b.burst
 }
 
 func (b *bucket) allow() bool {

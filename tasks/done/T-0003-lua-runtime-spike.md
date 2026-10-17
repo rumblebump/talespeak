@@ -13,10 +13,10 @@ One room defined in YAML runs a Lua on_enter hook, and ui.dialog() pauses the sc
 
 ## Acceptance
 
-- [ ] gopher-lua sandbox with time and memory limits
-- [ ] Room YAML loader
-- [ ] ui.dialog coroutine round-trip over WebSocket
-- [ ] Protocol entry for the manual test
+- [x] gopher-lua sandbox with time and memory limits
+- [x] Room YAML loader
+- [x] ui.dialog coroutine round-trip over WebSocket (a blocking hook goroutine instead of a coroutine yield; see docs/lua-sandbox.md)
+- [x] Protocol entry for the manual test: protocol/2026-10-17-t-0003-lua-runtime.md
 
 ## Notes
 

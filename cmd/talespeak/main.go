@@ -21,7 +21,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rumblebump/talespeak/content"
 	"github.com/rumblebump/talespeak/internal/clientip"
+	"github.com/rumblebump/talespeak/internal/game"
+	"github.com/rumblebump/talespeak/internal/pack"
+	"github.com/rumblebump/talespeak/internal/script"
 	"github.com/rumblebump/talespeak/internal/server"
 	"github.com/rumblebump/talespeak/internal/store/sqlite"
 	"github.com/rumblebump/talespeak/internal/ws"
@@ -86,7 +90,16 @@ func serve(args []string) error {
 		return err
 	}
 	log := slog.Default()
-	sockets := ws.New(version, log, ws.WithClientIP(proxies.IP))
+	demo, err := pack.Load(content.Demo())
+	if err != nil {
+		return fmt.Errorf("demo pack: %w", err)
+	}
+	world, err := game.NewWorld(demo, script.DefaultLimits, log)
+	if err != nil {
+		return fmt.Errorf("demo pack: %w", err)
+	}
+	defer world.Close()
+	sockets := ws.New(version, log, ws.WithClientIP(proxies.IP), ws.WithGame(world))
 	srv := &http.Server{
 		Addr:              *listen,
 		Handler:           server.New(server.Options{Version: version, Store: db, WebSocket: sockets}),
