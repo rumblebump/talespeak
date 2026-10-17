@@ -116,7 +116,7 @@ func TestWelcomePingAndUnknown(t *testing.T) {
 	c := dial(t, url)
 	ctx := context.Background()
 
-	if m := read(t, c); m != (Message{Type: "welcome", Version: "test-1"}) {
+	if m := read(t, c); m.Type != "welcome" || m.Version != "test-1" {
 		t.Fatalf("first message = %+v", m)
 	}
 	if err := wsjson.Write(ctx, c, Message{Type: "ping"}); err != nil {

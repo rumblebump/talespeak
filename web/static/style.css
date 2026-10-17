@@ -28,5 +28,22 @@ a { color: var(--accent); }
 .status[data-state="online"] { color: var(--accent); }
 .status[data-state="offline"] { color: #f0883e; }
 
+.story p { margin: 0 0 0.75rem; white-space: pre-wrap; }
+.story .room-title { color: var(--accent); font-weight: bold; margin-bottom: 0.25rem; }
+.story .error { color: #f0883e; }
+.dialog { border-left: 2px solid var(--accent); padding-left: 1rem; margin: 1rem 0; }
+.dialog-title { margin: 0 0 0.5rem; }
+.dialog-options { margin: 0; padding-left: 1.5rem; }
+.dialog-options button {
+  font: inherit;
+  color: var(--fg);
+  background: none;
+  border: none;
+  padding: 0.125rem 0;
+  cursor: pointer;
+  text-align: left;
+}
+.dialog-options button:hover, .dialog-options button:focus-visible { color: var(--accent); outline: none; text-decoration: underline; }
+
 @keyframes blink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }

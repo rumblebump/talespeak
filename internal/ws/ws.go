@@ -36,11 +36,33 @@ const (
 	writeTimeout = 10 * time.Second
 )
 
-// Message is the envelope of every message in both directions.
+// Message is the envelope of every message in both directions. Which fields
+// a type uses is listed in docs/websocket-protocol.md.
 type Message struct {
-	Type    string `json:"type"`
-	Version string `json:"version,omitempty"`
-	Message string `json:"message,omitempty"`
+	Type    string   `json:"type"`
+	Version string   `json:"version,omitempty"`
+	Message string   `json:"message,omitempty"`
+	ID      string   `json:"id,omitempty"`
+	Title   string   `json:"title,omitempty"`
+	Text    string   `json:"text,omitempty"`
+	Options []string `json:"options,omitempty"`
+	Option  int      `json:"option,omitempty"`
+}
+
+// Game is what a connection plays once it is welcomed.
+type Game interface {
+	// NewSession starts a player's session and returns it with the
+	// messages to send first.
+	NewSession() (Session, []Message)
+}
+
+// Session is one player's connection to a Game.
+type Session interface {
+	// Handle answers a message from the player. ping is answered by the
+	// server and never reaches Handle.
+	Handle(Message) []Message
+	// Close ends the session when the connection ends.
+	Close()
 }
 
 // Option changes a Server's limits.
@@ -59,6 +81,10 @@ func WithMaxConnsPerClient(n int) Option { return func(s *Server) { s.maxPerClie
 // reverse proxy). The default is the TCP peer address.
 func WithClientIP(f func(*http.Request) string) Option { return func(s *Server) { s.clientIP = f } }
 
+// WithGame sets what connections play. Without one, the server answers only
+// ping.
+func WithGame(g Game) Option { return func(s *Server) { s.game = g } }
+
 // WithRateLimit sets the per-connection message rate (per second) and burst.
 func WithRateLimit(rate float64, burst int) Option {
 	return func(s *Server) { s.rate, s.burst = rate, burst }
@@ -72,6 +98,7 @@ type Server struct {
 	maxConns     int
 	maxPerClient int
 	clientIP     func(*http.Request) string
+	game         Game
 	rate         float64
 	burst        int
 
@@ -163,6 +190,15 @@ func (s *Server) handle(ctx context.Context, c *websocket.Conn) {
 	if err := write(c, Message{Type: "welcome", Version: s.version}); err != nil {
 		return
 	}
+	var session Session
+	if s.game != nil {
+		var first []Message
+		session, first = s.game.NewSession()
+		defer session.Close()
+		if err := writeAll(c, first); err != nil {
+			return
+		}
+	}
 	for {
 		typ, data, err := c.Read(context.Background())
 		if err != nil {
@@ -180,14 +216,16 @@ func (s *Server) handle(ctx context.Context, c *websocket.Conn) {
 			return
 		}
 
-		var reply Message
-		switch m.Type {
-		case "ping":
-			reply = Message{Type: "pong"}
+		var replies []Message
+		switch {
+		case m.Type == "ping":
+			replies = []Message{{Type: "pong"}}
+		case session != nil:
+			replies = session.Handle(m)
 		default:
-			reply = Message{Type: "error", Message: "unknown message type"}
+			replies = []Message{{Type: "error", Message: "unknown message type"}}
 		}
-		if err := write(c, reply); err != nil {
+		if err := writeAll(c, replies); err != nil {
 			return
 		}
 	}
@@ -215,6 +253,15 @@ func decode(typ websocket.MessageType, data []byte) (Message, bool) {
 		return m, false
 	}
 	return m, true
+}
+
+func writeAll(c *websocket.Conn, ms []Message) error {
+	for _, m := range ms {
+		if err := write(c, m); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func write(c *websocket.Conn, m Message) error {
