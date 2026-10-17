@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +13,7 @@ import (
 func get(t *testing.T, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	New("test-1").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	New(Options{Version: "test-1"}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 	return rec
 }
 
@@ -77,5 +79,53 @@ func TestNoExternalReferences(t *testing.T) {
 	}
 	if strings.Contains(body, `rel="stylesheet" href="http`) {
 		t.Error("external stylesheet")
+	}
+}
+
+type fakeStore struct{ err error }
+
+func (f fakeStore) Ping(context.Context) error { return f.err }
+
+func TestHealthzChecksStore(t *testing.T) {
+	tests := []struct {
+		name   string
+		store  Pinger
+		code   int
+		status string
+	}{
+		{"no store", nil, http.StatusOK, "ok"},
+		{"store up", fakeStore{}, http.StatusOK, "ok"},
+		{"store down", fakeStore{errors.New("disk gone")}, http.StatusServiceUnavailable, "unavailable"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			New(Options{Version: "v", Store: tt.store}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+			var h Health
+			if err := json.NewDecoder(rec.Body).Decode(&h); err != nil {
+				t.Fatal(err)
+			}
+			if rec.Code != tt.code || h.Status != tt.status {
+				t.Errorf("got %d %q, want %d %q", rec.Code, h.Status, tt.code, tt.status)
+			}
+			if strings.Contains(rec.Body.String(), "disk gone") {
+				t.Error("health response leaks the internal error")
+			}
+		})
+	}
+}
+
+func TestWebSocketRoute(t *testing.T) {
+	called := false
+	ws := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { called = true })
+	rec := httptest.NewRecorder()
+	New(Options{WebSocket: ws}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ws", nil))
+	if !called {
+		t.Error("/ws did not reach the WebSocket handler")
+	}
+	rec = httptest.NewRecorder()
+	New(Options{}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ws", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("/ws without handler: %d, want 404", rec.Code)
 	}
 }

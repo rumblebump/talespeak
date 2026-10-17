@@ -3,9 +3,11 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"time"
 
 	"github.com/rumblebump/talespeak/web"
 )
@@ -23,19 +25,45 @@ type Health struct {
 	Version string `json:"version"`
 }
 
+// Pinger is the part of the store the health check needs.
+type Pinger interface {
+	Ping(ctx context.Context) error
+}
+
+// Options configure the HTTP handler.
+type Options struct {
+	Version string
+	// Store is checked by /healthz; nil means there is no store to check.
+	Store Pinger
+	// WebSocket serves /ws; nil leaves /ws unrouted.
+	WebSocket http.Handler
+}
+
 // New returns the engine's HTTP handler.
-func New(version string) http.Handler {
+func New(opts Options) http.Handler {
 	static, err := fs.Sub(web.Static, "static")
 	if err != nil {
 		panic(err) // the embedded path is fixed at build time
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(Health{Status: "ok", Version: version})
+		h := Health{Status: "ok", Version: opts.Version}
+		if opts.Store != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			defer cancel()
+			if err := opts.Store.Ping(ctx); err != nil {
+				h.Status = "unavailable"
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}
+		}
+		_ = json.NewEncoder(w).Encode(h)
 	})
+	if opts.WebSocket != nil {
+		mux.Handle("GET /ws", opts.WebSocket)
+	}
 	mux.Handle("GET /", http.FileServerFS(static))
 
 	return securityHeaders(mux)

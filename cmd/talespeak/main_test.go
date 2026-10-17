@@ -23,7 +23,7 @@ func TestHealthURL(t *testing.T) {
 }
 
 func TestHealthcheck(t *testing.T) {
-	ok := httptest.NewServer(server.New("test"))
+	ok := httptest.NewServer(server.New(server.Options{Version: "test"}))
 	defer ok.Close()
 	if err := healthcheck(ok.URL + "/healthz"); err != nil {
 		t.Errorf("healthy server: %v", err)

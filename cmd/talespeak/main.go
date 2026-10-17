@@ -16,11 +16,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/rumblebump/talespeak/internal/server"
+	"github.com/rumblebump/talespeak/internal/store/sqlite"
+	"github.com/rumblebump/talespeak/internal/ws"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -62,23 +65,40 @@ func serve(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if err := os.MkdirAll(*data, 0o750); err != nil {
+		return fmt.Errorf("data directory: %w", err)
+	}
+	db, err := sqlite.Open(ctx, filepath.Join(*data, "talespeak.db"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	log := slog.Default()
+	sockets := ws.New(version, log)
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           server.New(version),
+		Handler:           server.New(server.Options{Version: version, Store: db, WebSocket: sockets}),
 		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    32 << 10,
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
-	slog.Info("talespeak started", "version", version, "listen", *listen, "data", *data)
+	log.Info("talespeak started", "version", version, "listen", *listen, "data", *data)
 
 	select {
 	case err := <-errc:
 		return err
 	case <-ctx.Done():
 	}
-	slog.Info("shutting down")
+	log.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	// WebSockets are hijacked connections that http.Server.Shutdown does not close.
+	if err := sockets.Shutdown(shutdownCtx); err != nil {
+		log.Warn("websockets did not close in time", "err", err)
+	}
 	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
