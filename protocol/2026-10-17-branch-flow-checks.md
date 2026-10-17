@@ -9,7 +9,7 @@ Cloud sandbox, Linux amd64, no Docker daemon. actionlint 1.7.12 and caddy built 
 ## Commands
 
 ```sh
-actionlint -color=false
+actionlint -color=false -shellcheck="$(command -v shellcheck)"   # shellcheck from pip shellcheck-py
 cd deploy && TALESPEAK_DOMAIN=talespeak.example.org ACME_EMAIL=admin@example.org \
   caddy validate --config Caddyfile --adapter caddyfile
 TALESPEAK_DOMAIN=talespeak.example.org ACME_EMAIL=admin@example.org \
@@ -29,6 +29,8 @@ board: 1 doing, 15 open
 ```
 
 ## Findings
+
+- First CI run: lint-ci failed on two shellcheck notes in release.yml (SC2035 unquoted glob in sha256sum, SC2029 intended client-side expansion in ssh). Fixed with `sha256sum -- *` and a disable comment; local actionlint with shellcheck is now clean.
 
 - trivy-action tags older than 0.35.0 were hijacked in March 2026 (GHSA-69fq-xp46-6x23); workflows use 0.35.0 and Renovate pins actions to digests.
 - The CSP is not yet tested in a browser; that comes with the Playwright guard (T-0014, T-0015).

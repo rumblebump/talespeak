@@ -36,7 +36,7 @@ caddy validate: Valid configuration
 
 ## Findings
 
-- Shellcheck inside actionlint was turned off (not installed in the sandbox); rerun with it in CI later.
+- Shellcheck inside actionlint was turned off locally; CI ran it and found two info-level issues (release.yml), fixed and rechecked locally with shellcheck-py.
 - `docker build` of the Dockerfile is still untested; it needs the Go module from T-0002.
 
 ## CI on PR #1 (first run)
