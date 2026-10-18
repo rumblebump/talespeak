@@ -29,9 +29,9 @@ var stringFuncs = []string{"char", "len", "lower", "reverse", "upper"}
 // exponential time. They raise an error until a step-limited matcher exists.
 var patternFuncs = []string{"gfind", "gmatch", "gsub", "match"}
 
-// tableFuncs are the table functions a script gets as they are; concat is
-// wrapped.
-var tableFuncs = []string{"getn", "insert", "maxn", "remove"}
+// tableFuncs are the table functions a script gets as they are; concat,
+// sort and insert are wrapped.
+var tableFuncs = []string{"getn", "maxn", "remove"}
 
 // MaxSortLength is the longest table table.sort accepts. Sorting without a
 // comparator runs entirely in Go, where the time limit cannot stop it;
@@ -106,6 +106,7 @@ func (r *Runtime) openSandbox() *lua.LTable {
 	}
 	tbl.RawSetString("concat", L.NewFunction(tableConcat(fn(fullTbl, "concat"))))
 	tbl.RawSetString("sort", L.NewFunction(tableSort(fn(fullTbl, "sort"))))
+	tbl.RawSetString("insert", L.NewFunction(tableInsert(fn(fullTbl, "insert"))))
 	lib.RawSetString("table", r.readOnly(tbl))
 
 	lib.RawSetString("math", r.readOnly(full.RawGetString("math").(*lua.LTable)))

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"reflect"
 	"strconv"
 
 	lua "github.com/yuin/gopher-lua"
@@ -135,24 +134,6 @@ func (e *encoder) value(v lua.LValue, depth int) error {
 		return errTooLarge
 	}
 	return nil
-}
-
-// The slices behind a table's array part and its hash keys, which keep
-// removed keys: reflect can read their lengths, not their contents.
-var tableArray, tableKeys = tableField("array"), tableField("keys")
-
-func tableField(name string) int {
-	f, ok := reflect.TypeFor[lua.LTable]().FieldByName(name)
-	if !ok || f.Type.Kind() != reflect.Slice {
-		panic("gopher-lua's LTable has no slice " + name + ": check tableSlots")
-	}
-	return f.Index[0]
-}
-
-// tableSlots is how many slots Next may look at to walk t.
-func tableSlots(t *lua.LTable) int {
-	v := reflect.ValueOf(t).Elem()
-	return v.Field(tableArray).Len() + v.Field(tableKeys).Len()
 }
 
 var errDamaged = errors.New("a kept value is damaged")

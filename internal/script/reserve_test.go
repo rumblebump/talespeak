@@ -71,7 +71,8 @@ func TestDecodeRefusesLargeArrays(t *testing.T) {
 	}{
 		{"at the budget", table(maxStateScan), true},
 		{"past the budget", table(maxStateScan + 1), false},
-		{"near gopher-lua's array limit", table(1<<26 - 1), false},
+		{"near the array limit", table(MaxArrayIndex - 1), false},
+		{"past the array limit, in the hash part", table(1<<26 - 1), true},
 		{"hash part", table(1 << 30), true},
 		{"fraction", table(maxStateScan + 0.5), true},
 		{"arrays adding up", append(append([]byte{tagTable, tagInt, 2}, table(maxStateScan)...), append([]byte{tagInt, 4}, append(table(maxStateScan), tagEnd)...)...), false},
