@@ -13,7 +13,12 @@ Scripts keep progress in the database, not in Lua variables: a player's progress
 
 ## Acceptance
 
-- [ ] Lua API: `state.player` (per profile and pack), `state.world` (shared by the world's players), `state.game` (per pack, GM-controlled); plain values only (nil, booleans, numbers, strings, tables of them)
+- [ ] Lua API: `state.player` (per character in this world), `state.world` (shared by the world's players), `state.game` (per pack, GM-controlled), each with `get(key)` and `set(key, value)`; plain values only (nil, booleans, numbers, strings, tables of them). Only what a script sets explicitly is stored: globals are never saved automatically
+- [ ] World state and the players' state in it are deleted when the world is finished
+- [ ] Character position (room) is saved on every room change; a player who comes back continues where they left
+- [ ] Death setting per world, default from the pack, set by the GM when the world is created: dead stays dead, revive (by a spell or another script action), or respawn at the last save point; save points are set by scripts
+- [ ] Inventory stored per character, ruleset version and world; on finishing, it can move to another world whose pack accepts that ruleset (the compatibility rules of T-0010)
+- [ ] No chat log: the engine keeps only the last 10 chat messages per world in memory, for players who join, and never writes chat to the database (edu GM transcript excepted, T-0011)
 - [ ] Stored through the Store interface (SQLite now, Postgres later), written after each hook, read before it; no SQL in game code
 - [ ] Limits per key, per player and per world, configurable like the other resource limits (docs/admin-limits.md)
 - [ ] Edu mode: strings written into `state.world` or `state.game` pass the chat filter and appear in the GM transcript (typed text shared between players is chat)
@@ -21,6 +26,8 @@ Scripts keep progress in the database, not in Lua variables: a player's progress
 - [ ] Tests: restart keeps state, two players see world state, player state stays private, limits, fuzzed values
 
 ## Notes
+
+Carl 2026-10-18 (death, inventory, position, no chat log, world state deleted when the world ends): see the acceptance items above. Pack authors write state with explicit calls rather than saved globals, because globals hold functions and temporary values and would make every variable shared or lasting by accident.
 
 Decided by Carl 2026-10-17: script globals are per player and only live as long as the session (T-0004); everything that must last is stored in the database.
 

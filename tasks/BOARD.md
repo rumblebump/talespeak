@@ -24,6 +24,7 @@ Nothing here.
 | [T-0016](open/T-0016-world-visibility.md) | Public, invite-only and secret worlds with player limits | feature | medium |
 | [T-0017](open/T-0017-speech-to-text.md) | Speech to text, private by default | feature | medium |
 | [T-0018](open/T-0018-persistent-state.md) | Player, world and game state stored in SQLite | feature | high |
+| [T-0019](open/T-0019-turn-order.md) | Free and turn-based rounds in a room | feature | high |
 
 ## Done
 
