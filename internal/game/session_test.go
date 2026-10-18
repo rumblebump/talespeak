@@ -17,9 +17,9 @@ import (
 	"github.com/rumblebump/talespeak/internal/ws"
 )
 
-func scriptWorld(t *testing.T, src string, limits script.Limits, log *slog.Logger) *World {
+func scriptWorld(t *testing.T, src string, limits script.Limits, log *slog.Logger, opts ...Option) *World {
 	t.Helper()
-	w, err := NewWorld(packWith(src), limits, log)
+	w, err := NewWorld(packWith(src), limits, log, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,4 +378,51 @@ func FuzzSessionHandle(f *testing.F) {
 			}
 		}
 	})
+}
+
+// The players of one address keep at most their share of a world's script
+// state, so a few addresses with many connections cannot fill the world
+// and keep everyone else out (T-0004 security re-review). A class of 30
+// behind one address fits with a 10000-word list.
+func TestClientMemoryShare(t *testing.T) {
+	slow := script.DefaultLimits
+	slow.Time = 10 * time.Second // the top level takes longer than 100 ms with -race
+	w := scriptWorld(t, `words = {} for i = 1, 10000 do words[i] = "word" .. i end
+function on_enter() say(words[#words]) end`, slow, quiet, WithClientBudget(time.Second, time.Hour))
+	var open []ws.Session
+	closeAll := func() {
+		for _, s := range open {
+			s.Close()
+		}
+		open = nil
+	}
+	defer closeAll()
+	n := 0
+	for ; n < 200; n++ {
+		s, first := w.NewSession("192.0.2.1")
+		open = append(open, s)
+		if kinds(first) == "error:" {
+			if !strings.Contains(first[0].Message, "your network") {
+				t.Fatalf("message = %q", first[0].Message)
+			}
+			break
+		}
+	}
+	if n < 30 || n == 200 {
+		t.Fatalf("one address got %d sessions with a 10000-word list, want at least 30 and a limit", n)
+	}
+	s, first := w.NewSession("198.51.100.1")
+	open = append(open, s)
+	if kinds(first) != "text:" {
+		t.Errorf("another address while the first keeps its share = %+v", first)
+	}
+	closeAll()
+	s, first = w.NewSession("192.0.2.1")
+	open = append(open, s)
+	if kinds(first) != "text:" {
+		t.Errorf("first address after its players left = %+v", first)
+	}
+	if len(w.clientEnvs) != 1 || len(w.clientEnvs["192.0.2.1"]) != 1 {
+		t.Errorf("clientEnvs = %d clients, want the one open session", len(w.clientEnvs))
+	}
 }

@@ -83,6 +83,7 @@ The name `__concat` is reserved: every `..` in a script is compiled into a call 
 | Time per call | 100 ms | The call stops with "script ran too long" |
 | Memory allocated per call | 32 MiB | The call stops with "script used too much memory" |
 | Memory one player's instance of a script keeps | 4 MiB | The call fails; the player's state in that room starts over on their next action |
+| Memory the instances of one client address keep together | 64 MiB | New players and rooms from that address are refused ("Too many players from your network") until some leave |
 | Memory all instances of a world keep together | 256 MiB | The call fails, and new players and rooms are refused ("This world is full right now") until others leave |
 | Call depth | 200 | Script error (stack overflow) |
 | Values on the Lua stack | 65536 | Script error (registry overflow) |

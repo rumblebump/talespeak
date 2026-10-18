@@ -575,4 +575,16 @@ func (r *Runtime) measure(env *lua.LTable, st *envState, paused []*Thread) {
 	kept := retained(roots, r.shared, r.limits.PlayerMemory)
 	r.total += kept - st.kept - st.sinceWalk
 	st.kept, st.sinceWalk = kept, 0
+	if kept > r.limits.PlayerMemory {
+		st.broken = true // the walk stopped counting: what it keeps is unknown
+	}
+}
+
+// Kept is at least what env keeps: its last measurement plus what its calls
+// allocated since. It is 0 for a released Env.
+func (r *Runtime) Kept(e *Env) int64 {
+	if st := r.envs[e.table]; st != nil {
+		return st.kept + st.sinceWalk
+	}
+	return 0
 }

@@ -22,6 +22,7 @@ type limits struct {
 	pack   pack.Limits
 
 	luaClientRate, luaClientBurst time.Duration
+	luaClientMemory               int64
 
 	maxConns, maxConnsPerClient int
 	connectRate                 float64
@@ -39,6 +40,7 @@ func loadLimits(getenv func(string) string) (limits, error) {
 		script:            script.DefaultLimits,
 		luaClientRate:     game.DefaultClientRate,
 		luaClientBurst:    game.DefaultClientBurst,
+		luaClientMemory:   game.DefaultClientMemory,
 		pack:              pack.DefaultLimits,
 		maxConns:          ws.DefaultMaxConns,
 		maxConnsPerClient: ws.DefaultMaxConnsPerClient,
@@ -108,6 +110,10 @@ func loadLimits(getenv func(string) string) (limits, error) {
 		l.script.PlayerMemory = min(l.script.PlayerMemory, l.script.StateMemory) // a small world lowers both at once
 	}
 	size("TALESPEAK_LUA_PLAYER_MEMORY", &l.script.PlayerMemory, 64<<10, 1<<30)
+	if getenv("TALESPEAK_LUA_CLIENT_MEMORY") == "" {
+		l.luaClientMemory = min(l.luaClientMemory, l.script.StateMemory)
+	}
+	size("TALESPEAK_LUA_CLIENT_MEMORY", &l.luaClientMemory, 64<<10, 4<<30)
 	size("TALESPEAK_PACK_IMAGE_MAX", &l.pack.AssetBytes, 1<<10, 64<<20)
 	size("TALESPEAK_PACK_IMAGES_TOTAL", &l.pack.AssetsBytes, 1<<10, 4<<30)
 	count("TALESPEAK_MAX_CONNS", &l.maxConns, 1, 1_000_000)
@@ -124,6 +130,9 @@ func loadLimits(getenv func(string) string) (limits, error) {
 
 	if l.script.StateMemory < l.script.PlayerMemory {
 		errs = append(errs, fmt.Errorf("TALESPEAK_LUA_STATE_MEMORY (%s) is smaller than TALESPEAK_LUA_PLAYER_MEMORY (%s)", formatBytes(l.script.StateMemory), formatBytes(l.script.PlayerMemory)))
+	}
+	if l.luaClientMemory > l.script.StateMemory {
+		errs = append(errs, fmt.Errorf("TALESPEAK_LUA_CLIENT_MEMORY (%s) is larger than TALESPEAK_LUA_STATE_MEMORY (%s)", formatBytes(l.luaClientMemory), formatBytes(l.script.StateMemory)))
 	}
 	if l.pack.AssetsBytes < l.pack.AssetBytes {
 		errs = append(errs, fmt.Errorf("TALESPEAK_PACK_IMAGES_TOTAL (%s) is smaller than TALESPEAK_PACK_IMAGE_MAX (%s)", formatBytes(l.pack.AssetsBytes), formatBytes(l.pack.AssetBytes)))

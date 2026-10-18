@@ -211,3 +211,29 @@ func TestPlayerAndWorldMemory(t *testing.T) {
 		t.Errorf("Instance after half were released: %v", err)
 	}
 }
+
+// Any measurement that finds an Env over its limit breaks it, also one made
+// for the world's total (T-0004 security re-review): the walk stops counting
+// at the limit, so the Env's real size is unknown.
+func TestMeasureBreaksOversizedEnv(t *testing.T) {
+	r := New(Limits{Time: time.Second, CallMemory: 64 << 20, PlayerMemory: 1 << 20, StateMemory: 64 << 20})
+	defer r.Close()
+	env := load(t, r, `keep = {} function grow() keep[#keep + 1] = string.rep("x", 1e5) .. #keep end`)
+	st := r.envs[env.table]
+	for range 15 { // 1.5 MB in steps below a walk's threshold, measured only at the end
+		if _, err := r.Run(&recorder{}, env, "grow", "p"); err != nil && !errors.Is(err, ErrStateMemory) {
+			t.Fatal(err)
+		}
+		st.sinceWalk, r.total = 0, 0
+	}
+	r.measure(env.table, st, nil)
+	if !st.broken {
+		t.Fatalf("kept %d bytes over a 1 MiB limit, not broken", st.kept)
+	}
+	if _, err := r.Run(&recorder{}, env, "grow", "p"); !errors.Is(err, ErrStateMemory) {
+		t.Errorf("next call: err = %v, want ErrStateMemory", err)
+	}
+	if r.Kept(env) <= 1<<20 {
+		t.Errorf("Kept = %d, want over the limit", r.Kept(env))
+	}
+}

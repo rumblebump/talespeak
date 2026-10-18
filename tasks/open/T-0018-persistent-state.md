@@ -24,4 +24,6 @@ Scripts keep progress in the database, not in Lua variables: a player's progress
 
 Decided by Carl 2026-10-17: script globals are per player and only live as long as the session (T-0004); everything that must last is stored in the database.
 
+From the T-0004 security re-review: every player runs each room's top level and keeps its own copy, so a 10000-word list costs about 1.2 MiB per player and room. Read-only data shared by all players (word lists, tables loaded once per world, frozen) would make a player cost a few KiB and remove the need for the per-address memory share as a capacity limit.
+
 Design: Talespeak Engine Design doc, https://claude.ai/code/artifact/15bc0469-681c-4afa-b7b9-5d227560ebc6

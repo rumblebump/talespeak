@@ -336,28 +336,27 @@ func TestClientBudgetsStayBounded(t *testing.T) {
 }
 
 // A client cannot push its own used-up budget out of a full map to get a
-// fresh one (T-0004 security re-review): budgets in debt are kept, and a new
-// client waits until one refills.
-func TestUsedBudgetsAreNotEvicted(t *testing.T) {
+// fresh one (T-0004 security re-reviews): the budget closest to full makes
+// room, and a budget made while the map is full starts with one second's
+// share, not the burst.
+func TestFullBudgetMap(t *testing.T) {
 	w := scriptWorld(t, `function on_enter() end`, script.DefaultLimits, quiet)
 	now := time.Unix(1e9, 0)
 	w.now = func() time.Time { return now }
-	for i := range maxBudgets {
+	for i := range maxBudgets - 1 {
 		w.budgets["c"+strconv.Itoa(i)] = &budget{left: -1, last: now}
 	}
+	w.budgets["almost"] = &budget{left: w.burst / 2, last: now}
 	s, first := w.NewSession("new")
 	s.Close()
-	if !isError(first) || !strings.Contains(first[0].Message, "Too much") {
-		t.Errorf("new client while every budget is used up = %+v", first)
-	}
-	if w.budgets["c0"] == nil || len(w.budgets) != maxBudgets {
-		t.Errorf("used-up budgets evicted: %d left", len(w.budgets))
-	}
-	now = now.Add(time.Minute) // every budget has refilled
-	s, first = w.NewSession("new")
-	s.Close()
 	if isError(first) {
-		t.Errorf("new client after the others refilled = %+v", first)
+		t.Errorf("new client while the map is full = %+v", first)
+	}
+	if w.budgets["almost"] != nil || w.budgets["c0"] == nil || len(w.budgets) != maxBudgets {
+		t.Errorf("evicted the wrong budget: almost=%v c0=%v len=%d", w.budgets["almost"], w.budgets["c0"], len(w.budgets))
+	}
+	if b := w.budgets["new"]; b == nil || b.left > w.rate {
+		t.Errorf("new budget in a full map = %+v, want at most %v", b, w.rate)
 	}
 }
 

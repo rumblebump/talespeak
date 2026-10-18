@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -36,8 +37,19 @@ const (
 	DefaultClientBurst = 2 * time.Second
 )
 
+// DefaultClientMemory is how much script state the players of one client
+// address may keep in a world together: a quarter of the default world
+// limit, so a few addresses holding many connections cannot fill a world
+// and keep everyone else out. A class of 30 behind one NAT address fits
+// with a 10000-word list.
+const DefaultClientMemory = 64 << 20
+
 // ErrBusy is returned when a client address has used up its Lua time.
 var ErrBusy = errors.New("this address used up its script time")
+
+// ErrClientFull is returned when the players of a client address keep their
+// share of the world's script state.
+var ErrClientFull = errors.New("this address keeps its share of the world's script state")
 
 // maxBudgets bounds the per-client budget map, as in package ws.
 const maxBudgets = 10000
@@ -55,6 +67,12 @@ type Option func(*World)
 // at once, then rate per second.
 func WithClientBudget(rate, burst time.Duration) Option {
 	return func(w *World) { w.rate, w.burst = rate.Seconds(), burst.Seconds() }
+}
+
+// WithClientMemory sets how much script state the players of one client
+// address may keep together.
+func WithClientMemory(n int64) Option {
+	return func(w *World) { w.clientMemory = n }
 }
 
 // World is one running game. Its Lua state is used by one session at a time.
@@ -75,6 +93,9 @@ type World struct {
 	rate, burst float64            // Lua seconds per second and at once, per client
 	budgets     map[string]*budget // client -> Lua time left
 	now         func() time.Time
+
+	clientMemory int64                               // script state one client may keep
+	clientEnvs   map[string]map[*script.Env]struct{} // client -> its players' script instances
 }
 
 // budget is a token bucket of Lua time in seconds. It may go below zero
@@ -89,7 +110,7 @@ type budget struct {
 // error.
 func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Option) (*World, error) {
 	w := &World{log: log, pack: p, rt: script.New(limits), scripts: map[string]*script.Script{},
-		budgets: map[string]*budget{}, now: time.Now}
+		budgets: map[string]*budget{}, now: time.Now, clientMemory: DefaultClientMemory, clientEnvs: map[string]map[*script.Env]struct{}{}}
 	WithClientBudget(DefaultClientRate, DefaultClientBurst)(w)
 	for _, o := range opts {
 		o(w)
@@ -154,10 +175,10 @@ func (w *World) timed(client string, f func() error) error {
 	now := w.now()
 	b := w.budgets[client]
 	if b == nil {
-		if !w.pruneBudgets(now) {
-			return ErrBusy
-		}
 		b = &budget{left: w.burst, last: now}
+		if !w.pruneBudgets(now) {
+			b.left = min(w.burst, w.rate) // a full map: start with one second's share
+		}
 		w.budgets[client] = b
 	}
 	b.left = min(w.burst, b.left+now.Sub(b.last).Seconds()*w.rate)
@@ -173,20 +194,51 @@ func (w *World) timed(client string, f func() error) error {
 }
 
 // pruneBudgets makes room for a new budget: past maxBudgets, budgets that
-// have refilled are dropped. Budgets still used up are kept, so a client
-// cannot push its own out of the map to get a full one; when every budget
-// is in use it reports false and the new client waits. The caller holds
-// w.mu.
+// have refilled are dropped. When none has, it drops the one closest to
+// full and reports false: the new budget then starts small, so a client
+// cannot push its own used-up budget out of the map to get a full one. The
+// caller holds w.mu.
 func (w *World) pruneBudgets(now time.Time) bool {
 	if len(w.budgets) < maxBudgets {
 		return true
 	}
+	fullest, most := "", math.Inf(-1)
 	for k, b := range w.budgets {
-		if b.left+now.Sub(b.last).Seconds()*w.rate >= w.burst {
+		left := b.left + now.Sub(b.last).Seconds()*w.rate
+		if left >= w.burst {
 			delete(w.budgets, k)
+		} else if left > most {
+			fullest, most = k, left
 		}
 	}
-	return len(w.budgets) < maxBudgets
+	if len(w.budgets) < maxBudgets {
+		return true
+	}
+	delete(w.budgets, fullest)
+	return false
+}
+
+// clientKept is at least what the players of client keep in script state.
+// The caller holds w.mu.
+func (w *World) clientKept(client string) int64 {
+	var n int64
+	for env := range w.clientEnvs[client] {
+		n += w.rt.Kept(env)
+	}
+	return n
+}
+
+// release frees one of client's script instances. The caller holds w.mu.
+func (w *World) release(client string, env *script.Env) {
+	if !w.closed {
+		w.rt.Release(env)
+	}
+	if envs := w.clientEnvs[client]; envs != nil {
+		delete(envs, env)
+		if len(envs) == 0 {
+			delete(w.clientEnvs, client)
+		}
+	}
 }
 
 // session is one player. Its methods are called from the connection's
@@ -227,10 +279,8 @@ func (s *session) Close() {
 	s.w.mu.Lock()
 	defer s.w.mu.Unlock()
 	s.drop()
-	if !s.w.closed {
-		for _, env := range s.envs {
-			s.w.rt.Release(env)
-		}
+	for _, env := range s.envs {
+		s.w.release(s.client, env)
 	}
 	s.envs = nil
 }
@@ -248,6 +298,9 @@ func (s *session) env(room string) (*script.Env, error) {
 	if s.w.closed {
 		return nil, script.ErrClosed
 	}
+	if s.client != "" && s.w.clientKept(s.client) >= s.w.clientMemory {
+		return nil, ErrClientFull
+	}
 	var env *script.Env
 	err := s.w.timed(s.client, func() (err error) {
 		env, err = s.w.rt.Instance(sc)
@@ -260,6 +313,12 @@ func (s *session) env(room string) (*script.Env, error) {
 		s.envs = map[string]*script.Env{}
 	}
 	s.envs[room] = env
+	if s.client != "" {
+		if s.w.clientEnvs[s.client] == nil {
+			s.w.clientEnvs[s.client] = map[*script.Env]struct{}{}
+		}
+		s.w.clientEnvs[s.client][env] = struct{}{}
+	}
 	return env, nil
 }
 
@@ -268,7 +327,7 @@ func (s *session) env(room string) (*script.Env, error) {
 func (s *session) reset(room string) {
 	if env := s.envs[room]; env != nil {
 		s.drop()
-		s.w.rt.Release(env)
+		s.w.release(s.client, env)
 		delete(s.envs, room)
 	}
 }
@@ -482,6 +541,8 @@ func playerError(err error) string {
 		return "This world has closed."
 	case errors.Is(err, script.ErrFull):
 		return "This world is full right now. Try again later."
+	case errors.Is(err, ErrClientFull):
+		return "Too many players from your network are in this world right now. Try again later."
 	case errors.Is(err, script.ErrTimeout), errors.Is(err, script.ErrMemory), errors.Is(err, script.ErrStateMemory):
 		return "This room's script hit its limits. Tell the game master."
 	default:
