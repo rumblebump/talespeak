@@ -29,9 +29,9 @@ var stringFuncs = []string{"char", "len", "lower", "reverse", "upper"}
 // exponential time. They raise an error until a step-limited matcher exists.
 var patternFuncs = []string{"gfind", "gmatch", "gsub", "match"}
 
-// tableFuncs are the table functions a script gets as they are; concat is
-// wrapped.
-var tableFuncs = []string{"getn", "insert", "maxn", "remove"}
+// tableFuncs are the table functions a script gets as they are; concat,
+// sort and insert are wrapped.
+var tableFuncs = []string{"getn", "maxn", "remove"}
 
 // MaxSortLength is the longest table table.sort accepts. Sorting without a
 // comparator runs entirely in Go, where the time limit cannot stop it;
@@ -106,6 +106,7 @@ func (r *Runtime) openSandbox() *lua.LTable {
 	}
 	tbl.RawSetString("concat", L.NewFunction(tableConcat(fn(fullTbl, "concat"))))
 	tbl.RawSetString("sort", L.NewFunction(tableSort(fn(fullTbl, "sort"))))
+	tbl.RawSetString("insert", L.NewFunction(tableInsert(fn(fullTbl, "insert"))))
 	lib.RawSetString("table", r.readOnly(tbl))
 
 	lib.RawSetString("math", r.readOnly(full.RawGetString("math").(*lua.LTable)))
@@ -115,13 +116,24 @@ func (r *Runtime) openSandbox() *lua.LTable {
 	room := L.NewTable()
 	room.RawSetString("describe", L.NewFunction(r.describe))
 	room.RawSetString("go", L.NewFunction(r.goRoom))
+	room.RawSetString("players", L.NewFunction(r.roomPlayers))
 	lib.RawSetString("room", r.readOnly(room))
 	player := L.NewTable()
-	player.RawSetString("get", L.NewFunction(r.stateGet))
-	player.RawSetString("set", L.NewFunction(r.stateSet))
+	player.RawSetString("get", L.NewFunction(r.stateGet(r.playerState, "state.player")))
+	player.RawSetString("set", L.NewFunction(r.stateSet(r.playerState, "state.player")))
 	state := L.NewTable()
 	state.RawSetString("player", r.readOnly(player))
+	world := L.NewTable()
+	world.RawSetString("get", L.NewFunction(r.stateGet(r.worldState, "state.world")))
+	world.RawSetString("set", L.NewFunction(r.stateSet(r.worldState, "state.world")))
+	world.RawSetString("update", L.NewFunction(r.stateUpdate))
+	state.RawSetString("world", r.readOnly(world))
 	lib.RawSetString("state", r.readOnly(state))
+	timer := L.NewTable()
+	timer.RawSetString("start", L.NewFunction(r.timerStart))
+	timer.RawSetString("cancel", L.NewFunction(r.timerCancel))
+	timer.RawSetString("left", L.NewFunction(r.timerLeft))
+	lib.RawSetString("timer", r.readOnly(timer))
 	ui := L.NewTable()
 	ui.RawSetString("dialog", L.NewFunction(r.dialog))
 	ui.RawSetString("select", L.NewFunction(r.choose))
@@ -385,7 +397,7 @@ func fromArg(L *lua.LState, t *lua.LTable, n int) string {
 		return ""
 	case lua.LString:
 		s := string(v)
-		if strings.TrimSpace(s) == "" || len(s) > MaxFromBytes || !utf8.ValidString(s) || strings.IndexFunc(s, unicode.IsControl) >= 0 {
+		if strings.TrimSpace(s) == "" || len(s) > MaxFromBytes || !utf8.ValidString(s) || strings.IndexFunc(s, notInLine) >= 0 {
 			L.ArgError(n, "from must be a name of 1 to 40 bytes on one line")
 		}
 		return s
@@ -417,22 +429,32 @@ func (r *Runtime) goRoom(L *lua.LState) int {
 	return 0
 }
 
-// ui.dialog(title, options [, {from = name}]) shows a choice and waits until the player picks
-// one. It returns the option's number (1-based) and its label.
+// ui.dialog(title, options [, {from = name, timeout = seconds}]) shows a
+// choice and waits until the player picks one. It returns the option's
+// number (1-based) and its label, or nil once the timeout passed.
 func (r *Runtime) dialog(L *lua.LState) int {
 	d := r.dialogArgs(L, "ui.dialog")
 	if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
-		d.Voice.From = fromArg(L, L.CheckTable(3), 3)
+		opts := L.CheckTable(3)
+		d.Voice.From = fromArg(L, opts, 3)
+		d.Timeout = timeoutArg(L, opts, 3)
 	}
-	choices := r.pause(L, &d).choices
+	a := r.pause(L, &d)
+	if a.expired {
+		L.Push(lua.LNil)
+		L.Push(lua.LNil)
+		return 2
+	}
+	choices := a.choices
 	L.Push(lua.LNumber(choices[0]))
 	L.Push(lua.LString(d.Options[choices[0]-1]))
 	return 2
 }
 
-// ui.select(title, options [, {min = 1, max = #options, from = name}]) lets the player
-// pick several options and waits for them. It returns two lists: the
-// numbers picked, in ascending order, and their labels.
+// ui.select(title, options [, {min = 1, max = #options, from = name,
+// timeout = seconds}]) lets the player pick several options and waits for
+// them. It returns two lists: the numbers picked, in ascending order, and
+// their labels; nil once the timeout passed.
 func (r *Runtime) choose(L *lua.LState) int {
 	d := r.dialogArgs(L, "ui.select")
 	n := len(d.Options)
@@ -442,11 +464,18 @@ func (r *Runtime) choose(L *lua.LState) int {
 		d.Min = countField(L, limits, "min", d.Min)
 		d.Max = countField(L, limits, "max", d.Max)
 		d.Voice.From = fromArg(L, limits, 3)
+		d.Timeout = timeoutArg(L, limits, 3)
 	}
 	if d.Min < 0 || d.Max < 1 || d.Min > d.Max || d.Max > n {
 		L.ArgError(3, "need 0 <= min <= max, 1 <= max <= number of options")
 	}
-	choices := r.pause(L, &d).choices
+	a := r.pause(L, &d)
+	if a.expired {
+		L.Push(lua.LNil)
+		L.Push(lua.LNil)
+		return 2
+	}
+	choices := a.choices
 	nums, labels := L.CreateTable(len(choices), 0), L.CreateTable(len(choices), 0)
 	for i, c := range choices {
 		nums.RawSetInt(i+1, lua.LNumber(c))
@@ -501,8 +530,9 @@ func (r *Runtime) dialogArgs(L *lua.LState, name string) Dialog {
 	return d
 }
 
-// ui.ask(question [, {strict = true, speak = true, show = false, from = name}]) waits
-// for the player to type an answer and returns it: one line, trimmed, with
+// ui.ask(question [, {strict = true, speak = true, show = false, from =
+// name, timeout = seconds}]) waits for the player to type an answer and
+// returns it, or nil once the timeout passed: one line, trimmed, with
 // control characters turned into spaces. strict asks the client for no
 // typing help (no autocorrect, autocomplete or suggestions), for spelling
 // practice and riddles. speak and show work as in say. The script decides
@@ -523,11 +553,17 @@ func (r *Runtime) ask(L *lua.LState) int {
 			L.ArgError(2, "strict must be true or false")
 		}
 		d.Voice = voiceArg(L, 2)
+		d.Timeout = timeoutArg(L, opts, 2)
 	}
 	if r.cur == nil || r.cur.host == nil {
 		L.RaiseError("no player here: call ui.ask from a hook such as on_enter")
 	}
-	L.Push(lua.LString(r.pause(L, &d).text))
+	a := r.pause(L, &d)
+	if a.expired {
+		L.Push(lua.LNil)
+		return 1
+	}
+	L.Push(lua.LString(a.text))
 	return 1
 }
 
@@ -581,7 +617,20 @@ func (r *Runtime) items(L *lua.LState) int {
 // validLabel is the rule for item labels in room YAML too: one line of
 // UTF-8 text, 1 to MaxLabelBytes long, not only spaces.
 func validLabel(s string) bool {
-	return strings.TrimSpace(s) != "" && len(s) <= MaxLabelBytes && utf8.ValidString(s) && !strings.ContainsAny(s, "\r\n")
+	return strings.TrimSpace(s) != "" && len(s) <= MaxLabelBytes && utf8.ValidString(s) && strings.IndexFunc(s, notInLine) < 0
+}
+
+// notInLine reports the characters a name or label may not hold: control
+// characters, line and paragraph separators, and the bidi controls, which
+// would turn the rest of the line around (emoji joiners stay allowed).
+func notInLine(r rune) bool {
+	switch {
+	case unicode.IsControl(r), r == '\u2028', r == '\u2029':
+		return true
+	case r == '\u061c', r == '\u200e', r == '\u200f', r >= '\u202a' && r <= '\u202e', r >= '\u2066' && r <= '\u2069':
+		return true
+	}
+	return false
 }
 
 // ValidItemID reports whether id can name an item: 1 to 64 of a-z, 0-9, _

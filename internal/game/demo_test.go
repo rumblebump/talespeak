@@ -88,6 +88,22 @@ func openLock(t *testing.T, s ws.Session) {
 	}
 }
 
+// escaped checks the player got out of the castle into the clearing,
+// then walks them home and checks the story is over.
+func escaped(t *testing.T, s ws.Session, text string, got []ws.Message) {
+	t.Helper()
+	wantText(t, "escape", text, "You escaped. Well done!")
+	if roomOf(s) != "clearing" {
+		t.Fatalf("after the escape: in %q, want the clearing", roomOf(s))
+	}
+	if items := lastItems(t, got); items["path"] != "path home" {
+		t.Fatalf("items in the clearing: %v", items)
+	}
+	text, got = play(t, s, ws.Message{Type: "click", Item: "path"})
+	wantText(t, "home", text, "lights of home")
+	ended(t, s, text, got)
+}
+
 // ended checks the story is over: no items left, and any action only
 // says so.
 func ended(t *testing.T, s ws.Session, text string, got []ws.Message) {
@@ -159,8 +175,7 @@ func TestDemoEscape(t *testing.T) {
 		t.Fatalf("items after the box: %v", items)
 	}
 	text, got = play(t, s, ws.Message{Type: "click", Item: "backdoor"})
-	wantText(t, "escape", text, "You escaped. Well done!")
-	ended(t, s, text, got)
+	escaped(t, s, text, got)
 }
 
 // Going down the stairs walks into the guard.
@@ -395,8 +410,7 @@ func TestDemoTypedEscape(t *testing.T) {
 	text, _ = play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "BOX 4 1 7"})
 	wantText(t, "box", text, "big iron key")
 	text, got = play(t, s, ws.Message{Type: "input", Text: "open the back door"})
-	wantText(t, "escape", text, "You escaped. Well done!")
-	ended(t, s, text, got)
+	escaped(t, s, text, got)
 }
 
 // Typed keywords in the corridor, each from a fresh corridor.
@@ -918,8 +932,7 @@ func TestDemoLockedCorridorEveryWay(t *testing.T) {
 		}
 	}
 	text, got := play(t, s, ws.Message{Type: "input", Text: "leave"}) // 1
-	wantText(t, "escape", text, "You escaped. Well done!")
-	ended(t, s, text, got)
+	escaped(t, s, text, got)
 }
 
 // The demo keeps progress in room globals (left, opened, entered, key):
@@ -972,8 +985,7 @@ func TestDemoDoorWithKey(t *testing.T) {
 	_, got := play(t, s, ws.Message{Type: "click", Item: "box"})
 	play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "417"})
 	text, got = play(t, s, ws.Message{Type: "input", Text: "open the door"})
-	wantText(t, "escape", text, "You escaped. Well done!")
-	ended(t, s, text, got)
+	escaped(t, s, text, got)
 }
 
 // refuseState makes s's state.player refuse every write that grows it

@@ -19,7 +19,7 @@ A room script cannot keep or allocate memory that the limits do not see. The T-0
 
 ## Acceptance
 
-- [ ] `retained()` counts the array part's length and the key list's length (`tableSlots` in `state.go` already reads both lengths)
-- [ ] A write to an array index far past the array's end is refused or goes to the hash part. This needs a patched or forked gopher-lua, or a check in the sandbox before the set; decide which, and keep `CGO_ENABLED=0`
-- [ ] Tests for each gap, run with `-race`
-- [ ] `docs/lua-sandbox.md` says what counts
+- [x] `retained()` counts the array part's length and the key list's length (`tableSlots` in `state.go` already reads both lengths)
+- [x] A write to an array index far past the array's end is refused or goes to the hash part. This needs a patched or forked gopher-lua, or a check in the sandbox before the set; decide which, and keep `CGO_ENABLED=0`
+- [x] Tests for each gap, run with `-race`
+- [x] `docs/lua-sandbox.md` says what counts

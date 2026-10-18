@@ -23,9 +23,6 @@ Nothing here.
 | [T-0016](open/T-0016-world-visibility.md) | Public, invite-only and secret worlds with player limits | feature | medium |
 | [T-0017](open/T-0017-speech-to-text.md) | Speech to text, private by default | feature | medium |
 | [T-0018](open/T-0018-persistent-state.md) | Player, world and game state stored in SQLite | feature | high |
-| [T-0019](open/T-0019-turn-order.md) | Free and turn-based rounds in a room | feature | high |
-| [T-0020](open/T-0020-item-take-rules.md) | Room items that players share, split or use up | feature | medium |
-| [T-0024](open/T-0024-lua-table-memory.md) | Count the hidden memory of Lua tables | security | high |
 
 ## Done
 
@@ -36,10 +33,16 @@ Nothing here.
 | [T-0003](done/T-0003-lua-runtime-spike.md) | Lua runtime, YAML room and dialog coroutine | feature | high |
 | [T-0004](done/T-0004-terminal-web-client.md) | Terminal-style web client renderer | feature | high |
 | [T-0014](done/T-0014-offline-csp-enforcement.md) | Offline first and strict CSP enforcement | feature | high |
+| [T-0019](done/T-0019-turn-order.md) | Free and turn-based rounds in a room | feature | high |
+| [T-0020](done/T-0020-item-take-rules.md) | Room items that players share, split or use up | feature | medium |
 | [T-0021](done/T-0021-demo-corridor.md) | Demo corridor and guard room | feature | medium |
 | [T-0022](done/T-0022-room-go.md) | Scripts move players between rooms | feature | high |
 | [T-0023](done/T-0023-session-player-state.md) | state.player for the session, first slice of T-0018 | feature | high |
+| [T-0024](done/T-0024-lua-table-memory.md) | Count the hidden memory of Lua tables | security | high |
 | [T-0025](done/T-0025-solved-rooms.md) | Solved rooms and Whisp's warnings in the demo | feature | medium |
 | [T-0026](done/T-0026-require.md) | Shared Lua modules with require | feature | high |
 | [T-0027](done/T-0027-guide-voice.md) | A guide voice the client shows apart from the story | feature | medium |
 | [T-0028](done/T-0028-demo-rooms-module.md) | Demo helpers in one shared Lua module | chore | low |
+| [T-0029](done/T-0029-session-timers.md) | Timers and question timeouts for the session, first slice of T-0012 | feature | high |
+| [T-0030](done/T-0030-world-state.md) | state.world shared by a world's players, slice of T-0018 | feature | high |
+| [T-0031](done/T-0031-party-primitives.md) | Who is in a room, leaving the world, and room timers | feature | high |

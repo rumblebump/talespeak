@@ -7,7 +7,8 @@ test("room and text renderer", async ({ page }) => {
   await open(page);
   await expect(story(page).locator(".room-title")).toHaveText("Test hall");
   await expect(story(page)).toContainText("A plain room for tests.");
-  await expect(story(page)).toContainText("Welcome, traveler.");
+  // Players of one world get different names: tests run side by side.
+  await expect(story(page)).toContainText(/Welcome, traveler( \d+)?\./);
 });
 
 test("clickable items, dialog answered with the mouse", async ({ page }) => {
@@ -210,5 +211,21 @@ test("a guide speaks apart from the story", async ({ page }) => {
   await expect(story(page).locator("p.asked.guide")).toContainText("WhispReady?");
   await expect(story(page)).toContainText("Guide answer: Yes");
   // The story's own lines carry no speaker.
-  await expect(story(page).locator("p", { hasText: "Welcome, traveler." }).locator(".from")).toHaveCount(0);
+  await expect(story(page).locator("p", { hasText: /Welcome, traveler( \d+)?\./ }).locator(".from")).toHaveCount(0);
+});
+
+test("timer countdown and a question with a timeout", async ({ page }) => {
+  await open(page);
+  const input = page.locator("#command");
+  await input.fill("hourglass");
+  await input.press("Enter");
+  const timers = page.getByRole("list", { name: "Timers" });
+  await expect(timers).toHaveText(/Sand 0:0[12]/);
+  const dialog = page.getByRole("group", { name: "Quick: left or right?" });
+  await expect(dialog).toContainText(/time left: 0:0[01]/);
+  // The engine closes the question when its second is up, then the timer runs out.
+  await expect(dialog).toBeHidden();
+  await expect(story(page)).toContainText("Too slow.");
+  await expect(story(page)).toContainText("The sand ran out.");
+  await expect(timers).toBeHidden();
 });

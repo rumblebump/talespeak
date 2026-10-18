@@ -58,11 +58,13 @@ func watchAllocs(ctx context.Context, limit int64, exceeded func()) (stop func()
 }
 
 // Rough sizes for the state walk, on the high side: a hash entry in a
-// gopher-lua table lives in a map, a key slice and an index map.
+// gopher-lua table lives in a map, a key slice and an index map, and a
+// slot of the array part or the key slice is one interface value.
 const (
 	sizeString = 16
 	sizeObject = 128
 	sizeEntry  = 96
+	sizeSlot   = 16
 )
 
 // retained estimates the bytes reachable from roots, without what is only
@@ -97,11 +99,21 @@ func retained(roots []lua.LValue, skip map[lua.LValue]struct{}, limit int64) int
 		total += sizeObject
 		switch v := v.(type) {
 		case *lua.LTable:
-			v.ForEach(func(k, val lua.LValue) {
+			// Not ForEach: it skips empty array slots and removed keys,
+			// which gopher-lua keeps, with what the removed keys hold.
+			array, keys := tableParts(v)
+			total += sizeSlot * int64(cap(array)+cap(keys))
+			for _, val := range array {
+				if val != lua.LNil {
+					total += sizeEntry
+					push(val)
+				}
+			}
+			for _, k := range keys {
 				total += sizeEntry
 				push(k)
-				push(val)
-			})
+				push(v.RawGetH(k))
+			}
 			push(v.Metatable)
 		case *lua.LFunction:
 			if v.Env != nil {

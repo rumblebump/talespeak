@@ -15,6 +15,8 @@ import { createSpeaker } from "/speech.js";
 const MAX_LINES = 500; // older story lines are dropped
 const MAX_INPUT = 500; // bytes the engine accepts in one typed line
 const MAX_HISTORY = 50; // typed lines kept for arrow up and down
+const MAX_TIMERS = 20; // shown timers: 10 of the player and 10 of the room
+const MAX_MS = 24 * 60 * 60 * 1000; // the longest timer or question timeout
 
 /** Reads a setting saved in this browser; private windows may refuse. */
 function loadSetting(key) {
@@ -42,7 +44,10 @@ const cleanLine = (s) => s.replace(/[\p{Cc}\u2028\u2029]/gu, " ").trim();
 
 /** speakerName is who says a line, such as the guide: one short line of
  * text, or "" for the story itself. */
-const speakerName = (v) => cleanLine(text(v)).slice(0, 40);
+const speakerName = (v) =>
+  cleanLine(text(v))
+    .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "")
+    .slice(0, 40);
 
 /** A picture URL must be a pack image on this server. */
 function imageURL(v) {
@@ -58,6 +63,21 @@ function cleanItems(v) {
     .map((it) => ({ id: it.id, label: text(it.label) }));
 }
 
+/** msLeft reads a server duration in milliseconds: 0 when it is missing,
+ * not a number or out of range. */
+function msLeft(v) {
+  return Number.isInteger(v) && v > 0 && v <= MAX_MS ? v : 0;
+}
+
+/** clockText shows a time left as m:ss, or h:mm:ss from an hour on. */
+function clockText(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  const pad = (n) => String(n).padStart(2, "0");
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return (h > 0 ? h + ":" + pad(m) : String(m)) + ":" + pad(s % 60);
+}
+
 function game() {
   const speaker = createSpeaker();
   let conn = null;
@@ -69,7 +89,7 @@ function game() {
     statusText: "connecting…",
     lines: [],
     items: [],
-    dialog: null, // { id, title, options, multiple, min, max, ask, strict, speak, hide }
+    dialog: null, // { id, title, options, multiple, min, max, ask, strict, speak, hide, end }
     sent: null, // the question just answered, until the engine replies
     picked: [], // option numbers ticked in a multiple choice
     picture: { url: "", caption: "" },
@@ -80,8 +100,15 @@ function game() {
     readAloud: false,
     largeText: false,
     canSpeak: false,
+    timers: [], // shown countdowns: { id, title, end }, end in this browser's clock
+    now: Date.now(),
 
     init() {
+      // Countdowns count from the time left the server sent, on this
+      // browser's clock, so a wrong clock on the device does not matter.
+      setInterval(() => {
+        this.now = Date.now();
+      }, 1000);
       this.largeText = loadSetting("largeText");
       this.readAloud = loadSetting("readAloud");
       this.applyLargeText();
@@ -95,6 +122,7 @@ function game() {
         onClose: (retryMs) => {
           this.closeDialog();
           this.sent = null;
+          this.timers = []; // the session ended, and its timers with it
           this.setStatus("offline", "offline · retrying in " + Math.round(retryMs / 1000) + " s");
         },
       });
@@ -120,6 +148,7 @@ function game() {
           this.setStatus("online", "connected · engine " + text(msg.version));
           this.lines = []; // a new connection starts a new session
           this.items = [];
+          this.timers = [];
           this.closeDialog();
           break;
         case "room":
@@ -140,6 +169,14 @@ function game() {
           break;
         case "image":
           this.showPicture(msg);
+          break;
+        case "timer":
+          this.setTimer(msg);
+          break;
+        case "close":
+          // The engine ended the question: its timeout passed, or the
+          // player was moved.
+          if (this.dialog && this.dialog.id === text(msg.id)) this.closeDialog();
           break;
         case "error":
           this.addLine(msg.message, "error");
@@ -183,6 +220,29 @@ function game() {
       if (line && line.speech) speaker.speak(line.speech, line.from);
     },
 
+    // Timers
+
+    // setTimer shows, updates or removes one countdown; ms 0 removes it.
+    setTimer(msg) {
+      const id = text(msg.id);
+      const rest = this.timers.filter((t) => t.id !== id);
+      const ms = msLeft(msg.ms);
+      if (ms) {
+        rest.push({ id, title: cleanLine(text(msg.title)).slice(0, 100), end: Date.now() + ms });
+        this.now = Date.now();
+      }
+      this.timers = rest.slice(-MAX_TIMERS);
+    },
+
+    get timerList() {
+      return this.timers.map((t) => ({ id: t.id, text: t.title + " " + clockText(t.end - this.now) }));
+    },
+
+    get dialogCountdown() {
+      if (!this.dialog || !this.dialog.end) return "";
+      return "time left: " + clockText(this.dialog.end - this.now);
+    },
+
     // Items
 
     get showItems() {
@@ -218,7 +278,9 @@ function game() {
         from: speakerName(msg.from),
         speech: "",
         hide: false,
+        end: msLeft(msg.ms) ? Date.now() + msLeft(msg.ms) : 0,
       };
+      this.now = Date.now();
       // A spoken question: always read aloud, and with hide only heard.
       const title = this.dialog.title;
       if (msg.speak === true && this.canSpeak) {

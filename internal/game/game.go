@@ -78,6 +78,27 @@ func WithClientMemory(n int64) Option {
 	return func(w *World) { w.clientMemory = n }
 }
 
+// WithClock sets the world's clock: now tells the time, and after calls f
+// once d has passed and returns a function that stops it, like
+// time.AfterFunc. Tests use it to run timers without waiting.
+func WithClock(now func() time.Time, after func(d time.Duration, f func()) (stop func() bool)) Option {
+	return func(w *World) { w.now, w.after = now, after }
+}
+
+func afterFunc(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
+
+// retryBusy is how long a timer or a question's timeout waits to run its
+// hook again when the player's address has used up its Lua time.
+const retryBusy = 500 * time.Millisecond
+
+// MaxQueued and MaxQueuedBytes bound the pushed messages (a timer's
+// output, other players' changes) waiting for one connection. A client
+// that falls further behind is disconnected.
+const (
+	MaxQueued      = 500
+	MaxQueuedBytes = 256 << 10
+)
+
 // World is one running game. Its Lua state is used by one session at a time.
 //
 // Every player runs their own instance of each room script, with their own
@@ -88,20 +109,36 @@ type World struct {
 	log  *slog.Logger
 	pack *pack.Pack
 
-	mu      sync.Mutex // guards rt, budgets and closed, and every Lua call: gopher-lua states are not goroutine safe
-	rt      *script.Runtime
-	scripts map[string]*script.Script // room id -> its compiled script
-	closed  bool
+	mu       sync.Mutex // guards rt, budgets, sessions, every session's fields and closed, and every Lua call: gopher-lua states are not goroutine safe
+	rt       *script.Runtime
+	scripts  map[string]*script.Script // room id -> its compiled script
+	sessions map[*session]struct{}
+	closed   bool
 
 	rate, burst float64            // Lua seconds per second and at once, per client
 	budgets     map[string]*budget // client -> Lua time left
 	now         func() time.Time
+	after       func(time.Duration, func()) func() bool // see WithClock
 
 	clientMemory int64                               // script state one client may keep
 	clientEnvs   map[string]map[*script.Env]struct{} // client -> its players' script instances
 
 	stateTotal  int64            // what all players keep in state.player, reserved in rt too
 	clientState map[string]int64 // client -> what its players keep in state.player
+
+	world       script.State // state.world, shared by every player
+	changed     []string     // world keys the running hook changed
+	delivering  bool         // a delivery of on_change is due
+	lastDeliver time.Time    // when the last delivery started
+
+	players    int                              // players who joined, for player ids
+	arrivals   int64                            // rooms entered, for the order of room.players
+	roomTimers map[string]map[string]*roomTimer // room id -> name -> its timer
+	timerNews  map[roomTimerKey]struct{}        // room timers the running hook changed
+	timerDue   map[roomTimerKey]*session        // room timers changed since the last delivery -> who changed them last
+
+	timersDelivering bool      // a delivery of room timers is due
+	lastTimers       time.Time // when the last delivery of room timers started
 }
 
 // budget is a token bucket of Lua time in seconds. It may go below zero
@@ -115,9 +152,11 @@ type budget struct {
 // a script that fails fails the world at start, with the room's file in the
 // error.
 func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Option) (*World, error) {
-	w := &World{log: log, pack: p, rt: script.New(limits), scripts: map[string]*script.Script{},
-		budgets: map[string]*budget{}, now: time.Now, clientMemory: DefaultClientMemory, clientEnvs: map[string]map[*script.Env]struct{}{},
-		clientState: map[string]int64{}}
+	w := &World{log: log, pack: p, rt: script.New(limits), scripts: map[string]*script.Script{}, sessions: map[*session]struct{}{},
+		budgets: map[string]*budget{}, now: time.Now, after: afterFunc, clientMemory: DefaultClientMemory, clientEnvs: map[string]map[*script.Env]struct{}{},
+		clientState: map[string]int64{}, roomTimers: map[string]map[string]*roomTimer{}, timerNews: map[roomTimerKey]struct{}{},
+		timerDue: map[roomTimerKey]*session{}}
+	w.world = script.State{World: true, Reserve: w.reserveWorld, Changed: w.change}
 	WithClientBudget(DefaultClientRate, DefaultClientBurst)(w)
 	for _, o := range opts {
 		o(w)
@@ -158,6 +197,10 @@ func (w *World) Close() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.closed = true
+	for s := range w.sessions {
+		s.stopTimers()
+	}
+	w.stopRoomTimers()
 	w.rt.Close()
 }
 
@@ -165,9 +208,17 @@ func (w *World) Close() {
 // player's address key from package ws, which the Lua time budget counts by;
 // "" has no budget (tests and local tools).
 func (w *World) NewSession(client string) (ws.Session, []ws.Message) {
-	s := &session{w: w, name: DefaultPlayerName, client: budgetKey(client)}
+	s := &session{w: w, client: budgetKey(client)}
 	s.state.Reserve = s.reserve
-	return s, s.enter(w.pack.Start)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.players++
+	s.id = "p" + strconv.Itoa(w.players)
+	s.name = w.freeName()
+	if !w.closed {
+		w.sessions[s] = struct{}{}
+	}
+	return s, s.enterLocked(w.pack.Start, false)
 }
 
 // budgetKey widens an IPv6 key to budgetPrefix bits.
@@ -204,6 +255,25 @@ func (w *World) timed(client string, f func() error) error {
 	if b.left <= 0 {
 		return ErrBusy
 	}
+	return w.charge(b, now, f)
+}
+
+// charged runs f like timed, but also when client's budget is used up,
+// which then goes further below zero: for what must run, such as a player
+// leaving. The caller holds w.mu.
+func (w *World) charged(client string, f func() error) error {
+	b := w.budgets[client]
+	if b == nil {
+		return f() // a full budget, or none at all ("")
+	}
+	now := w.now()
+	b.left = min(w.burst, b.left+now.Sub(b.last).Seconds()*w.rate)
+	b.last = now
+	return w.charge(b, now, f)
+}
+
+// charge runs f, which starts at now, and takes its time from b.
+func (w *World) charge(b *budget, now time.Time, f func() error) error {
 	err := f()
 	end := w.now()
 	b.left -= end.Sub(now).Seconds()
@@ -267,13 +337,18 @@ func (w *World) release(client string, env *script.Env) {
 	}
 }
 
-// session is one player. Its methods are called from the connection's
-// goroutine only.
+// session is one player. Handle and Close are called from the
+// connection's goroutine; timers call in from their own. w.mu guards every
+// field.
 type session struct {
-	w      *World
-	name   string
-	client string
-	room   string
+	w       *World
+	id      string // player.id: unique in the world while it runs
+	name    string
+	client  string
+	room    string
+	arrived int64 // when the player came into room, for room.players
+	closed  bool
+	leaving bool // on_leave runs: the player is no longer among room.players
 
 	envs     map[string]*script.Env // room id -> this player's instance of its script
 	pending  *script.Thread         // the hook waiting in ui.dialog, if any
@@ -281,11 +356,32 @@ type session struct {
 	dialogs  int           // dialogs shown, for unique ids
 	items    []script.Item // what the player can click now
 	state    script.State  // state.player, shared by the player's rooms
+	changed  []string      // world keys others changed that on_change has not seen yet
 	next     string        // the room room.go moves the player to when the hook ends
 	visited  []string      // rooms entered, the latest last
 	moves    int           // room.go moves done for the current message
 
-	out []ws.Message // collects output during one hook call
+	timers      map[string]*timer // the player's timers, by name
+	dialogTimer func() bool       // stops the open question's timeout, if it has one
+
+	out        []ws.Message // collects output during one hook call
+	queue      []ws.Message // pushed output waiting for Pending
+	queueBytes int          // about what queue takes on the wire
+	notify     func()       // tells the connection that queue has messages; nil until SetNotify
+	lagged     bool         // queue overflowed: the connection should close
+
+	// readOnlyWorld is set while on_change runs, and for everything it
+	// starts (room.go, timers): none of it can write state.world, so a
+	// change never bounces between players by itself.
+	readOnlyWorld bool
+}
+
+// timer is one of the player's timers.
+type timer struct {
+	deadline time.Time
+	stop     func() bool
+	show     string // the label the player sees, "" for a secret timer
+	readOnly bool   // started under on_change: on_timer cannot write state.world
 }
 
 // MaxMoves caps the rooms one player message can move through, so rooms
@@ -293,7 +389,20 @@ type session struct {
 // one message cannot hold the world for many hooks' time.
 const MaxMoves = 4
 
+// Handle answers m. Pushed messages still waiting go first, so a reply
+// never overtakes what was pushed before it.
 func (s *session) Handle(m ws.Message) []ws.Message {
+	s.w.mu.Lock()
+	defer s.w.mu.Unlock()
+	out := s.handle(m)
+	if len(s.queue) > 0 {
+		out = append(s.queue, out...)
+		s.queue, s.queueBytes = nil, 0
+	}
+	return out
+}
+
+func (s *session) handle(m ws.Message) []ws.Message {
 	s.moves = 0
 	switch m.Type {
 	case "choose":
@@ -309,16 +418,21 @@ func (s *session) Handle(m ws.Message) []ws.Message {
 	}
 }
 
-// Close ends the hook waiting on this player, if any, and frees the
-// player's script instances.
+// Close ends the hook waiting on this player, if any, runs on_leave, stops
+// their timers and frees the player's script instances.
 func (s *session) Close() {
 	s.w.mu.Lock()
 	defer s.w.mu.Unlock()
+	s.leave()
+	s.closed = true
+	delete(s.w.sessions, s)
+	s.stopTimers()
 	s.drop()
 	for _, env := range s.envs {
 		s.w.release(s.client, env)
 	}
 	s.envs = nil
+	s.out, s.queue, s.queueBytes = nil, nil, 0 // a room timer may keep s until it runs out
 	_ = s.reserve(-s.state.Size())
 	s.state = script.State{}
 }
@@ -418,22 +532,31 @@ func (s *session) reset(room string) {
 	}
 }
 
-// drop cancels the pending hook. The caller holds w.mu.
+// drop cancels the pending hook and tells the client its question is
+// gone. The caller holds w.mu.
 func (s *session) drop() {
-	if s.pending != nil && !s.w.closed {
+	if s.pending == nil {
+		return
+	}
+	if !s.w.closed {
 		s.w.rt.Cancel(s.pending)
+	}
+	s.out = append(s.out, ws.Message{Type: "close", ID: s.dialogID})
+	s.unpend()
+}
+
+// unpend forgets the pending hook and stops its question's timeout. The
+// caller holds w.mu.
+func (s *session) unpend() {
+	if s.dialogTimer != nil {
+		s.dialogTimer()
+		s.dialogTimer = nil
 	}
 	s.pending = nil
 }
 
-// enter moves the player into room and runs its on_enter hook.
-func (s *session) enter(room string) []ws.Message {
-	s.w.mu.Lock()
-	defer s.w.mu.Unlock()
-	return s.enterLocked(room, false)
-}
-
-// enterLocked is enter for a caller that holds w.mu. After room.go (moved),
+// enterLocked moves the player into room and runs its on_enter hook. The
+// caller holds w.mu. After room.go (moved),
 // the output so far stays in front of the new room's, and the client is
 // told the new room's items first, since its on_enter may not describe it.
 // A move whose room cannot start, or whose on_enter cannot run yet because
@@ -454,22 +577,22 @@ func (s *session) enterLocked(room string, moved bool) []ws.Message {
 			s.DescribeRoom()
 			return s.flush()
 		}
-		return s.after(s.run1(func() (*script.Thread, error) { return s.w.rt.Run(s, env, "on_enter", s.name) }))
+		return s.after(s.run1(func() (*script.Thread, error) { return s.w.rt.RunHook(s, env, s.onEnter()) }))
 	}
 	env, victim, started, err := s.start(room)
 	if err != nil {
 		return s.refuseMove(room, err)
 	}
-	oldRoom, oldItems, oldVisited, mark := s.room, s.items, slices.Clone(s.visited), len(s.out)
+	oldRoom, oldItems, oldVisited, oldArrived, mark := s.room, s.items, slices.Clone(s.visited), s.arrived, len(s.out)
 	s.place(room)
 	s.out = append(s.out, ws.Message{Type: "items", Items: wsItems(s.items)})
 	if env == nil {
 		s.DescribeRoom()
 		return s.flush()
 	}
-	th, err := s.run1(func() (*script.Thread, error) { return s.w.rt.Run(s, env, "on_enter", s.name) })
+	th, err := s.run1(func() (*script.Thread, error) { return s.w.rt.RunHook(s, env, s.onEnter()) })
 	if errors.Is(err, ErrBusy) { // nothing ran: undo the move, and keep the old instances
-		s.room, s.items, s.visited, s.out = oldRoom, oldItems, oldVisited, s.out[:mark]
+		s.room, s.items, s.visited, s.arrived, s.out = oldRoom, oldItems, oldVisited, oldArrived, s.out[:mark]
 		if started {
 			s.free(room)
 		}
@@ -481,8 +604,19 @@ func (s *session) enterLocked(room string, moved bool) []ws.Message {
 	return s.after(th, err)
 }
 
-// place puts the player in room with its YAML items.
+// onEnter is the on_enter call for the player.
+func (s *session) onEnter() script.Hook {
+	return script.Hook{Name: "on_enter", Player: s.name, PlayerID: s.id, ReadOnlyWorld: s.readOnlyWorld}
+}
+
+// place puts the player in room with its YAML items, and shows them the
+// room's timers instead of the old room's.
 func (s *session) place(room string) {
+	if room != s.room {
+		s.showRoomTimers(s.room, room)
+		s.w.arrivals++
+		s.arrived = s.w.arrivals
+	}
 	s.room = room
 	s.items = nil
 	for _, it := range s.w.pack.Rooms[room].Items {
@@ -519,8 +653,6 @@ func (s *session) choose(m ws.Message) []ws.Message {
 	if _, err := s.pending.Dialog.Check(choices); err != nil {
 		return s.refused("no such option: " + err.Error())
 	}
-	s.w.mu.Lock()
-	defer s.w.mu.Unlock()
 	if s.w.closed {
 		return s.after(nil, script.ErrClosed)
 	}
@@ -539,8 +671,6 @@ func (s *session) answer(m ws.Message) []ws.Message {
 	if text == "" {
 		return s.refused("Type an answer.")
 	}
-	s.w.mu.Lock()
-	defer s.w.mu.Unlock()
 	if s.w.closed {
 		return s.after(nil, script.ErrClosed)
 	}
@@ -571,7 +701,7 @@ func (s *session) resumed(th *script.Thread, err error) []ws.Message {
 		}
 		return s.refused("no such option")
 	}
-	s.pending = nil
+	s.unpend()
 	return s.after(th, err)
 }
 
@@ -623,8 +753,6 @@ func (s *session) run(hook, arg string) []ws.Message {
 	if s.pending != nil {
 		return []ws.Message{{Type: "error", Message: "Answer the open question first."}}
 	}
-	s.w.mu.Lock()
-	defer s.w.mu.Unlock()
 	if s.w.closed {
 		return s.after(nil, script.ErrClosed)
 	}
@@ -635,7 +763,8 @@ func (s *session) run(hook, arg string) []ws.Message {
 	if env == nil || !env.HasHook(hook) {
 		return []ws.Message{{Type: "text", Text: "Nothing happens."}}
 	}
-	return s.after(s.run1(func() (*script.Thread, error) { return s.w.rt.Run(s, env, hook, s.name, arg) }))
+	h := script.Hook{Name: hook, Player: s.name, PlayerID: s.id, Args: []string{arg}}
+	return s.after(s.run1(func() (*script.Thread, error) { return s.w.rt.RunHook(s, env, h) }))
 }
 
 // after turns the end of a hook call into messages: the output so far, then
@@ -665,6 +794,10 @@ func (s *session) after(th *script.Thread, err error) []ws.Message {
 			m.Type, m.Min, m.Max = "select", d.Min, d.Max
 		case d.Ask:
 			m.Type, m.Strict = "ask", d.Strict
+		}
+		if d.Timeout > 0 {
+			m.Ms = d.Timeout.Milliseconds()
+			s.expireAfter(d.Timeout)
 		}
 		s.out = append(s.out, m)
 	} else if s.next != "" {
@@ -713,7 +846,14 @@ func logText(err error) string {
 	return strconv.Quote(msg)
 }
 
+// flush returns the output of the call, and tells the other players what
+// the call changed in state.world. The caller holds w.mu.
 func (s *session) flush() []ws.Message {
+	if len(s.w.changed) > 0 {
+		s.w.announce(s, s.w.changed)
+		s.w.changed = nil
+	}
+	s.w.announceTimers(s)
 	out := s.out
 	s.out = nil
 	return out
@@ -746,6 +886,8 @@ func (s *session) Go(room string) bool {
 func (s *session) Room() string { return s.room }
 
 func (s *session) PlayerState() *script.State { return &s.state }
+
+func (s *session) WorldState() *script.State { return &s.w.world }
 
 // reserve accounts for state.player growing by delta bytes: the world and
 // the player's client address share the limits of script memory. The

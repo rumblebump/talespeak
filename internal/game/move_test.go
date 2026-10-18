@@ -14,14 +14,7 @@ import (
 // and c, which has no script and one item.
 func roomsWorld(t *testing.T, a, b string) *World {
 	t.Helper()
-	p, err := pack.Load(fstest.MapFS{
-		"pack.yaml":     {Data: []byte("id: t\ntitle: T\nstart: a\n")},
-		"rooms/a.yaml":  {Data: []byte("id: a\ntitle: A\ndescription: Room A.\nscript: a.lua\nitems:\n  - {id: box, label: a box}\n")},
-		"rooms/b.yaml":  {Data: []byte("id: b\ntitle: B\ndescription: Room B.\nscript: b.lua\nitems:\n  - {id: rope, label: a rope}\n")},
-		"rooms/c.yaml":  {Data: []byte("id: c\ntitle: C\ndescription: Room C.\nitems:\n  - {id: key, label: a key}\n")},
-		"scripts/a.lua": {Data: []byte(a)},
-		"scripts/b.lua": {Data: []byte(b)},
-	})
+	p, err := pack.Load(roomsFS(a, b))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,6 +24,18 @@ func roomsWorld(t *testing.T, a, b string) *World {
 	}
 	t.Cleanup(w.Close)
 	return w
+}
+
+// roomsFS is the pack of roomsWorld.
+func roomsFS(a, b string) fstest.MapFS {
+	return fstest.MapFS{
+		"pack.yaml":     {Data: []byte("id: t\ntitle: T\nstart: a\n")},
+		"rooms/a.yaml":  {Data: []byte("id: a\ntitle: A\ndescription: Room A.\nscript: a.lua\nitems:\n  - {id: box, label: a box}\n")},
+		"rooms/b.yaml":  {Data: []byte("id: b\ntitle: B\ndescription: Room B.\nscript: b.lua\nitems:\n  - {id: rope, label: a rope}\n")},
+		"rooms/c.yaml":  {Data: []byte("id: c\ntitle: C\ndescription: Room C.\nitems:\n  - {id: key, label: a key}\n")},
+		"scripts/a.lua": {Data: []byte(a)},
+		"scripts/b.lua": {Data: []byte(b)},
+	}
 }
 
 // texts lists the types of ms, with the text of text messages and the

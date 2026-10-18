@@ -111,4 +111,77 @@ function act()
 end
 ```
 
-In the room where the countdown starts, nil means the guard is still at his post, so the cell checks for nil before it counts and clears the value (`keep("guard_away", nil)`) when he is back. The count is in actions, not time; real deadlines come with timers (T-0012).
+In the room where the countdown starts, nil means the guard is still at his post, so the cell checks for nil before it counts and clears the value (`keep("guard_away", nil)`) when he is back. The count is in actions, not time; for a deadline in real time, use `timer.start` and `on_timer` ([lua-sandbox.md](lua-sandbox.md)).
+
+## Rounds in turns
+
+A room runs free (everyone acts at once) until a script starts turns: a set order, and only the player whose turn it is acts until they are done. `lib/round.lua` in the demo does it in Lua, on `state.world`, `room.players()`, room timers and `on_leave` ([lua-sandbox.md](lua-sandbox.md)); copy it into your pack's `lib/`. The demo's forest clearing (`scripts/clearing.lua`) plays dice with it.
+
+```lua
+local round = require("round")
+
+-- start turns for everyone here, 30 seconds each
+round.turns(player, nil, { seconds = 30 })
+
+-- in every action that needs a turn
+if not round.may_act(player) then
+  return -- the library said "Wait for your turn: Mira is acting."
+end
+
+-- the player ends their turn (a "done" item, or typed)
+round.done(player)
+
+-- wire the library into the room's hooks
+function on_change(player, keys) round.changed(player, keys) end
+function on_timer(player, name, kind) round.timeout(player, name, kind) end
+function on_leave(player) round.leave(player) end
+
+-- and say what happens
+function on_turn(player) say("Your turn!") end
+function on_round_end(player, n) say("Round " .. n .. " is over.") end
+```
+
+| Function | What it does |
+| --- | --- |
+| `round.turns(player, order, {seconds = n})` | Starts turns in the player's room: `order` is a list of player ids (initiative rolls, say), or nil for everyone in the order they came in. Each turn gets a deadline, shown to the room as "Mira's turn" |
+| `round.free(player)` | Everyone acts at once again |
+| `round.current(player)` | The id and name of who acts, or nil |
+| `round.may_act(player)` | True when the room is free or it is the player's turn; otherwise says who acts and returns false |
+| `round.done(player)`, `round.next(player)` | The player ends their own turn; the script skips whoever acts |
+| `round.leave(player)` | Takes the player out (call it before `room.go` out of the room, and in `on_leave`) |
+| `round.status(player)` | A line like "Round 2. Order: Mira (acting), Tom (you)." |
+
+`on_turn` runs in the instance of the player whose turn starts, usually from `on_change`, so it should only say things and set items: questions and world writes belong to the player's own clicks. A player who leaves is skipped; one who comes in during a round joins at the next. Without `on_turn_timeout(player, id, name)` a turn whose time ran out is skipped. The round lives in `state.world` as `round_<room id>`, so it will survive a restart with T-0018.
+
+## Items players share
+
+`lib/items.lua` gives each shared item a take rule, written in Lua on `state.world.update` so two players never both get the last one:
+
+| Rule | What happens |
+| --- | --- |
+| `each` | Every player takes one, once |
+| `once` | The first player has it; it is gone for everyone else |
+| `count = N` | One each until N are gone |
+| `split`, `amount = N` | The first take shares N among the players in the room then; each takes their share, the rest stays |
+
+```lua
+local items = require("items")
+items.define({
+  { id = "purse", rule = "split", amount = 12, gives = "silver" },
+  { id = "horn", rule = "once" },
+})
+
+local got, why, who = items.take(player, "horn")
+if got then
+  say("You take the horn.")
+elseif why == "gone" then
+  say(who .. " has it already.")
+end
+
+-- show each player only what they can still take
+ui.items(items.visible(player, ALL_ITEMS))
+```
+
+Call `items.visible` again in `on_change`: the other players' takes change the world keys `item_<id>`. `items.release(player, id)` in `on_leave` puts a `once` item back when its owner leaves.
+
+**Effects that wear off:** `items.bless(player, "blessing", {seconds = 60, moves = 5, show = "Blessing"})` lasts a minute or five moves, whichever comes first. Call `items.move(player)` once per action and `items.on_timer(player, name)` in `on_timer`; `on_effect_end(player, id)` runs when it wears off. `items.blessed(player, id)` asks whether it is still on.
