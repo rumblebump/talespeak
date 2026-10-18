@@ -7,6 +7,7 @@
 -- last until they leave. Lasting progress comes with state.player (T-0018).
 
 local found_nail = false
+local searched = false
 
 function on_enter(player)
   room.describe()
@@ -73,6 +74,7 @@ function search()
     "A smooth pebble",
     "A torn piece of cloth",
   }, { min = 1, max = 2 })
+  searched = true
   say("You keep: " .. table.concat(kept, ", ") .. ".")
   for _, label in ipairs(kept) do
     if label == "A bent nail" then
@@ -80,23 +82,36 @@ function search()
       say("The nail might open the lock.")
     end
   end
+  show_items()
+end
+
+-- show_items updates the clickable things to what the player changed.
+function show_items()
   ui.items({
+    { id = "straw", label = searched and "flattened straw" or "heap of straw" },
     { id = "guard", label = "sleepy guard" },
     { id = "scratches", label = "scratches on the wall" },
-    { id = "lock", label = "lock with letter wheels" },
-    { id = "straw", label = "flattened straw" },
+    { id = "lock", label = opened and "open lock" or "lock with letter wheels" },
   })
 end
 
 -- The lock opens with a word: typed, spelled right, no typing help. A
--- wrong answer gets a hint, a little stronger each time.
+-- wrong answer gets a hint, a little stronger each time. Once open, it
+-- stays open.
 wrong = 0
+opened = false
 
 function riddle()
+  if opened then
+    say("The lock hangs open. The cell door swings when you push it.")
+    return
+  end
   say("Four letter wheels. Someone scratched a riddle next to them:")
   local answer = ui.ask("I have bars but no drinks, and you are standing in me. What am I?", { strict = true })
   if words.same(answer, "cell") then
     say("The wheels click into place: C, E, L, L. The lock opens!")
+    opened = true
+    show_items()
     return
   end
   wrong = wrong + 1

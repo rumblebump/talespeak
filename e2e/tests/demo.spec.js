@@ -40,4 +40,9 @@ test("demo: guard, straw and the wall map", async ({ page }) => {
   await input.fill("CELL");
   await input.press("Enter");
   await expect(story).toContainText("The lock opens!");
+  // An open lock stays open: no riddle again.
+  await page.getByRole("button", { name: "open lock" }).click();
+  await expect(story).toContainText("The lock hangs open.");
+  await expect(page.getByRole("group", { name: /I have bars/ })).toBeHidden();
+  await expect(page.getByRole("navigation")).toBeVisible();
 });
