@@ -19,3 +19,5 @@ items:
     label: voice
   - id: trapdoor
     label: trapdoor
+  - id: door
+    label: cellar door

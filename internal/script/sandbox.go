@@ -112,6 +112,7 @@ func (r *Runtime) openSandbox() *lua.LTable {
 	lib.RawSetString("say", L.NewFunction(r.say))
 	room := L.NewTable()
 	room.RawSetString("describe", L.NewFunction(r.describe))
+	room.RawSetString("go", L.NewFunction(r.goRoom))
 	lib.RawSetString("room", r.readOnly(room))
 	ui := L.NewTable()
 	ui.RawSetString("dialog", L.NewFunction(r.dialog))
@@ -367,6 +368,22 @@ func voiceArg(L *lua.LState, n int) Voice {
 // room.describe() sends the current room's title and description.
 func (r *Runtime) describe(L *lua.LState) int {
 	r.output(L).DescribeRoom()
+	return 0
+}
+
+// room.go(id) moves the player to room id of the pack once the hook ends.
+// The new room's on_enter runs then; the hook cannot wait in a dialog after
+// room.go, so a move is never half done. The last room.go of a hook wins.
+func (r *Runtime) goRoom(L *lua.LState) int {
+	id := L.CheckString(1)
+	host := r.output(L)
+	if len(id) > 64 {
+		L.ArgError(1, "room ids are at most 64 bytes")
+	}
+	if !host.Go(id) {
+		L.ArgError(1, "no room "+strconv.Quote(id)+" in this pack")
+	}
+	r.cur.thread.moved = true
 	return 0
 }
 

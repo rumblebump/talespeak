@@ -51,6 +51,8 @@ test("demo: guard, straw, wall map, riddle and escape", async ({ page }) => {
   await expect(story).toContainText("Hint: look around you.");
   await input.fill("open the lock");
   await input.press("Enter");
+  // Wait for the question, or CELL is typed as a command.
+  await expect(page.getByRole("group", { name: /I have bars/ })).toBeVisible();
   await input.fill("CELL");
   await input.press("Enter");
   await expect(story).toContainText("The lock opens!");
