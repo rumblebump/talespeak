@@ -92,9 +92,11 @@ test("keyboard only: items, a dialog, multiple choice and the picture", async ({
 test("clicking an item while a question is open asks for the answer first", async ({ page }) => {
   await open(page);
   await page.getByRole("button", { name: "lamp" }).click();
+  const lamp = page.getByRole("group", { name: "Light the lamp?" });
+  await expect(lamp).toBeVisible(); // or the chest is clicked before the question is open
   await page.getByRole("button", { name: "chest" }).click({ force: true });
   await expect(page.locator(".hint")).toHaveText("Answer the question first.");
-  await expect(page.getByRole("group", { name: "Light the lamp?" })).toBeVisible();
+  await expect(lamp).toBeVisible();
   await expect(story(page).locator(".you")).toHaveText(["lamp"]); // not "chest"
 });
 
