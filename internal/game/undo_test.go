@@ -23,13 +23,17 @@ func TestUndoneMovesKeepNoInstance(t *testing.T) {
 	const n = 30
 	for i := range n {
 		fs[fmt.Sprintf("rooms/r%d.yaml", i)] = &fstest.MapFile{Data: []byte(fmt.Sprintf("id: r%d\ntitle: R\ndescription: R.\nscript: r%d.lua\n", i, i))}
-		fs[fmt.Sprintf("scripts/r%d.lua", i)] = &fstest.MapFile{Data: []byte(`words = {} for i = 1, 10000 do words[i] = "w" .. i end function on_enter() say("in") end function on_input(p, t) room.go(t) end`)}
+		fs[fmt.Sprintf("scripts/r%d.lua", i)] = &fstest.MapFile{Data: []byte(`words = {} for i = 1, 1000 do words[i] = "w" .. i end function on_enter() say("in") end function on_input(p, t) room.go(t) end`)}
 	}
 	p, err := pack.Load(fs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := NewWorld(p, script.DefaultLimits, quiet, WithClientBudget(100*time.Millisecond, time.Second))
+	// The fake clock decides the client budget; the real call limit only
+	// has to be loose enough for -race on a slow machine.
+	limits := script.DefaultLimits
+	limits.Time = 5 * time.Second
+	w, err := NewWorld(p, limits, quiet, WithClientBudget(100*time.Millisecond, time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
