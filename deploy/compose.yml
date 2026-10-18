@@ -31,6 +31,8 @@ services:
       TALESPEAK_KIDS_MODE: ${TALESPEAK_KIDS_MODE:-false}
       # CIDR list whose X-Forwarded-For is believed; empty in .env keeps the engine default (loopback + private ranges, which include Caddy)
       TALESPEAK_TRUSTED_PROXIES: ${TALESPEAK_TRUSTED_PROXIES:-}
+      # Host names the engine answers, comma-separated; others get 421 (docs/admin-limits.md)
+      TALESPEAK_HOSTS: ${TALESPEAK_HOSTS:-${TALESPEAK_DOMAIN}}
       TALESPEAK_LLM_URL: ${TALESPEAK_LLM_URL:-} # empty = AI features off
       # Resource limits (docs/admin-limits.md); empty keeps the engine default.
       TALESPEAK_LUA_TIME: ${TALESPEAK_LUA_TIME:-}
