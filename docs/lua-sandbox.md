@@ -12,7 +12,9 @@ Room scripts and, later, rule packs run in [gopher-lua](https://github.com/yuin/
 | `math` | All of it |
 | `say(text [, {speak = true, show = false}])` | Sends a line to the player (at most 4000 bytes). `speak = true` reads it aloud even when the player has not turned read aloud on; `show = false` (needs `speak`) only reads it aloud, for listening exercises, and shows it when the device has no local voice. The text still reaches the player's browser (speech runs there), so `show = false` is not for secrets such as the answer to a graded question |
 | `room.describe()` | Sends the current room's title, description and clickable items |
-| `room.go(id)` | Moves the player to room `id` of the pack once the hook ends: the clickable items become the new room's, and its `on_enter` runs (a room without a script is described). The last `room.go` that succeeds wins, and `room.go` to the current room runs its `on_enter` again. An unknown id is a script error, and so is waiting in `ui.dialog`, `ui.select` or `ui.ask` after `room.go` in the same hook. No one moves when the hook fails, when the new room's script cannot start (the world or the player's network is full), or when the player's address has used up its Lua time before the new room's `on_enter`; the player stays and gets an error. The player keeps their instances of the last 4 rooms they entered, so coming back to one finds its globals as they were left; an older room starts over, so progress that must last goes in `state.player` (T-0023, next). One player message moves through at most 4 rooms |
+| `room.go(id)` | Moves the player to room `id` of the pack once the hook ends: the clickable items become the new room's, and its `on_enter` runs (a room without a script is described). The last `room.go` that succeeds wins, and `room.go` to the current room runs its `on_enter` again. An unknown id is a script error, and so is waiting in `ui.dialog`, `ui.select` or `ui.ask` after `room.go` in the same hook. No one moves when the hook fails, when the new room's script cannot start (the world or the player's network is full), or when the player's address has used up its Lua time before the new room's `on_enter`; the player stays and gets an error. The player keeps their instances of the last 4 rooms they entered, so coming back to one finds its globals as they were left; an older room starts over, so progress that must last goes in `state.player`. One player message moves through at most 4 rooms |
+| `state.player.get(key)` | A copy of the value the player's scripts set for `key` (1 to 64 bytes), or nil. Every room the player visits sees the same values; other players never do. Both calls work in hooks only: a room's top level runs for no player, so calling them there fails the script at load. Metatables are not kept |
+| `state.player.set(key, value)` | Keeps a copy of `value` for `key`; nil removes it. Values are nil, booleans, finite numbers, strings and tables of them with string or number keys, nested at most 8 deep. Returns true, or nil and the reason when a limit refuses the write (see below); a value that can never be kept, like a function, is a script error. Changing a table after `set` changes nothing until the next `set`. A value set before the hook fails stays set, like a global. For now the values last for the session; T-0018 keeps them in the database with the same calls and the same encoded sizes |
 | `ui.dialog(title, options)` | Shows 1 to 9 options and waits for the player; returns the option's number and its label |
 | `ui.select(title, options [, {min = 1, max = #options}])` | Multiple choice: the player picks `min` to `max` of 1 to 9 options; returns two lists, the numbers picked (ascending) and their labels |
 | `ui.ask(question [, {strict = true, speak = true, show = false}])` | Waits for a typed answer and returns it: one line of at most 500 bytes, trimmed, control characters turned into spaces. `strict = true` gives no typing help (no autocorrect, autocomplete or suggestions, clickable items hidden), for spelling practice and riddles. `speak` and `show` as in `say`, for the question |
@@ -69,7 +71,19 @@ function on_click(player, item)
 end
 ```
 
-**Script state is per player and lasts a session.** Every player runs their own instance of each room script: the top level runs when the player first enters the room, and globals and top-level locals belong to that player alone. Nothing a player types or does reaches another player through script variables. They are gone when the player disconnects; progress that must last, and state a party shares on purpose, is stored in the database through `state.player` and `state.world` (T-0018).
+**How `state.player` measures a value.** Sizes are those of the encoding the server keeps, the same one T-0018 stores, so a value that fits now fits later:
+
+| Value | Bytes |
+| --- | --- |
+| `true`, `false` | 1 |
+| A whole number up to 2^53 | 2 for -64 to 63, then 1 more for each 7 bits, at most 9 |
+| Any other number | 9 |
+| A string of n bytes (any bytes, kept exactly) | n + 2 up to 127 bytes, n + 3 up to 16383 |
+| A table | 2, plus its keys and values |
+
+The tables of one value may have at most 65536 slots in all, empty ones included, so a very sparse table (one with a few entries at large indexes, or many removed keys) is refused.
+
+**Script state is per player and lasts a session.** Every player runs their own instance of each room script: the top level runs when the player first enters the room, and globals and top-level locals belong to that player alone. Nothing a player types or does reaches another player through script variables. They are gone when the player disconnects. Progress the player's rooms share goes in `state.player`, which lasts the session for now; storing it in the database, and `state.world` for state a party shares on purpose, come with T-0018.
 
 **Checking answers:** `words.same` ignores only case and extra spaces. A check that forgives small typos comes with Whisp (T-0005).
 
@@ -90,6 +104,7 @@ The name `__concat` is reserved: every `..` in a script is compiled into a call 
 | Values on the Lua stack | 65536 | Script error (registry overflow) |
 | Output per call | 100 calls of `say`, `room.describe`, `room.go`, `ui.items` and `ui.image` (questions do not count) | Script error |
 | Script size | 256 KiB | The pack does not load |
+| `state.player` | 64-byte keys, 16 KiB per value, 256 KiB and 500 keys per player (key plus encoded value, see below), 50 `set` calls per hook, its dialogs included; it counts toward the memory of the player's address and the world, together with the room instances | `set` returns nil and the reason |
 
 Time per call and the memory limits can be changed by the admin ([admin-limits.md](admin-limits.md)); the others are part of the pack format.
 

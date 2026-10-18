@@ -25,6 +25,7 @@ Nothing here.
 | [T-0018](open/T-0018-persistent-state.md) | Player, world and game state stored in SQLite | feature | high |
 | [T-0019](open/T-0019-turn-order.md) | Free and turn-based rounds in a room | feature | high |
 | [T-0020](open/T-0020-item-take-rules.md) | Room items that players share, split or use up | feature | medium |
+| [T-0024](open/T-0024-lua-table-memory.md) | Count the hidden memory of Lua tables | security | high |
 
 ## Done
 
@@ -37,3 +38,4 @@ Nothing here.
 | [T-0014](done/T-0014-offline-csp-enforcement.md) | Offline first and strict CSP enforcement | feature | high |
 | [T-0021](done/T-0021-demo-corridor.md) | Demo corridor and guard room | feature | medium |
 | [T-0022](done/T-0022-room-go.md) | Scripts move players between rooms | feature | high |
+| [T-0023](done/T-0023-session-player-state.md) | state.player for the session, first slice of T-0018 | feature | high |
