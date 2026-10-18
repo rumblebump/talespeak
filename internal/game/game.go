@@ -254,11 +254,18 @@ type session struct {
 	dialogID string
 	dialogs  int           // dialogs shown, for unique ids
 	items    []script.Item // what the player can click now
+	next     string        // the room room.go moves the player to when the hook ends
+	moves    int           // room.go moves done for the current message
 
 	out []ws.Message // collects output during one hook call
 }
 
+// MaxMoves caps the rooms one player message can move through, so rooms
+// whose on_enter calls room.go cannot send a player round in circles.
+const MaxMoves = 10
+
 func (s *session) Handle(m ws.Message) []ws.Message {
+	s.moves = 0
 	switch m.Type {
 	case "choose":
 		return s.choose(m)
@@ -344,11 +351,21 @@ func (s *session) drop() {
 func (s *session) enter(room string) []ws.Message {
 	s.w.mu.Lock()
 	defer s.w.mu.Unlock()
+	return s.enterLocked(room, false)
+}
+
+// enterLocked is enter for a caller that holds w.mu. After room.go (moved),
+// the output so far stays in front of the new room's, and the client is
+// told the new room's items first, since its on_enter may not describe it.
+func (s *session) enterLocked(room string, moved bool) []ws.Message {
 	s.drop()
 	s.room = room
 	s.items = nil
 	for _, it := range s.w.pack.Rooms[room].Items {
 		s.items = append(s.items, script.Item{ID: it.ID, Label: it.Label})
+	}
+	if moved {
+		s.out = append(s.out, ws.Message{Type: "items", Items: wsItems(s.items)})
 	}
 	if s.w.closed {
 		return s.after(nil, script.ErrClosed)
@@ -507,6 +524,7 @@ func (s *session) after(th *script.Thread, err error) []ws.Message {
 		return s.flush()
 	}
 	if err != nil {
+		s.next = "" // a failed hook moves no one
 		s.w.log.Warn("room script failed", "room", s.room, "err", logText(err))
 		if errors.Is(err, script.ErrStateMemory) {
 			s.reset(s.room)
@@ -527,6 +545,15 @@ func (s *session) after(th *script.Thread, err error) []ws.Message {
 			m.Type, m.Strict = "ask", d.Strict
 		}
 		s.out = append(s.out, m)
+	} else if s.next != "" {
+		room := s.next
+		s.next = ""
+		if s.moves++; s.moves > MaxMoves {
+			s.w.log.Warn("room script moved a player too often", "room", s.room, "to", room)
+			s.out = append(s.out, ws.Message{Type: "error", Message: "This room's script moved you too often at once. Tell the game master."})
+			return s.flush()
+		}
+		return s.enterLocked(room, true)
 	}
 	return s.flush()
 }
@@ -570,7 +597,7 @@ func (s *session) flush() []ws.Message {
 	return out
 }
 
-// Say, DescribeRoom, Items and Image implement script.Host.
+// Say, DescribeRoom, Items, Image, Go and Room implement script.Host.
 func (s *session) Say(text string, how script.Voice) {
 	s.out = append(s.out, ws.Message{Type: "text", Text: text, Speak: how.Speak, Hide: how.Hide})
 }
@@ -584,6 +611,16 @@ func (s *session) Items(items []script.Item) {
 	s.items = items
 	s.out = append(s.out, ws.Message{Type: "items", Items: wsItems(items)})
 }
+
+func (s *session) Go(room string) bool {
+	if s.w.pack.Rooms[room] == nil {
+		return false
+	}
+	s.next = room
+	return true
+}
+
+func (s *session) Room() string { return s.room }
 
 func (s *session) Image(name, caption string) bool {
 	url, ok := s.w.pack.Image(name)

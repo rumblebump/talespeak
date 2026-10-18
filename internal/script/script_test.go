@@ -20,6 +20,17 @@ func (h *recorder) Say(text string, how Voice) {
 }
 func (h *recorder) DescribeRoom() { h.out = append(h.out, "describe") }
 
+// Go knows two rooms, cell and hall; Room is "cell".
+func (h *recorder) Go(room string) bool {
+	if room != "cell" && room != "hall" {
+		return false
+	}
+	h.out = append(h.out, "go:"+room)
+	return true
+}
+
+func (h *recorder) Room() string { return "cell" }
+
 func (h *recorder) Items(items []Item) {
 	s := "items:"
 	for _, it := range items {

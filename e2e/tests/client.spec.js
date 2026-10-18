@@ -13,7 +13,7 @@ test("room and text renderer", async ({ page }) => {
 test("clickable items, dialog answered with the mouse", async ({ page }) => {
   await open(page);
   const items = page.getByRole("navigation", { name: "Things you can click" });
-  await expect(items.getByRole("button")).toHaveText(["lamp", "chest", "painting", "broken lever", "riddle", "spelling", "voice", "trapdoor"]);
+  await expect(items.getByRole("button")).toHaveText(["lamp", "chest", "painting", "broken lever", "riddle", "spelling", "voice", "trapdoor", "cellar door"]);
   await items.getByRole("button", { name: "lamp" }).click();
   const dialog = page.getByRole("group", { name: "Light the lamp?" });
   await expect(dialog).toBeVisible();
@@ -179,3 +179,19 @@ test("typed answer to a riddle", async ({ page }) => {
   await expect(question).toBeHidden();
 });
 
+
+test("room.go: moving to another room and back", async ({ page }) => {
+  await open(page);
+  const items = page.getByRole("navigation", { name: "Things you can click" });
+  await items.getByRole("button", { name: "cellar door" }).click();
+  await expect(story(page)).toContainText("Down to the cellar.");
+  await expect(story(page)).toContainText("Cellar visit 1, in cellar.");
+  // The cellar's on_enter does not describe it: the items come with the move.
+  await expect(items.getByRole("button")).toHaveText(["stairs up"]);
+  await items.getByRole("button", { name: "stairs up" }).click();
+  await expect(story(page).locator(".room-title")).toHaveText(["Test hall", "Test hall"]);
+  await expect(items.getByRole("button", { name: "cellar door" })).toBeVisible();
+  await items.getByRole("button", { name: "cellar door" }).click();
+  // The player's cellar script kept its globals.
+  await expect(story(page)).toContainText("Cellar visit 2, in cellar.");
+});
