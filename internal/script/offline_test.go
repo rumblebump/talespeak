@@ -55,6 +55,7 @@ func TestSandboxSurfaceIsExactly(t *testing.T) {
 		"string.gmatch", "string.gsub", "string.len", "string.lower", "string.match", "string.rep",
 		"string.reverse", "string.sub", "string.upper",
 		"table", "table.concat", "table.getn", "table.insert", "table.maxn", "table.remove", "table.sort",
+		"timer", "timer.cancel", "timer.left", "timer.start",
 		"tonumber", "tostring", "type",
 		"ui", "ui.ask", "ui.dialog", "ui.image", "ui.items", "ui.select",
 		"unpack", "words", "words.normalize", "words.same", "xpcall",

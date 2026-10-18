@@ -8,8 +8,9 @@ import (
 )
 
 type recorder struct {
-	out   []string
-	state State
+	out    []string
+	state  State
+	timers map[string]time.Duration
 }
 
 func (h *recorder) Say(text string, how Voice) {
@@ -38,6 +39,30 @@ func (h *recorder) Go(room string) bool {
 func (h *recorder) Room() string { return "cell" }
 
 func (h *recorder) PlayerState() *State { return &h.state }
+
+// StartTimer keeps at most MaxTimers; a timer's time never passes.
+func (h *recorder) StartTimer(name string, d time.Duration, show string) error {
+	if _, ok := h.timers[name]; !ok && len(h.timers) >= MaxTimers {
+		return errors.New("too many timers")
+	}
+	if h.timers == nil {
+		h.timers = map[string]time.Duration{}
+	}
+	h.timers[name] = d
+	h.out = append(h.out, "timer:"+name+"="+d.String()+"|"+show)
+	return nil
+}
+
+func (h *recorder) StopTimer(name string) bool {
+	_, ok := h.timers[name]
+	delete(h.timers, name)
+	return ok
+}
+
+func (h *recorder) TimerLeft(name string) (time.Duration, bool) {
+	d, ok := h.timers[name]
+	return d, ok
+}
 
 func (h *recorder) Items(items []Item) {
 	s := "items:"

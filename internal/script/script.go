@@ -109,6 +109,17 @@ type Host interface {
 	Room() string
 	// PlayerState is the player's state.player; nil when there is none.
 	PlayerState() *State
+	// StartTimer starts the player's timer name, replacing one of that
+	// name: once d has passed, the engine calls on_timer(player, name).
+	// show, when not "", is a label the player sees with a countdown. An
+	// error refuses it (too many timers); timer.start returns it.
+	StartTimer(name string, d time.Duration, show string) error
+	// StopTimer stops the player's timer name and reports whether it was
+	// running.
+	StopTimer(name string) bool
+	// TimerLeft is the time until the player's timer name runs out, and
+	// false when it is not running.
+	TimerLeft(name string) (time.Duration, bool)
 }
 
 // Voice says how a line reaches the player, set by say(text, {speak =
@@ -142,6 +153,9 @@ type Dialog struct {
 	Strict bool
 	// Voice is how the title reaches the player.
 	Voice Voice
+	// Timeout, when not 0, is how long the player has to answer; then the
+	// engine calls Expire, and the question returns nil.
+	Timeout time.Duration
 }
 
 // answer is what a paused hook gets back: choices for ui.dialog and
@@ -149,6 +163,7 @@ type Dialog struct {
 type answer struct {
 	choices []int
 	text    string
+	expired bool // the question's timeout passed: it returns nil
 }
 
 // Check returns the player's answer to d in ascending order, or an error
@@ -199,6 +214,7 @@ type Thread struct {
 	events   chan result     // the end of each call: a dialog, or the hook's end
 	canceled bool            // set on the hook's goroutine once resume sent nil
 	moved    bool            // room.go was called: the hook may not wait again
+	noWait   bool            // started while the player had a question open: it may not wait
 	writes   int             // state.player.set calls, across its dialogs
 	loading  map[string]bool // modules this hook is running now, for require's cycle check
 }
@@ -322,7 +338,7 @@ func (r *Runtime) Instance(s *Script) (*Env, error) {
 	fn.Env = env.table
 	r.envs[env.table] = &envState{}
 
-	th, err := r.start(nil, env.table, fn)
+	th, err := r.start(nil, env.table, fn, false)
 	if err != nil {
 		r.Release(env)
 		return nil, err
@@ -365,9 +381,26 @@ func (e *Env) HasHook(name string) bool {
 // hook waits in ui.dialog, and nil when it finished or the script has no
 // such hook.
 func (r *Runtime) Run(host Host, env *Env, hook, player string, args ...string) (*Thread, error) {
+	return r.RunHook(host, env, Hook{Name: hook, Player: player, Args: args})
+}
+
+// Hook is one hook call for RunHook.
+type Hook struct {
+	Name   string
+	Player string
+	Args   []string
+	// NoWait refuses ui.dialog, ui.select and ui.ask in the hook: the
+	// engine runs it while the player has a question open already, for a
+	// timer or another player's change.
+	NoWait bool
+}
+
+// RunHook is Run with the options of h.
+func (r *Runtime) RunHook(host Host, env *Env, h Hook) (*Thread, error) {
 	if r.closed {
 		return nil, ErrClosed
 	}
+	hook, player, args := h.Name, h.Player, h.Args
 	fn, ok := env.table.RawGetString(hook).(*lua.LFunction)
 	if !ok {
 		return nil, nil
@@ -387,7 +420,7 @@ func (r *Runtime) Run(host Host, env *Env, hook, player string, args ...string) 
 	for _, a := range args {
 		values = append(values, lua.LString(a))
 	}
-	return r.start(host, env.table, fn, values...)
+	return r.start(host, env.table, fn, h.NoWait, values...)
 }
 
 // Resume continues a paused hook with the player's choices (1-based): one
@@ -423,6 +456,18 @@ func (r *Runtime) Answer(host Host, th *Thread, text string) (*Thread, error) {
 	return r.answer(host, th, &answer{text: text})
 }
 
+// Expire ends the wait of a hook paused on a question with a Timeout: the
+// question returns nil, and the hook goes on as after an answer.
+func (r *Runtime) Expire(host Host, th *Thread) (*Thread, error) {
+	if _, ok := r.paused[th]; !ok || r.closed {
+		return nil, fmt.Errorf("%w: hook is not waiting", ErrScript)
+	}
+	if th.Dialog.Timeout <= 0 {
+		return nil, fmt.Errorf("%w: this question has no timeout", ErrAnswer)
+	}
+	return r.answer(host, th, &answer{expired: true})
+}
+
 func (r *Runtime) answer(host Host, th *Thread, a *answer) (*Thread, error) {
 	delete(r.paused, th)
 	r.begin(host, th, r.limits.Time)
@@ -450,9 +495,9 @@ func (r *Runtime) Paused() int { return len(r.paused) }
 
 // start runs fn(args...) of env on a new hook goroutine until it ends or
 // waits.
-func (r *Runtime) start(host Host, env *lua.LTable, fn *lua.LFunction, args ...lua.LValue) (*Thread, error) {
+func (r *Runtime) start(host Host, env *lua.LTable, fn *lua.LFunction, noWait bool, args ...lua.LValue) (*Thread, error) {
 	co, _ := r.L.NewThread()
-	th := &Thread{co: co, env: env, resume: make(chan *answer), events: make(chan result)}
+	th := &Thread{co: co, env: env, resume: make(chan *answer), events: make(chan result), noWait: noWait}
 	r.begin(host, th, r.limits.Time)
 	go th.main(r.cur.ctx, fn, args)
 	return r.wait(th)
@@ -532,6 +577,9 @@ func (r *Runtime) pause(L *lua.LState, d *Dialog) *answer {
 	}
 	if th.moved {
 		L.RaiseError("the player is leaving this room (room.go was called): a hook cannot wait for an answer after it")
+	}
+	if th.noWait {
+		L.RaiseError("the player has a question open already: this hook cannot wait for an answer")
 	}
 	th.events <- result{dialog: d}
 	a := <-th.resume // the caller has called begin

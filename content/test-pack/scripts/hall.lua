@@ -41,5 +41,16 @@ function on_input(player, text)
     say("Guide answer: " .. label)
     return
   end
+  if text == "hourglass" then
+    -- A shown timer, and a question with a timeout (T-0029).
+    timer.start("sand", 2, { show = "Sand" })
+    local n = ui.dialog("Quick: left or right?", { "Left", "Right" }, { timeout = 1 })
+    say(n and ("Went " .. n) or "Too slow.")
+    return
+  end
   say("You typed: " .. text)
+end
+
+function on_timer(player, name)
+  say("The " .. name .. " ran out.")
 end
