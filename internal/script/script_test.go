@@ -7,7 +7,10 @@ import (
 	"time"
 )
 
-type recorder struct{ out []string }
+type recorder struct {
+	out   []string
+	state State
+}
 
 func (h *recorder) Say(text string, how Voice) {
 	switch {
@@ -30,6 +33,8 @@ func (h *recorder) Go(room string) bool {
 }
 
 func (h *recorder) Room() string { return "cell" }
+
+func (h *recorder) PlayerState() *State { return &h.state }
 
 func (h *recorder) Items(items []Item) {
 	s := "items:"

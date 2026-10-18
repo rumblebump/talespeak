@@ -98,6 +98,10 @@ type World struct {
 
 	clientMemory int64                               // script state one client may keep
 	clientEnvs   map[string]map[*script.Env]struct{} // client -> its players' script instances
+
+	stateMemory int64            // state.player all players of the world may keep; 0: no limit
+	stateTotal  int64            // what they keep
+	clientState map[string]int64 // client -> what its players keep in state.player
 }
 
 // budget is a token bucket of Lua time in seconds. It may go below zero
@@ -112,7 +116,8 @@ type budget struct {
 // error.
 func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Option) (*World, error) {
 	w := &World{log: log, pack: p, rt: script.New(limits), scripts: map[string]*script.Script{},
-		budgets: map[string]*budget{}, now: time.Now, clientMemory: DefaultClientMemory, clientEnvs: map[string]map[*script.Env]struct{}{}}
+		budgets: map[string]*budget{}, now: time.Now, clientMemory: DefaultClientMemory, clientEnvs: map[string]map[*script.Env]struct{}{},
+		stateMemory: limits.StateMemory, clientState: map[string]int64{}}
 	WithClientBudget(DefaultClientRate, DefaultClientBurst)(w)
 	for _, o := range opts {
 		o(w)
@@ -151,6 +156,7 @@ func (w *World) Close() {
 // "" has no budget (tests and local tools).
 func (w *World) NewSession(client string) (ws.Session, []ws.Message) {
 	s := &session{w: w, name: DefaultPlayerName, client: budgetKey(client)}
+	s.state.Reserve = s.reserve
 	return s, s.enter(w.pack.Start)
 }
 
@@ -220,10 +226,10 @@ func (w *World) pruneBudgets(now time.Time) bool {
 	return false
 }
 
-// clientKept is at least what the players of client keep in script state.
-// The caller holds w.mu.
+// clientKept is at least what the players of client keep in script
+// instances and state.player. The caller holds w.mu.
 func (w *World) clientKept(client string) int64 {
-	var n int64
+	n := w.clientState[client]
 	for env := range w.clientEnvs[client] {
 		n += w.rt.Kept(env)
 	}
@@ -264,6 +270,7 @@ type session struct {
 	dialogID string
 	dialogs  int           // dialogs shown, for unique ids
 	items    []script.Item // what the player can click now
+	state    script.State  // state.player, shared by the player's rooms
 	next     string        // the room room.go moves the player to when the hook ends
 	visited  []string      // rooms entered, the latest last
 	moves    int           // room.go moves done for the current message
@@ -302,6 +309,8 @@ func (s *session) Close() {
 		s.w.release(s.client, env)
 	}
 	s.envs = nil
+	_ = s.reserve(-s.state.Size())
+	s.state = script.State{}
 }
 
 // env returns the player's instance of room's script, starting it on first
@@ -666,7 +675,8 @@ func (s *session) flush() []ws.Message {
 	return out
 }
 
-// Say, DescribeRoom, Items, Image, Go and Room implement script.Host.
+// Say, DescribeRoom, Items, Image, Go, Room and PlayerState implement
+// script.Host.
 func (s *session) Say(text string, how script.Voice) {
 	s.out = append(s.out, ws.Message{Type: "text", Text: text, Speak: how.Speak, Hide: how.Hide})
 }
@@ -690,6 +700,30 @@ func (s *session) Go(room string) bool {
 }
 
 func (s *session) Room() string { return s.room }
+
+func (s *session) PlayerState() *script.State { return &s.state }
+
+// reserve accounts for state.player growing by delta bytes: the world and
+// the player's client address share the limits of script memory. The
+// caller holds w.mu.
+func (s *session) reserve(delta int64) error {
+	w := s.w
+	if delta > 0 {
+		if w.stateMemory > 0 && w.stateTotal+delta > w.stateMemory {
+			return errors.New("this world is full right now")
+		}
+		if s.client != "" && w.clientKept(s.client)+delta > w.clientMemory {
+			return errors.New("too many players from this network keep state right now")
+		}
+	}
+	w.stateTotal += delta
+	if s.client != "" {
+		if w.clientState[s.client] += delta; w.clientState[s.client] <= 0 {
+			delete(w.clientState, s.client)
+		}
+	}
+	return nil
+}
 
 func (s *session) Image(name, caption string) bool {
 	url, ok := s.w.pack.Image(name)

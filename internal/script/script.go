@@ -107,6 +107,8 @@ type Host interface {
 	Go(room string) bool
 	// Room is the id of the player's current room.
 	Room() string
+	// PlayerState is the player's state.player; nil when there is none.
+	PlayerState() *State
 }
 
 // Voice says how a line reaches the player, set by say(text, {speak =
@@ -232,6 +234,7 @@ type call struct {
 	ctx     context.Context
 	end     func() int64 // stops the budgets and returns the bytes allocated
 	outputs int
+	writes  int // state.player.set calls
 }
 
 // New returns a Runtime with the sandbox libraries loaded.
