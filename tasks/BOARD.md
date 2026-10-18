@@ -35,4 +35,5 @@ Nothing here.
 | [T-0003](done/T-0003-lua-runtime-spike.md) | Lua runtime, YAML room and dialog coroutine | feature | high |
 | [T-0004](done/T-0004-terminal-web-client.md) | Terminal-style web client renderer | feature | high |
 | [T-0014](done/T-0014-offline-csp-enforcement.md) | Offline first and strict CSP enforcement | feature | high |
+| [T-0021](done/T-0021-demo-corridor.md) | Demo corridor and guard room | feature | medium |
 | [T-0022](done/T-0022-room-go.md) | Scripts move players between rooms | feature | high |

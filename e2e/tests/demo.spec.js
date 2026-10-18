@@ -2,7 +2,7 @@
 import { test, expect, open } from "./fixtures.js";
 import { DEMO_URL } from "../playwright.config.js";
 
-test("demo: guard, straw, wall map, riddle and escape", async ({ page }) => {
+test("demo: guard, straw, wall map, riddle, corridor and escape", async ({ page }) => {
   await open(page, DEMO_URL + "/");
   const story = page.locator(".story");
   await expect(story.locator(".room-title")).toHaveText("A damp cell");
@@ -58,6 +58,21 @@ test("demo: guard, straw, wall map, riddle and escape", async ({ page }) => {
   await expect(story).toContainText("The lock opens!");
   await expect(page.getByRole("group", { name: /I have bars/ })).toBeHidden();
   await page.getByRole("button", { name: "open cell door" }).click();
+
+  // The corridor: the X from the wall map hides the code.
+  await expect(story.locator(".room-title").last()).toHaveText("A dark corridor");
+  await page.getByRole("button", { name: "stone with an X" }).click();
+  await expect(story).toContainText("BOX 4 1 7");
+  await page.getByRole("button", { name: "door marked GUARDS" }).click();
+
+  // The guard room: the code opens the box, its key the back door.
+  await expect(story.locator(".room-title").last()).toHaveText("The guard room");
+  await page.getByRole("button", { name: "iron box with number wheels" }).click();
+  await expect(page.getByRole("group", { name: /Three number wheels/ })).toBeVisible();
+  await input.fill("4 1 7");
+  await input.press("Enter");
+  await expect(story).toContainText("big iron key");
+  await page.getByRole("button", { name: "narrow back door" }).click();
   await expect(story).toContainText("You escaped. Well done!");
   await expect(story).toContainText("THE END.");
   await expect(page.getByRole("navigation")).toBeHidden();
@@ -75,4 +90,26 @@ test("demo: trying the door while the guard watches", async ({ page }) => {
   await input.fill("search the straw");
   await input.press("Enter");
   await expect(story).toContainText("The story has ended.");
+});
+
+test("demo: caught on the stairs after leaving the cell", async ({ page }) => {
+  await open(page, DEMO_URL + "/");
+  const story = page.locator(".story");
+  const input = page.getByRole("textbox");
+  for (let i = 0; i < 3; i++) {
+    await page.getByRole("button", { name: "sleepy guard" }).click();
+    await page.getByRole("button", { name: "Ask for water" }).click();
+  }
+  await expect(story).toContainText("stomps off down the corridor");
+  await page.getByRole("button", { name: "lock with letter wheels" }).click();
+  await expect(page.getByRole("group", { name: /I have bars/ })).toBeVisible();
+  await input.fill("cell");
+  await input.press("Enter");
+  await page.getByRole("button", { name: "open cell door" }).click();
+  await expect(story.locator(".room-title").last()).toHaveText("A dark corridor");
+  await page.getByRole("button", { name: "stairs down" }).click();
+  await page.getByRole("button", { name: "Yes, go down" }).click();
+  await expect(story).toContainText("straight into the guard");
+  await expect(story).toContainText("THE END.");
+  await expect(page.getByRole("navigation")).toBeHidden();
 });
