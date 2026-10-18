@@ -89,7 +89,7 @@ main { flex: 1; padding: 1rem; max-width: 60rem; margin: 0 auto; width: 100%; }
 .story .spoken { color: var(--muted); }
 /* A line with a speaker, such as the guide: the name first, then the words. */
 .story .guide { border-left: 3px solid var(--accent); padding-left: 0.5rem; }
-.from { color: var(--accent); font-weight: bold; }
+.from { color: var(--accent); font-weight: bold; unicode-bidi: isolate; }
 .from::after { content: ": "; }
 .replay {
   margin-left: 0.75rem;
@@ -113,6 +113,7 @@ main { flex: 1; padding: 1rem; max-width: 60rem; margin: 0 auto; width: 100%; }
 .item::after { content: "]"; color: var(--muted); }
 .item:hover { border-color: var(--accent); color: var(--accent); }
 
+.timers li { unicode-bidi: isolate; }
 .timers { list-style: none; margin: 0.5rem 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 1.5rem; color: var(--warn); }
 .countdown { color: var(--warn); margin: 0 0 0.5rem; }
 .dialog { border-left: 2px solid var(--accent); padding-left: 1rem; margin: 1rem 0; }

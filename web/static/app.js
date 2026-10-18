@@ -44,7 +44,10 @@ const cleanLine = (s) => s.replace(/[\p{Cc}\u2028\u2029]/gu, " ").trim();
 
 /** speakerName is who says a line, such as the guide: one short line of
  * text, or "" for the story itself. */
-const speakerName = (v) => cleanLine(text(v)).slice(0, 40);
+const speakerName = (v) =>
+  cleanLine(text(v))
+    .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "")
+    .slice(0, 40);
 
 /** A picture URL must be a pack image on this server. */
 function imageURL(v) {

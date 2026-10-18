@@ -1,6 +1,7 @@
 package script
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -391,9 +392,10 @@ func (r *Runtime) set(s *State, key string, v lua.LValue) error {
 	if s.vals == nil {
 		s.vals = map[string][]byte{}
 	}
+	same := had && bytes.Equal(old, e.buf)
 	s.vals[key] = append([]byte(nil), e.buf...) // no spare capacity kept
 	s.size += size - oldSize
-	if s.Changed != nil {
+	if s.Changed != nil && !same { // writing the same value again tells no one
 		s.Changed(key)
 	}
 	return nil

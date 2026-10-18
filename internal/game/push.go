@@ -28,21 +28,39 @@ func (s *session) Pending() ([]ws.Message, bool) {
 	s.w.mu.Lock()
 	defer s.w.mu.Unlock()
 	q := s.queue
-	s.queue = nil
+	s.queue, s.queueBytes = nil, 0
 	return q, !s.lagged
 }
 
+// wireBytes is about what m takes on the wire.
+func wireBytes(m ws.Message) int {
+	n := 64 + len(m.Text) + len(m.Title) + len(m.Message) + len(m.ID) + len(m.From) + len(m.URL)
+	for _, o := range m.Options {
+		n += len(o) + 3
+	}
+	for _, it := range m.Items {
+		n += len(it.ID) + len(it.Label) + 24
+	}
+	return n
+}
+
 // push queues ms for the connection. A player whose client does not read
-// fast enough gets nothing more, and the connection closes. The caller
-// holds w.mu.
+// fast enough gets nothing more, and the connection closes: a client that
+// read everything takes one hook's output, however long. The caller holds
+// w.mu.
 func (s *session) push(ms []ws.Message) {
 	if len(ms) == 0 || s.closed {
 		return
 	}
-	if len(s.queue)+len(ms) > MaxQueued {
-		s.lagged, s.queue = true, nil
+	n := 0
+	for _, m := range ms {
+		n += wireBytes(m)
+	}
+	if len(s.queue) > 0 && (len(s.queue)+len(ms) > MaxQueued || s.queueBytes+n > MaxQueuedBytes) {
+		s.lagged, s.queue, s.queueBytes = true, nil, 0
 	} else if !s.lagged {
 		s.queue = append(s.queue, ms...)
+		s.queueBytes += n
 	}
 	if s.notify != nil {
 		s.notify()
@@ -51,10 +69,13 @@ func (s *session) push(ms []ws.Message) {
 
 // runPushed runs h in the player's current room, for something the player
 // did not send, and queues its output. A hook run while a question is open
-// cannot ask another. It reports false when the player's address has used
-// up its Lua time and nothing ran. The caller holds w.mu.
+// cannot ask another, and a read-only one (on_change) never asks; what it
+// starts stays read-only. It reports false when the player's address has
+// used up its Lua time and nothing ran. The caller holds w.mu.
 func (s *session) runPushed(h script.Hook) bool {
 	s.moves = 0
+	s.readOnlyWorld = h.ReadOnlyWorld
+	defer func() { s.readOnlyWorld = false }()
 	env, err := s.env(s.room)
 	if errors.Is(err, ErrBusy) {
 		return false
@@ -67,7 +88,7 @@ func (s *session) runPushed(h script.Hook) bool {
 		s.push(s.flush())
 		return true
 	}
-	h.Player, h.NoWait = s.name, s.pending != nil
+	h.Player, h.NoWait = s.name, s.pending != nil || h.ReadOnlyWorld
 	th, err := s.run1(func() (*script.Thread, error) { return s.w.rt.RunHook(s, env, h) })
 	if errors.Is(err, ErrBusy) {
 		return false
@@ -92,7 +113,7 @@ func (s *session) StartTimer(name string, d time.Duration, show string) error {
 	if s.timers == nil {
 		s.timers = map[string]*timer{}
 	}
-	t := &timer{deadline: s.w.now().Add(d), show: show}
+	t := &timer{deadline: s.w.now().Add(d), show: show, readOnly: s.readOnlyWorld}
 	t.stop = s.w.after(d, func() { s.fire(name, t) })
 	s.timers[name] = t
 	if show != "" {
@@ -150,7 +171,7 @@ func (s *session) fire(name string, t *timer) {
 	if t.show != "" {
 		s.out = append(s.out, ws.Message{Type: "timer", ID: name})
 	}
-	if !s.runPushed(script.Hook{Name: "on_timer", Args: []string{name}}) {
+	if !s.runPushed(script.Hook{Name: "on_timer", Args: []string{name}, ReadOnlyWorld: t.readOnly}) {
 		s.out = s.out[:mark]
 		s.timers[name] = t
 		t.stop = w.after(retryBusy, func() { s.fire(name, t) })

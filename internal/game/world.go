@@ -3,6 +3,7 @@ package game
 import (
 	"errors"
 	"slices"
+	"time"
 
 	"github.com/rumblebump/talespeak/internal/script"
 )
@@ -60,12 +61,18 @@ func mergeKeys(old, keys []string) []string {
 	return old
 }
 
+// DeliverGap is the shortest time between two deliveries of on_change in
+// a world. Changes made meanwhile reach each player in one call, so a
+// player writing world state as fast as they can makes the others' rooms
+// run at most a few times a second.
+const DeliverGap = 250 * time.Millisecond
+
 // deliverSoon schedules a delivery of on_change, unless one is due. The
 // caller holds w.mu.
 func (w *World) deliverSoon() {
 	if !w.delivering {
 		w.delivering = true
-		w.after(0, w.deliver)
+		w.after(max(0, w.lastDeliver.Add(DeliverGap).Sub(w.now())), w.deliver)
 	}
 }
 
@@ -76,6 +83,7 @@ func (w *World) deliverSoon() {
 func (w *World) deliver() {
 	w.mu.Lock()
 	w.delivering = false
+	w.lastDeliver = w.now()
 	var due []*session
 	for s := range w.sessions {
 		if len(s.changed) > 0 {

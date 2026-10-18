@@ -43,7 +43,7 @@ Per-client limits count IPv6 clients by their /64 network; the Lua time budget c
 | client → server | `click` | `item` | The player clicked one of the items they were shown; runs the room's `on_click` |
 | server → client | `error` | `message`, `id` | The client sent something the server does not understand or cannot take now, or a room script failed; the connection stays open. `id` is set only when an answer to the open question was not taken: the question with that `id` is still open and can be answered again |
 
-**Pushed messages.** Most server messages answer a client message, but some come on their own: what a room's `on_timer` or `on_change` says when a timer runs out or another player changes the world, `timer` and `close`. They arrive in order with the replies, never in the middle of a reply's messages. A client that does not read them (500 waiting) is disconnected (1008, too far behind). Clients count down from `ms` on their own clock, so a wrong clock on the device does not matter.
+**Pushed messages.** Most server messages answer a client message, but some come on their own: what a room's `on_timer` or `on_change` says when a timer runs out or another player changes the world, `timer` and `close`. They arrive in order with the replies, never in the middle of a reply's messages. A client that does not read them (500 messages or about 256 KiB waiting) is disconnected (1008, too far behind). Clients count down from `ms` on their own clock, so a wrong clock on the device does not matter.
 
 An item is `{"id": "straw", "label": "heap of straw"}`. `speak`, `hide` and `from` on a question work as on `text`, for its title.
 

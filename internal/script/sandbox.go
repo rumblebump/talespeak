@@ -396,7 +396,7 @@ func fromArg(L *lua.LState, t *lua.LTable, n int) string {
 		return ""
 	case lua.LString:
 		s := string(v)
-		if strings.TrimSpace(s) == "" || len(s) > MaxFromBytes || !utf8.ValidString(s) || strings.IndexFunc(s, unicode.IsControl) >= 0 {
+		if strings.TrimSpace(s) == "" || len(s) > MaxFromBytes || !utf8.ValidString(s) || strings.IndexFunc(s, notInLine) >= 0 {
 			L.ArgError(n, "from must be a name of 1 to 40 bytes on one line")
 		}
 		return s
@@ -616,7 +616,20 @@ func (r *Runtime) items(L *lua.LState) int {
 // validLabel is the rule for item labels in room YAML too: one line of
 // UTF-8 text, 1 to MaxLabelBytes long, not only spaces.
 func validLabel(s string) bool {
-	return strings.TrimSpace(s) != "" && len(s) <= MaxLabelBytes && utf8.ValidString(s) && !strings.ContainsAny(s, "\r\n")
+	return strings.TrimSpace(s) != "" && len(s) <= MaxLabelBytes && utf8.ValidString(s) && strings.IndexFunc(s, notInLine) < 0
+}
+
+// notInLine reports the characters a name or label may not hold: control
+// characters, line and paragraph separators, and the bidi controls, which
+// would turn the rest of the line around (emoji joiners stay allowed).
+func notInLine(r rune) bool {
+	switch {
+	case unicode.IsControl(r), r == '\u2028', r == '\u2029':
+		return true
+	case r == '\u061c', r == '\u200e', r == '\u200f', r >= '\u202a' && r <= '\u202e', r >= '\u2066' && r <= '\u2069':
+		return true
+	}
+	return false
 }
 
 // ValidItemID reports whether id can name an item: 1 to 64 of a-z, 0-9, _

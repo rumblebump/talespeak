@@ -62,7 +62,9 @@ end
 
 While a hook waits in `ui.dialog`, `ui.select` or `ui.ask`, the player's typed lines and clicks are refused until they answer.
 
-`on_timer` and `on_change` are not started by the player, so their output arrives on its own, between the player's actions. They count toward the player's script time like any hook; when it is used up they run a little later (and `on_change` then gets every key that changed meanwhile). When the player has a question open, they still run, but cannot ask another one; `room.go` from them closes the open question. `on_change` cannot change `state.world` (`set` and `update` return nil and the reason), so a change cannot bounce between players for ever. A room that wants to show other players' changes reads `state.world` in `on_change`:
+`on_timer` and `on_change` are not started by the player, so their output arrives on its own, between the player's actions. They count toward the player's script time like any hook; when it is used up they run a little later (and `on_change` then gets every key that changed meanwhile). When the player has a question open, they still run, but cannot ask another one; `room.go` from them closes the open question. `on_change` never asks a question, and it cannot change `state.world` (`set` and `update` return nil and the reason); neither can the `on_enter` of a room it moves the player to, or the `on_timer` of a timer it starts. So a change cannot bounce between players by itself. Writing the value a key already holds is not a change. A world delivers `on_change` at most every 250 ms: what changed meanwhile arrives in one call.
+
+`state.world` can carry what one player typed to the other players (a pack that stores `on_input` text and says it in `on_change`). That is chat; the edu-mode chat filter and the GM transcript will cover it (T-0018, T-0011). A room that wants to show other players' changes reads `state.world` in `on_change`:
 
 ```lua
 function on_change(player, keys)

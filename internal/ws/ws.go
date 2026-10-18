@@ -255,7 +255,14 @@ func (s *Server) handle(ctx context.Context, c *websocket.Conn, client string) {
 			done := make(chan struct{})
 			finished := make(chan struct{})
 			defer func() { close(done); <-finished }()
-			go s.push(c, p, &wmu, done, finished)
+			kick := make(chan struct{}, 1)
+			p.SetNotify(func() {
+				select {
+				case kick <- struct{}{}:
+				default: // a send is due already
+				}
+			})
+			go s.push(c, p, &wmu, kick, done, finished)
 		}
 	}
 	for {
@@ -293,17 +300,10 @@ func (s *Server) handle(ctx context.Context, c *websocket.Conn, client string) {
 	}
 }
 
-// push sends what p has waiting each time it notifies, until done. A
-// session too far behind closes the connection.
-func (s *Server) push(c *websocket.Conn, p Pusher, wmu *sync.Mutex, done <-chan struct{}, finished chan<- struct{}) {
+// push sends what p has waiting each time it notifies on kick, until
+// done. A session too far behind closes the connection.
+func (s *Server) push(c *websocket.Conn, p Pusher, wmu *sync.Mutex, kick <-chan struct{}, done <-chan struct{}, finished chan<- struct{}) {
 	defer close(finished)
-	kick := make(chan struct{}, 1)
-	p.SetNotify(func() {
-		select {
-		case kick <- struct{}{}:
-		default: // a send is due already
-		}
-	})
 	for {
 		select {
 		case <-done:
