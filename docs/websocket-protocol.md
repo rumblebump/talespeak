@@ -36,7 +36,7 @@ Per-client limits count IPv6 clients by their /64 network; the Lua time budget c
 | server → client | `select` | `id`, `title`, `options` (1 to 9 strings), `min`, `max`, `speak`, `hide`, `from`, `ms` | A question where the player picks `min` (0 when absent) to `max` options |
 | server → client | `ask` | `id`, `title`, `strict`, `speak`, `hide`, `from`, `ms` | A question the player answers by typing. `strict`: no typing help (no autocorrect, autocomplete or suggestions, clickable items hidden), for spelling practice and riddles |
 | server → client | `close` | `id` | The question with this `id` is gone without an answer: its time ran out, or a timer moved the player. Answers to it get an `error` |
-| server → client | `timer` | `id`, `title`, `ms` | A countdown to show: `title` is its label (1 to 100 bytes), `ms` the time left in milliseconds (at most a day). The same `id` replaces it; without `ms` it is removed. Only timers a script shows are sent; secret ones are not |
+| server → client | `timer` | `id`, `title`, `ms` | A countdown to show: `title` is its label (1 to 100 bytes), `ms` the time left in milliseconds (at most a day). The same `id` replaces it; without `ms` it is removed. Only timers a script shows are sent; secret ones are not. A room's timer, which every player in the room sees, has the id `room:<name>`; a player's own timer has its plain name. A client shows at most 20 |
 | client → server | `choose` | `id`, `option` (1-based) for `dialog`; `id`, `choices` (list of option numbers) for `select` | The answer to the open dialog or select |
 | client → server | `answer` | `id`, `text` | The typed answer to the open `ask` |
 | client → server | `input` | `text` | A line the player typed, outside a question; runs the room's `on_input` |

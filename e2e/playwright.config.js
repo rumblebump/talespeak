@@ -4,6 +4,8 @@ import { defineConfig, devices } from "@playwright/test";
 
 export const TEST_PACK_URL = "http://127.0.0.1:18765";
 export const DEMO_URL = "http://127.0.0.1:18766";
+// The demo again, as a world of its own for the tests where players meet.
+export const PARTY_URL = "http://127.0.0.1:18767";
 
 // Each server starts from a fresh data directory under e2e/.data/, emptied
 // by the server's own start command (this file is also loaded by every
@@ -37,5 +39,5 @@ export default defineConfig({
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     { name: "phone", use: { ...devices["Pixel 7"] } },
   ],
-  webServer: [server(TEST_PACK_URL, "test-pack", "../content/test-pack"), server(DEMO_URL, "demo")],
+  webServer: [server(TEST_PACK_URL, "test-pack", "../content/test-pack"), server(DEMO_URL, "demo"), server(PARTY_URL, "party")],
 });

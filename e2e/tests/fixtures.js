@@ -13,8 +13,8 @@ export const test = base.extend({
         const url = req.url();
         if (url.startsWith("data:") || url.startsWith("blob:")) return;
         const o = new URL(url).origin;
-        // Tests may open both local servers (test pack and demo), nothing else.
-        if (o !== origin && !/^http:\/\/127\.0\.0\.1:1876[56]$/.test(o)) problems.push("request to another origin: " + url);
+        // Tests may open the local servers (test pack, demo, party), nothing else.
+        if (o !== origin && !/^http:\/\/127\.0\.0\.1:1876[567]$/.test(o)) problems.push("request to another origin: " + url);
       });
       page.on("console", (msg) => {
         if (msg.type() === "error" && !page.allowedErrors?.some((re) => re.test(msg.text()))) {

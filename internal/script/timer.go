@@ -57,36 +57,68 @@ func (r *Runtime) timerHost(L *lua.LState) Host {
 	return r.cur.host
 }
 
-// timer.start(name, seconds [, {show = label}]) starts the player's timer
-// name, replacing a running one of that name. Once it runs out, the engine
-// calls on_timer(player, name) in the player's current room. show is a
-// label the player sees with a countdown; without it the timer is secret.
-// It returns true, or nil and the reason when the player has MaxTimers
-// running.
+// timerOpts reads the optional options table of a timer call at argument
+// n: room, and for timer.start show.
+func timerOpts(L *lua.LState, n int, start bool) (room bool, show string) {
+	if L.GetTop() < n || L.Get(n) == lua.LNil {
+		return false, ""
+	}
+	opts := L.CheckTable(n)
+	switch v := opts.RawGetString("room").(type) {
+	case *lua.LNilType:
+	case lua.LBool:
+		room = bool(v)
+	default:
+		L.ArgError(n, "room must be a boolean")
+	}
+	if !start {
+		return room, ""
+	}
+	switch v := opts.RawGetString("show").(type) {
+	case *lua.LNilType:
+	case lua.LString:
+		if !validLabel(string(v)) {
+			L.ArgError(n, "show must be one line of 1 to 100 bytes")
+		}
+		show = string(v)
+	default:
+		L.ArgError(n, "show must be a string")
+	}
+	return room, show
+}
+
+// party is the running hook's Party, or an error when its host has none.
+func (r *Runtime) party(L *lua.LState) Party {
+	p, ok := r.timerHost(L).(Party)
+	if !ok {
+		L.RaiseError("this world has no rooms shared by players")
+	}
+	return p
+}
+
+// timer.start(name, seconds [, {show = label, room = true}]) starts the
+// player's timer name, replacing a running one of that name. Once it runs
+// out, the engine calls on_timer(player, name) in the player's current
+// room. show is a label the player sees with a countdown; without it the
+// timer is secret. With room = true it is the room's timer instead, shared
+// by the players in it (see Party). It returns true, or nil and the reason
+// when MaxTimers run already.
 func (r *Runtime) timerStart(L *lua.LState) int {
 	name := timerName(L)
 	d, ok := seconds(L.Get(2))
 	if !ok {
 		L.ArgError(2, "a timer runs 1 to 86400 seconds")
 	}
-	show := ""
-	if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
-		switch v := L.CheckTable(3).RawGetString("show").(type) {
-		case *lua.LNilType:
-		case lua.LString:
-			if !validLabel(string(v)) {
-				L.ArgError(3, "show must be one line of 1 to 100 bytes")
-			}
-			show = string(v)
-		default:
-			L.ArgError(3, "show must be a string")
-		}
-	}
+	room, show := timerOpts(L, 3, true)
 	host := r.timerHost(L)
 	if show != "" {
 		host = r.output(L)
 	}
-	if err := host.StartTimer(name, d, show); err != nil {
+	start := host.StartTimer
+	if room {
+		start = r.party(L).StartRoomTimer
+	}
+	if err := start(name, d, show); err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString("timer.start: " + err.Error()))
 		return 2
@@ -95,23 +127,50 @@ func (r *Runtime) timerStart(L *lua.LState) int {
 	return 1
 }
 
-// timer.cancel(name) stops the player's timer name; it returns whether one
-// was running.
+// timer.cancel(name [, {room = true}]) stops the player's (or the room's)
+// timer name; it returns whether one was running.
 func (r *Runtime) timerCancel(L *lua.LState) int {
 	name := timerName(L)
-	L.Push(lua.LBool(r.timerHost(L).StopTimer(name)))
+	room, _ := timerOpts(L, 2, false)
+	stop := r.timerHost(L).StopTimer
+	if room {
+		stop = r.party(L).StopRoomTimer
+	}
+	L.Push(lua.LBool(stop(name)))
 	return 1
 }
 
-// timer.left(name) returns the seconds until the player's timer name runs
-// out, or nil when it is not running.
+// timer.left(name [, {room = true}]) returns the seconds until the
+// player's (or the room's) timer name runs out, or nil when it is not
+// running.
 func (r *Runtime) timerLeft(L *lua.LState) int {
 	name := timerName(L)
-	d, ok := r.timerHost(L).TimerLeft(name)
+	room, _ := timerOpts(L, 2, false)
+	left := r.timerHost(L).TimerLeft
+	if room {
+		left = r.party(L).RoomTimerLeft
+	}
+	d, ok := left(name)
 	if !ok {
 		L.Push(lua.LNil)
 		return 1
 	}
 	L.Push(lua.LNumber(max(d, 0).Seconds()))
+	return 1
+}
+
+// room.players() lists the players in the caller's room, the caller
+// included, in the order they came in: {{id = "p1", name = "traveler"},
+// ...}.
+func (r *Runtime) roomPlayers(L *lua.LState) int {
+	list := r.party(L).Players()
+	t := L.CreateTable(len(list), 0)
+	for i, p := range list {
+		e := L.CreateTable(0, 2)
+		e.RawSetString("id", lua.LString(p.ID))
+		e.RawSetString("name", lua.LString(p.Name))
+		t.RawSetInt(i+1, e)
+	}
+	L.Push(t)
 	return 1
 }
