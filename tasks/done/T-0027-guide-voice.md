@@ -16,7 +16,7 @@ A pack's guide (Whisp in the demo) speaks apart from the story: the player sees 
 - [x] `say(text, {from = "Whisp"})`, and `from` on `ui.dialog`, `ui.select` and `ui.ask`: 1 to 40 bytes on one line
 - [x] The protocol sends `from` on `text`, `dialog`, `select` and `ask` messages
 - [x] The client shows the name with the line or question, styled apart from the story, and reads it with a second local voice of the language, or the same voice pitched up
-- [x] The demo uses it, and its shared helpers move to `lib/rooms.lua` (T-0026)
+- [x] The demo uses it: `whisp` and `whisp_ask` in `content/demo/lib/rooms.lua` (moved there by T-0028)
 - [x] Tests: Go for the Lua arguments, Playwright for the display and the voice
 - [x] Docs: `docs/lua-sandbox.md`, `docs/websocket-protocol.md`, `docs/pack-patterns.md`
 

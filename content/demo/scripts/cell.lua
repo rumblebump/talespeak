@@ -13,7 +13,7 @@
 -- Every player runs their own copy of this script: globals are theirs and
 -- last until they leave. What the rooms share is in state.player.
 
-require("rooms") -- lib/rooms.lua: whisp, keep, solve, go and the guard's countdown
+require("rooms") -- whisp, the guard's countdown, solved rooms: lib/rooms.lua
 
 AWAY_MOVES = 10
 

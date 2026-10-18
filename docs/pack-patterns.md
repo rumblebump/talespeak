@@ -1,6 +1,8 @@
 # Patterns for pack authors
 
-Game mechanics are written in Lua by the pack, not in the engine. This page collects patterns the demo pack (`content/demo`) uses, ready to copy. The demo keeps them in one module, `lib/rooms.lua`, which every room script loads with `require("rooms")`.
+Game mechanics are written in Lua by the pack, not in the engine. This page collects patterns the demo pack (`content/demo`) uses, ready to copy.
+
+Put helpers that several rooms use into a module, `lib/<name>.lua`, and load it at the top of each room script with `require("<name>")` ([content-format.md](content-format.md)). The demo keeps the helpers below in `content/demo/lib/rooms.lua`; each room script starts with `require("rooms")`. A module shares the script's globals, so its functions become the script's own. Its top level also runs at world start for no player, so keep `say`, `ui` and `state.player` inside functions.
 
 ## Solved rooms and Whisp, the guide
 
@@ -11,7 +13,7 @@ Sometimes a player needs to go back to a room, sometimes there is no reason to. 
 | `ask` | Whisp asks first ("Do you really want to get locked in again?"); "No, stay here" keeps the player where they are | Going back is allowed but probably a mistake |
 | `locked` | Whisp says why not, and the player stays; hide the room's exit from the clickable items too | There is nothing left to do there |
 
-The marks live in `state.player`, so every room of the pack sees them. Moving through `go` instead of `room.go` applies them:
+The marks live in `state.player`, so every room of the pack sees them. Moving through `go` instead of `room.go` applies them (all of this is in the demo's `lib/rooms.lua`):
 
 ```lua
 -- whisp says a line as Whisp, the guide; whisp_ask asks Whisp's question

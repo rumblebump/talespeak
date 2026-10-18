@@ -1,9 +1,12 @@
--- Shared by the demo's rooms, which load it with require("rooms"): Whisp
--- the guide, the guard's countdown and solved rooms. It defines globals of
--- the room script that requires it, so the rooms call whisp(), go() and
--- the rest directly. The values live in state.player, so every room sees
--- the same ones. Only functions are defined here: a room requires this at
--- its top level, which also runs at world start, with no player.
+-- Helpers every room of the demo uses: Whisp the guide, the guard's
+-- countdown and solved rooms. A room script loads them with
+-- require("rooms"); the module shares the script's globals, so the
+-- functions below become the script's own. The values live in
+-- state.player, so every room sees the same ones.
+--
+-- Only function definitions here: a module required at a script's top
+-- level also runs at world start, for no player, where say, ui and
+-- state.player do not work.
 
 -- whisp says a line as Whisp, the guide; whisp_ask asks Whisp's question
 -- and returns the number of the answer.

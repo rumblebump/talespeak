@@ -42,3 +42,4 @@ Nothing here.
 | [T-0025](done/T-0025-solved-rooms.md) | Solved rooms and Whisp's warnings in the demo | feature | medium |
 | [T-0026](done/T-0026-require.md) | Shared Lua modules with require | feature | high |
 | [T-0027](done/T-0027-guide-voice.md) | A guide voice the client shows apart from the story | feature | medium |
+| [T-0028](done/T-0028-demo-rooms-module.md) | Demo helpers in one shared Lua module | chore | low |

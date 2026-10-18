@@ -6,7 +6,7 @@
 --
 -- The guard comes back here too, when the cell's countdown runs out.
 
-require("rooms") -- lib/rooms.lua: whisp, keep, solve, go and the guard's countdown
+require("rooms") -- whisp, the guard's countdown, solved rooms: lib/rooms.lua
 
 CODE = "417"
 

@@ -4,7 +4,7 @@
 -- cell) is the code for the key box in the guard room; the stairs lead
 -- straight to the guard. Going back into the solved cell, Whisp asks first.
 
-require("rooms") -- lib/rooms.lua: whisp, keep, solve, go and the guard's countdown
+require("rooms") -- whisp, the guard's countdown, solved rooms: lib/rooms.lua
 
 lifted = false     -- the player lifted the stone and read the note
 ended = false      -- the story is over
