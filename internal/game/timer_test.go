@@ -147,7 +147,7 @@ function on_timer(p, name) say("b: " .. name) end`
 
 func TestTimerShownRunsOut(t *testing.T) {
 	w, c := clockWorld(t, timerRoom, timerRoomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	got := s.Handle(ws.Message{Type: "input", Text: "start"})
 	if len(got) != 2 || got[0].Type != "timer" || got[0].ID != "guards" || got[0].Title != "Guards arrive" || got[0].Ms != 60000 || got[1].Text != "true" {
@@ -175,7 +175,7 @@ func TestTimerShownRunsOut(t *testing.T) {
 
 func TestTimerSecretCancelReplace(t *testing.T) {
 	w, c := clockWorld(t, timerRoom, timerRoomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	if got := s.Handle(ws.Message{Type: "input", Text: "secret"}); texts(got) != "true" {
 		t.Fatalf("a secret timer sends no countdown: %+v", got)
@@ -212,7 +212,7 @@ func TestTimerSecretCancelReplace(t *testing.T) {
 // on_timer runs in the room the player is in when the timer runs out.
 func TestTimerRunsInCurrentRoom(t *testing.T) {
 	w, c := clockWorld(t, timerRoom, timerRoomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	s.Handle(ws.Message{Type: "input", Text: "secret"})
 	s.Handle(ws.Message{Type: "input", Text: "go"})
@@ -224,7 +224,7 @@ func TestTimerRunsInCurrentRoom(t *testing.T) {
 
 func TestTimerLimit(t *testing.T) {
 	w, _ := clockWorld(t, timerRoom, timerRoomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	if got := texts(s.Handle(ws.Message{Type: "input", Text: "many"})); got != "timer.start: more than 10 timers running" {
 		t.Errorf("11 timers: %s", got)
@@ -246,7 +246,7 @@ function on_input(p, text)
   local n = ui.dialog("Stay?", {"Yes", "No"})
   say("stay " .. n)
 end`)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	s.Handle(ws.Message{Type: "input", Text: "go"})
 
@@ -285,7 +285,7 @@ end`)
 
 func TestQuestionTimeout(t *testing.T) {
 	w, c := clockWorld(t, timerRoom, timerRoomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	got := s.Handle(ws.Message{Type: "input", Text: "ask"})
 	if kinds(got) != "dialog:d1" || got[0].Ms != 30000 {
@@ -318,7 +318,7 @@ func TestQuestionTimeout(t *testing.T) {
 // nothing.
 func TestTimersStopOnClose(t *testing.T) {
 	w, c := clockWorld(t, timerRoom, timerRoomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	s.Handle(ws.Message{Type: "input", Text: "start"})
 	s.Handle(ws.Message{Type: "input", Text: "ask"})
 	s.Close()
@@ -326,7 +326,7 @@ func TestTimersStopOnClose(t *testing.T) {
 		t.Errorf("after Close: %d timers running", n)
 	}
 
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	s2.Handle(ws.Message{Type: "input", Text: "start"})
 	sess := s2.(*session)
 	w.mu.Lock()
@@ -347,7 +347,7 @@ func TestTimersStopOnClose(t *testing.T) {
 // A timer whose player's address used up its Lua time tries again later.
 func TestTimerWaitsForBudget(t *testing.T) {
 	w, c := clockWorld(t, timerRoom, timerRoomB, WithClientBudget(time.Second, time.Second))
-	s, _ := w.NewSession("192.0.2.1")
+	s, _ := w.NewSession("192.0.2.1", ws.Who{})
 	defer s.Close()
 	s.Handle(ws.Message{Type: "input", Text: "secret"})
 	w.mu.Lock()
@@ -374,7 +374,7 @@ func TestPushedQueueOverflows(t *testing.T) {
 	w, c := clockWorld(t, `
 function on_input(p, text) for i = 1, 10 do timer.start("t" .. i, 1) end end
 function on_timer(p, name) for i = 1, 60 do say(name) end timer.start(name, 1) end`, timerRoomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	notified := 0
 	s.(ws.Pusher).SetNotify(func() { notified++ })

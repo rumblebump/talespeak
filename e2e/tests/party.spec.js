@@ -43,7 +43,7 @@ test("party: two players take turns at the dice", async ({ page, browser }) => {
   try {
     const storyA = await escape(page);
     const storyB = await escape(b);
-    await expect(storyA).toContainText(/traveler( \d+)? comes out of the forest/);
+    await expect(storyA).toContainText(/traveler_\w+ comes out of the forest/);
 
     await page.getByRole("button", { name: "dice by the fire" }).click();
     await expect(storyA).toContainText("Your turn!");
@@ -54,7 +54,7 @@ test("party: two players take turns at the dice", async ({ page, browser }) => {
 
     // Not B's turn: the dice wait.
     await b.getByRole("button", { name: "dice by the fire" }).click();
-    await expect(storyB).toContainText(/Wait for your turn: traveler( \d+)? is acting\./);
+    await expect(storyB).toContainText(/Wait for your turn: traveler_\w+ is acting\./);
 
     await page.getByRole("button", { name: "dice by the fire" }).click();
     await expect(storyA).toContainText("You roll ");
@@ -62,7 +62,7 @@ test("party: two players take turns at the dice", async ({ page, browser }) => {
     await expect(storyA).toContainText("You end your turn.");
     await expect(page.getByRole("button", { name: "end your turn" })).toBeHidden();
 
-    await expect(storyB).toContainText(/traveler( \d+)? rolls /);
+    await expect(storyB).toContainText(/traveler_\w+ rolls /);
     await expect(storyB).toContainText("Your turn!");
     await b.getByRole("button", { name: "dice by the fire" }).click();
     await expect(storyB).toContainText("You roll ");

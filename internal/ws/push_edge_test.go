@@ -16,7 +16,7 @@ type seqGame struct {
 	sessions []*seqSession
 }
 
-func (g *seqGame) NewSession(string) (Session, []Message) {
+func (g *seqGame) NewSession(string, Who) (Session, []Message) {
 	s := &seqSession{}
 	g.mu.Lock()
 	g.sessions = append(g.sessions, s)
@@ -171,7 +171,7 @@ func TestPushQueuedBeforeSetNotify(t *testing.T) {
 
 type earlyGame struct{}
 
-func (earlyGame) NewSession(string) (Session, []Message) {
+func (earlyGame) NewSession(string, Who) (Session, []Message) {
 	s := &seqSession{}
 	s.queue = []Message{{Type: "text", Text: "early 1"}, {Type: "text", Text: "early 2"}}
 	return s, []Message{{Type: "text", Text: "first"}}

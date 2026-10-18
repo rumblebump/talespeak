@@ -12,6 +12,8 @@ go run ./cmd/talespeak serve --data ./data --listen :8080   # http://localhost:8
 go test -short ./...   # quick, like CI on dev
 ```
 
+Open the page and make an account with **new account** ([accounts.md](accounts.md)). For an admin, which can make invite codes: `printf '%s\n' "a password" | go run ./cmd/talespeak account add -data ./data -admin yourname`.
+
 Work on a branch from `dev` and open the pull request into `dev`. Tests are described in [testing.md](testing.md).
 
 Content (YAML rooms, Lua rule packs, glossaries) lives in `content/` and reloads without a restart.

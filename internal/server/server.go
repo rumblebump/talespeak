@@ -1,5 +1,6 @@
 // Package server is the HTTP side of the engine: the embedded web client,
-// the health endpoint and the security headers every response carries.
+// the health endpoint, the routes of the other parts (WebSocket, pack
+// images, account API) and the security headers every response carries.
 package server
 
 import (
@@ -43,6 +44,8 @@ type Options struct {
 	WebSocket http.Handler
 	// Assets serves pack images under /packs/; nil leaves it unrouted.
 	Assets http.Handler
+	// API serves the account API under /api/; nil leaves it unrouted.
+	API http.Handler
 	// Hosts are the host names served (see checkHost); empty serves all.
 	Hosts []string
 }
@@ -74,6 +77,10 @@ func New(opts Options) http.Handler {
 	}
 	if opts.Assets != nil {
 		mux.Handle("GET /packs/", opts.Assets)
+	}
+	if opts.API != nil {
+		mux.Handle("GET /api/", opts.API)
+		mux.Handle("POST /api/", opts.API)
 	}
 	mux.Handle("GET /", http.FileServerFS(static))
 

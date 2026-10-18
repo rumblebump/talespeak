@@ -7,13 +7,24 @@ The browser client in `web/static/` is a renderer: it draws the messages the eng
 | File | What it does |
 | --- | --- |
 | `index.html` | The page; Alpine attributes hold only simple expressions |
-| `app.js` | The `game` Alpine component: every renderer and all input handling |
-| `net.js` | The WebSocket: reconnects with backoff (1 s doubling to 30 s), pings every 30 s |
+| `app.js` | The `game` Alpine component: signing in, every renderer and all input handling |
+| `net.js` | The WebSocket: reconnects with backoff (1 s doubling to 30 s), pings every 30 s, stops after 4001 (playing elsewhere) or when the player may no longer play |
 | `speech.js` | Read aloud with the browser's local voices |
 | `style.css` | Terminal theme on CSS variables: dark, light (follows the system), large text |
 | `vendor/alpine-csp.js` | Alpine.js CSP build, pinned in `web/vendor.json` |
 
 Plain ES modules, no build step. The CSP build of Alpine runs without `'unsafe-eval'`; it refuses `x-html` and access to globals in attributes, so all logic lives in `app.js`. Untrusted text (pack text, typed input, later chat and LLM output) only reaches the page through `x-text` or `textContent`.
+
+## Signing in
+
+The page asks `/api/me` first ([accounts.md](accounts.md)) and shows one of:
+
+- **Sign in**: name and password, with **new account** when the server allows registering. Errors from the server are shown under the form.
+- **Join the world**: in an invite-only world, an account that is not a member types its invite code.
+- **The game**, with the account name, **sign out**, and **invite** for admins and game masters (the code appears in the story).
+- **Playing elsewhere**: after another tab or device took over, with **play here**.
+
+The only `fetch` the client makes is to these API paths (`scripts/check-web.sh` checks it).
 
 ## What the player can do
 

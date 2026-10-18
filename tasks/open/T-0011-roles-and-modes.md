@@ -25,4 +25,6 @@ Accounts have a global role (admin, GM, player; new accounts are players), each 
 
 ## Notes
 
+T-0034 (2026-10-18) added the global roles admin and player, the world roles gm and player (`world_members`), `TALESPEAK_MODE` (public, edu; edu worlds are always invite only), and invite codes: admins and game masters invite players, only admins make game masters. GM tools, the audit log, permissions in Lua and creating worlds in public mode are still open here.
+
 Design: "Roles and server modes" in the Talespeak Engine Design doc, https://claude.ai/code/artifact/15bc0469-681c-4afa-b7b9-5d227560ebc6

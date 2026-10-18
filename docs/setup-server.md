@@ -59,7 +59,13 @@ docker compose up -d
 docker compose logs -f caddy   # watch for "certificate obtained successfully"
 ```
 
-Open `https://talespeak.example.org`. The first account created becomes the admin.
+Open `https://talespeak.example.org`. Make yourself an admin account (the password is read from standard input):
+
+```sh
+printf '%s\n' "your password" | docker compose exec -T talespeak /talespeak account add -admin yourname
+```
+
+Who may register and play is set in `.env` (`TALESPEAK_MODE`, `TALESPEAK_REGISTRATION`, `TALESPEAK_WORLD_ACCESS`); see [accounts.md](accounts.md), also for invite codes.
 
 ## 5. Optional: AI sidecar
 

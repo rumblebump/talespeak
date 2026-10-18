@@ -84,7 +84,7 @@ func spaced(code string) string {
 // guards' door without lifting the stone, so the code is not read yet.
 func toGuardRoom(t *testing.T, w *World) ws.Session {
 	t.Helper()
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	escapeCell(t, s)
 	play(t, s, ws.Message{Type: "click", Item: "door"})
 	if roomOf(s) != "guardroom" {
@@ -118,7 +118,7 @@ func TestDemoBoxCodeLeadingZeros(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.code, func(t *testing.T) {
 			w := demoWithCodes(t, c.drawn, c.drawn)
-			s, _ := w.NewSession("")
+			s, _ := w.NewSession("", ws.Who{})
 			defer s.Close()
 			escapeCell(t, s)
 			text, _ := play(t, s, ws.Message{Type: "click", Item: "stone"})
@@ -171,7 +171,7 @@ func TestDemoBoxCodeFirstPickStays(t *testing.T) {
 		defer a.Close()
 		_, got := play(t, a, ws.Message{Type: "click", Item: "box"})
 		id := question(t, got) // a waits at the wheels; the code is picked
-		b, _ := w.NewSession("")
+		b, _ := w.NewSession("", ws.Who{})
 		defer b.Close()
 		escapeCell(t, b)
 		text, _ := play(t, b, ws.Message{Type: "click", Item: "stone"})
@@ -183,7 +183,7 @@ func TestDemoBoxCodeFirstPickStays(t *testing.T) {
 	})
 	t.Run("stone first", func(t *testing.T) {
 		w := demoWithCodes(t, 111, 222)
-		b, _ := w.NewSession("")
+		b, _ := w.NewSession("", ws.Who{})
 		defer b.Close()
 		escapeCell(t, b)
 		text, _ := play(t, b, ws.Message{Type: "click", Item: "stone"})
@@ -216,7 +216,7 @@ func TestDemoBoxCodeConcurrent(t *testing.T) {
 			w := wc.world(t)
 			var readers, boxers []ws.Session
 			for range each {
-				s, _ := w.NewSession("")
+				s, _ := w.NewSession("", ws.Who{})
 				defer s.Close()
 				escapeCell(t, s)
 				readers = append(readers, s)
@@ -296,7 +296,7 @@ func TestDemoBoxCodeRefused(t *testing.T) {
 	t.Run("note", func(t *testing.T) {
 		w := shippedDemo(t)
 		full := refuseWorld(w)
-		s, _ := w.NewSession("")
+		s, _ := w.NewSession("", ws.Who{})
 		defer s.Close()
 		escapeCell(t, s)
 		full.Store(true)

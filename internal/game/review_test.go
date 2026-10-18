@@ -33,9 +33,9 @@ end`
 // What on_change starts (room.go, timers) cannot write world state either.
 func TestChangeCannotBounce(t *testing.T) {
 	w, c := clockWorld(t, bounceRoom, bounceRoomB)
-	a, _ := w.NewSession("")
+	a, _ := w.NewSession("", ws.Who{})
 	defer a.Close()
-	b, _ := w.NewSession("")
+	b, _ := w.NewSession("", ws.Who{})
 	defer b.Close()
 	a.Handle(ws.Message{Type: "input", Text: "ring"})
 	c.Advance(0)
@@ -55,9 +55,9 @@ function on_timer(p, name)
   local ok, err = state.world.set("bell", "again")
   say("timer: " .. tostring(err))
 end`, bounceRoomB)
-	a, _ := w.NewSession("")
+	a, _ := w.NewSession("", ws.Who{})
 	defer a.Close()
-	b, _ := w.NewSession("")
+	b, _ := w.NewSession("", ws.Who{})
 	defer b.Close()
 	a.Handle(ws.Message{Type: "input", Text: "ring"})
 	c.Advance(0)
@@ -70,9 +70,9 @@ end`, bounceRoomB)
 // Writing the value a key holds already tells no one.
 func TestSameValueIsNoChange(t *testing.T) {
 	w, c := clockWorld(t, worldRoom, timerRoomB)
-	a, _ := w.NewSession("")
+	a, _ := w.NewSession("", ws.Who{})
 	defer a.Close()
-	b, _ := w.NewSession("")
+	b, _ := w.NewSession("", ws.Who{})
 	defer b.Close()
 	a.Handle(ws.Message{Type: "input", Text: "open"})
 	c.Advance(0)
@@ -87,9 +87,9 @@ func TestSameValueIsNoChange(t *testing.T) {
 // Deliveries come at most every DeliverGap; writes meanwhile merge.
 func TestDeliveriesAreSpaced(t *testing.T) {
 	w, c := clockWorld(t, worldRoom, timerRoomB)
-	a, _ := w.NewSession("")
+	a, _ := w.NewSession("", ws.Who{})
 	defer a.Close()
-	b, _ := w.NewSession("")
+	b, _ := w.NewSession("", ws.Who{})
 	defer b.Close()
 	a.Handle(ws.Message{Type: "input", Text: "open"})
 	c.Advance(0)
@@ -109,7 +109,7 @@ func TestDeliveriesAreSpaced(t *testing.T) {
 // A reply carries the pushed messages that wait, first.
 func TestReplyAfterPushed(t *testing.T) {
 	w, c := clockWorld(t, timerRoom, timerRoomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	s.Handle(ws.Message{Type: "input", Text: "ask"})
 	c.Advance(30 * time.Second) // the timeout queues close d1 and "answer nil"
@@ -127,7 +127,7 @@ func TestPushedQueueBytes(t *testing.T) {
 	w, c := clockWorld(t, `
 function on_input(p, text) timer.start("big", 1) end
 function on_timer(p, name) local x = string.rep("x", 4000) for i = 1, 40 do say(x) end timer.start("big", 1) end`, timerRoomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	s.Handle(ws.Message{Type: "input", Text: "go"})
 	c.Advance(time.Second)

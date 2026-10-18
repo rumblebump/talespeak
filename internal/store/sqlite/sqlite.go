@@ -36,7 +36,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, errors.New("sqlite: empty path")
 	}
 	dsn := "file:" + (&url.URL{Path: path}).EscapedPath() +
-		"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_txlock=immediate"
+		"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(normal)&_txlock=immediate"
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: open: %w", err)

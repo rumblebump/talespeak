@@ -50,9 +50,9 @@ func jsonLines(t *testing.T, ms []ws.Message) []string {
 
 func TestSessionsAreIndependent(t *testing.T) {
 	w := demoWorld(t)
-	a, _ := w.NewSession("")
+	a, _ := w.NewSession("", ws.Who{})
 	defer a.Close()
-	b, _ := w.NewSession("")
+	b, _ := w.NewSession("", ws.Who{})
 	defer b.Close()
 	// Both start with their own d1.
 	if got := kinds(a.Handle(ws.Message{Type: "choose", ID: "d1", Option: 1})); got != "text: dialog:d2" {
@@ -79,7 +79,7 @@ func TestConcurrentSessions(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s, first := w.NewSession("")
+			s, first := w.NewSession("", ws.Who{})
 			defer s.Close()
 			if kinds(first) != "room:cell text: dialog:d1" {
 				errs <- fmt.Errorf("session %d first = %s", i, kinds(first))
@@ -106,7 +106,7 @@ func TestConcurrentSessions(t *testing.T) {
 
 func TestChooseEdgeCases(t *testing.T) {
 	w := demoWorld(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	for _, m := range []ws.Message{
 		{Type: "choose"},
@@ -133,7 +133,7 @@ func TestChooseEdgeCases(t *testing.T) {
 
 func TestChooseInRoomWithoutDialog(t *testing.T) {
 	w := scriptWorld(t, `function on_enter() say("hi") end`, script.DefaultLimits, quiet)
-	s, first := w.NewSession("")
+	s, first := w.NewSession("", ws.Who{})
 	defer s.Close()
 	if kinds(first) != "text:" {
 		t.Fatalf("first = %+v", first)
@@ -145,7 +145,7 @@ func TestChooseInRoomWithoutDialog(t *testing.T) {
 
 func TestClosedSessionHasNoDialog(t *testing.T) {
 	w := demoWorld(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	s.Close()
 	if got := kinds(s.Handle(ws.Message{Type: "choose", ID: "d1", Option: 1})); got != "error:" {
 		t.Errorf("choose after Close = %s", got)
@@ -156,7 +156,7 @@ func TestClosedSessionHasNoDialog(t *testing.T) {
 // open.
 func TestScriptErrorAfterDialog(t *testing.T) {
 	w := scriptWorld(t, `function on_enter() ui.dialog("?", {"a"}) say("x") error("late") end`, script.DefaultLimits, quiet)
-	s, first := w.NewSession("")
+	s, first := w.NewSession("", ws.Who{})
 	defer s.Close()
 	if kinds(first) != "dialog:d1" {
 		t.Fatalf("first = %s", kinds(first))
@@ -176,7 +176,7 @@ func TestScriptFailureIsLogged(t *testing.T) {
 	var mu sync.Mutex
 	log := slog.New(slog.NewTextHandler(&lockedWriter{w: &buf, mu: &mu}, nil))
 	w := scriptWorld(t, "function on_enter()\n  error(\"boom\")\nend", script.DefaultLimits, log)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	mu.Lock()
 	got := buf.String()
@@ -229,7 +229,7 @@ func TestFullWorldRecovers(t *testing.T) {
 	var open []ws.Session
 	full := false
 	for range 50 {
-		s, first := w.NewSession("")
+		s, first := w.NewSession("", ws.Who{})
 		open = append(open, s)
 		if kinds(first) == "error:" {
 			if !strings.Contains(first[0].Message, "full") {
@@ -246,7 +246,7 @@ func TestFullWorldRecovers(t *testing.T) {
 		s.Close()
 	}
 	for i := range 3 {
-		s, first := w.NewSession("")
+		s, first := w.NewSession("", ws.Who{})
 		defer s.Close()
 		if kinds(first) != "text:" {
 			t.Errorf("session %d after the others left = %+v", i, first)
@@ -267,7 +267,7 @@ function on_enter() say(words[#words]) end`, script.DefaultLimits, quiet)
 		}
 	}()
 	for i := range 400 {
-		s, first := w.NewSession("")
+		s, first := w.NewSession("", ws.Who{})
 		open = append(open, s)
 		if kinds(first) != "text:" {
 			t.Fatalf("session %d = %+v", i, first)
@@ -281,9 +281,9 @@ func TestPlayerMemoryResetsOnlyThatPlayer(t *testing.T) {
 	limits := script.Limits{Time: time.Second, CallMemory: 64 << 20, PlayerMemory: 2 << 20, StateMemory: 64 << 20}
 	w := scriptWorld(t, `keep = {} function on_enter() say("n" .. #keep) end
 function on_input(p, text) keep[#keep + 1] = string.rep("x", 1e6) .. #keep say("kept") end`, limits, quiet)
-	a, _ := w.NewSession("")
+	a, _ := w.NewSession("", ws.Who{})
 	defer a.Close()
-	b, _ := w.NewSession("")
+	b, _ := w.NewSession("", ws.Who{})
 	defer b.Close()
 	if got := b.Handle(ws.Message{Type: "input", Text: "x"}); kinds(got) != "text:" {
 		t.Fatalf("b = %+v", got)
@@ -320,7 +320,7 @@ func TestPanickingHookDoesNotLockWorld(t *testing.T) {
 		done := make(chan any, 1)
 		go func() {
 			defer func() { done <- recover() }()
-			s, _ := w.NewSession("")
+			s, _ := w.NewSession("", ws.Who{})
 			s.Close()
 		}()
 		return done
@@ -355,7 +355,7 @@ func FuzzSessionHandle(f *testing.F) {
 	}
 	f.Cleanup(w.Close)
 	f.Fuzz(func(t *testing.T, typ, id string, option int, text string) {
-		s, _ := w.NewSession("")
+		s, _ := w.NewSession("", ws.Who{})
 		defer s.Close()
 		got := s.Handle(ws.Message{Type: typ, ID: id, Option: option, Text: text, Options: []string{text}})
 		// A blank typed line is ignored without an answer.
@@ -399,7 +399,7 @@ function on_enter() say(words[#words]) end`, slow, quiet, WithClientBudget(time.
 	defer closeAll()
 	n := 0
 	for ; n < 200; n++ {
-		s, first := w.NewSession("192.0.2.1")
+		s, first := w.NewSession("192.0.2.1", ws.Who{})
 		open = append(open, s)
 		if kinds(first) == "error:" {
 			if !strings.Contains(first[0].Message, "your network") {
@@ -411,13 +411,13 @@ function on_enter() say(words[#words]) end`, slow, quiet, WithClientBudget(time.
 	if n < 30 || n == 200 {
 		t.Fatalf("one address got %d sessions with a 10000-word list, want at least 30 and a limit", n)
 	}
-	s, first := w.NewSession("198.51.100.1")
+	s, first := w.NewSession("198.51.100.1", ws.Who{})
 	open = append(open, s)
 	if kinds(first) != "text:" {
 		t.Errorf("another address while the first keeps its share = %+v", first)
 	}
 	closeAll()
-	s, first = w.NewSession("192.0.2.1")
+	s, first = w.NewSession("192.0.2.1", ws.Who{})
 	open = append(open, s)
 	if kinds(first) != "text:" {
 		t.Errorf("first address after its players left = %+v", first)

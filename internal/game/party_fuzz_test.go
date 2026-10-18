@@ -30,7 +30,7 @@ func FuzzPartyOps(f *testing.F) {
 		clients := []string{"", "192.0.2.1", "192.0.2.2"}
 		players := make([]*fuzzPlayer, 3)
 		join := func(i int) *fuzzPlayer {
-			s, first := w.NewSession(clients[i])
+			s, first := w.NewSession(clients[i], ws.Who{})
 			p := &fuzzPlayer{s: s, shown: map[string]bool{}}
 			p.see(t, first)
 			return p
