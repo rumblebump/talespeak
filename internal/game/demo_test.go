@@ -2,6 +2,7 @@ package game
 
 import (
 	"errors"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -154,13 +155,44 @@ func question(t *testing.T, ms []ws.Message) string {
 	return ""
 }
 
+// noteRE is the note under the corridor's stone, with the box code.
+var noteRE = regexp.MustCompile(`BOX (\d) (\d) (\d)`)
+
+// noteCode returns the box code the note in text shows, as the box wants
+// it: "BOX 4 1 7" is "417".
+func noteCode(t *testing.T, text string) string {
+	t.Helper()
+	m := noteRE.FindStringSubmatch(text)
+	if m == nil {
+		t.Fatalf("no note with the box code in %q", text)
+	}
+	return m[1] + m[2] + m[3]
+}
+
+// boxCode returns w's box code, as a new player of w reads it under the
+// stone.
+func boxCode(t *testing.T, w *World) string {
+	t.Helper()
+	s, _ := w.NewSession("")
+	defer s.Close()
+	escapeCell(t, s)
+	text, _ := play(t, s, ws.Message{Type: "click", Item: "stone"})
+	return noteCode(t, text)
+}
+
+// otherCode is a box code that is not code.
+func otherCode(code string) string {
+	return string('0'+(code[0]-'0'+1)%10) + code[1:]
+}
+
 func TestDemoEscape(t *testing.T) {
 	w := shippedDemo(t)
 	s, _ := w.NewSession("")
 	defer s.Close()
 	escapeCell(t, s)
 	text, got := play(t, s, ws.Message{Type: "click", Item: "stone"})
-	wantText(t, "stone", text, "BOX 4 1 7")
+	wantText(t, "stone", text, "You lift the stone with the X.")
+	code := noteCode(t, text)
 	if items := lastItems(t, got); items["stone"] != "lifted stone" {
 		t.Fatalf("items after the stone: %v", items)
 	}
@@ -169,7 +201,7 @@ func TestDemoEscape(t *testing.T) {
 	text, _ = play(t, s, ws.Message{Type: "click", Item: "backdoor"})
 	wantText(t, "locked", text, "The back door is locked.")
 	_, got = play(t, s, ws.Message{Type: "click", Item: "box"})
-	text, got = play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "4-1-7"})
+	text, got = play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: code[:1] + "-" + code[1:2] + "-" + code[2:]})
 	wantText(t, "box", text, "big iron key")
 	if items := lastItems(t, got); items["box"] != "open iron box" {
 		t.Fatalf("items after the box: %v", items)
@@ -294,8 +326,9 @@ func TestDemoCorridorLockedWithKey(t *testing.T) {
 	w := shippedDemo(t)
 	s := inGuardRoom(t, w)
 	defer s.Close()
+	code := boxCode(t, w)
 	_, got := play(t, s, ws.Message{Type: "click", Item: "box"})
-	_, got = play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "417"})
+	_, got = play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: code})
 	items := lastItems(t, got)
 	if _, ok := items["corridor"]; ok || items["box"] != "open iron box" {
 		t.Fatalf("items with the key: %v", items)
@@ -395,19 +428,23 @@ func TestDemoTypedEscape(t *testing.T) {
 	text, _ = play(t, s, ws.Message{Type: "input", Text: "leave"})
 	wantText(t, "leave", text, "You are out!")
 	steps := []struct{ say, room, want string }{
-		{"dig under the X", "corridor", "BOX 4 1 7"},
+		{"dig under the X", "corridor", "You lift the stone with the X."},
 		{"open the door marked GUARDS", "guardroom", "Nobody is here."},
 		{"try the keyhole", "guardroom", "The back door is locked."},
 	}
+	note := ""
 	for _, st := range steps {
 		text, _ := play(t, s, ws.Message{Type: "input", Text: st.say})
 		wantText(t, st.say, text, st.want)
+		if note == "" {
+			note = noteRE.FindString(text)
+		}
 		if roomOf(s) != st.room {
 			t.Fatalf("%q: in %q, want %q", st.say, roomOf(s), st.room)
 		}
 	}
 	_, got = play(t, s, ws.Message{Type: "input", Text: "turn the wheels"})
-	text, _ = play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "BOX 4 1 7"})
+	text, _ = play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: note})
 	wantText(t, "box", text, "big iron key")
 	text, got = play(t, s, ws.Message{Type: "input", Text: "open the back door"})
 	escaped(t, s, text, got)
@@ -420,10 +457,10 @@ func TestDemoCorridorWords(t *testing.T) {
 		room string // where the player is afterwards
 		want string // text, "dialog" for the stairs, or "whisp" for Whisp's question
 	}{
-		{"lift the stone", "corridor", "BOX 4 1 7"},
-		{"look at the floor", "corridor", "BOX 4 1 7"},
-		{"X", "corridor", "BOX 4 1 7"},
-		{"look under the x", "corridor", "BOX 4 1 7"},
+		{"lift the stone", "corridor", "BOX "},
+		{"look at the floor", "corridor", "BOX "},
+		{"X", "corridor", "BOX "},
+		{"look under the x", "corridor", "BOX "},
 		{"open the door", "guardroom", "Nobody is here."},
 		{"knock on the GUARDS door", "guardroom", "Nobody is here."},
 		{"go ahead", "guardroom", "Nobody is here."},
@@ -501,8 +538,9 @@ func TestDemoGuardRoomWords(t *testing.T) {
 	}
 }
 
-// digits() keeps only ASCII digits: any spacing or punctuation around 4 1 7
-// opens the box, anything else does not.
+// digits() keeps only ASCII digits: any spacing or punctuation around the
+// code's digits opens the box, anything else does not. The answers are
+// written for the code 417; each world has its own, put in for 4, 1 and 7.
 func TestDemoBoxCodes(t *testing.T) {
 	cases := []struct {
 		answer string
@@ -514,7 +552,7 @@ func TestDemoBoxCodes(t *testing.T) {
 		{"4, 1, 7", true},
 		{"BOX 4 1 7", true},
 		{"  4 1 7  ", true},
-		{"714", false},
+		{"other", false}, // another code
 		{"41", false},
 		{"0417", false},
 		{"4170", false},
@@ -528,8 +566,14 @@ func TestDemoBoxCodes(t *testing.T) {
 			w := shippedDemo(t)
 			s := inGuardRoom(t, w)
 			defer s.Close()
+			code := boxCode(t, w)
+			answer := strings.NewReplacer("4", code[:1], "1", code[1:2], "7", code[2:],
+				"４", string('０'+rune(code[0]-'0')), "１", string('０'+rune(code[1]-'0')), "７", string('０'+rune(code[2]-'0'))).Replace(c.answer)
+			if c.answer == "other" {
+				answer = otherCode(code)
+			}
 			_, got := play(t, s, ws.Message{Type: "click", Item: "box"})
-			text, got := play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: c.answer})
+			text, got := play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: answer})
 			if opened := strings.Contains(text, "big iron key"); opened != c.open {
 				t.Fatalf("opened %v, want %v: %q", opened, c.open, text)
 			}
@@ -547,6 +591,47 @@ func TestDemoBoxCodes(t *testing.T) {
 	}
 }
 
+// Every world picks its own box code: all its players read the same one,
+// and new worlds get new ones.
+func TestDemoBoxCodePerWorld(t *testing.T) {
+	codes := map[string]bool{}
+	for range 8 {
+		w := shippedDemo(t)
+		code := boxCode(t, w)
+		if again := boxCode(t, w); again != code {
+			t.Fatalf("two players of one world read %q and %q", code, again)
+		}
+		codes[code] = true
+	}
+	if len(codes) < 2 { // 8 times the same of 1000 codes: once in 10^21 runs
+		t.Fatalf("8 worlds, one code: %v", codes)
+	}
+}
+
+// The code is picked by whoever needs it first: a player who tries the box
+// before anyone lifted the stone gets the code the note shows later.
+func TestDemoBoxBeforeStone(t *testing.T) {
+	w := shippedDemo(t)
+	s, _ := w.NewSession("")
+	defer s.Close()
+	escapeCell(t, s)
+	play(t, s, ws.Message{Type: "click", Item: "door"})
+	if roomOf(s) != "guardroom" {
+		t.Fatalf("not in the guard room: %q", roomOf(s))
+	}
+	_, got := play(t, s, ws.Message{Type: "click", Item: "box"})
+	text, _ := play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "1 2 3"})
+	code := boxCode(t, w)
+	if code == "123" {
+		wantText(t, "box", text, "big iron key")
+		return
+	}
+	wantText(t, "box", text, "The box stays shut.")
+	_, got = play(t, s, ws.Message{Type: "click", Item: "box"})
+	text, _ = play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: code})
+	wantText(t, "box", text, "big iron key")
+}
+
 // Doing a thing twice: the stone repeats the code, the empty box says so,
 // and every wrong code after the first gets the hint.
 func TestDemoRepeats(t *testing.T) {
@@ -554,9 +639,10 @@ func TestDemoRepeats(t *testing.T) {
 	s, _ := w.NewSession("")
 	defer s.Close()
 	escapeCell(t, s)
-	play(t, s, ws.Message{Type: "click", Item: "stone"})
+	text, _ := play(t, s, ws.Message{Type: "click", Item: "stone"})
+	code := noteCode(t, text)
 	text, got := play(t, s, ws.Message{Type: "click", Item: "stone"})
-	wantText(t, "stone again", text, "only dust now. The note said: BOX 4 1 7.")
+	wantText(t, "stone again", text, "only dust now. The note said: BOX "+code[:1]+" "+code[1:2]+" "+code[2:]+".")
 	for _, m := range got {
 		if m.Type == "items" {
 			t.Fatalf("items again after the stone: %+v", got)
@@ -565,13 +651,13 @@ func TestDemoRepeats(t *testing.T) {
 	play(t, s, ws.Message{Type: "click", Item: "door"})
 	for i := 1; i <= 2; i++ {
 		_, got := play(t, s, ws.Message{Type: "click", Item: "box"})
-		text, _ := play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "999"})
+		text, _ := play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: otherCode(code)})
 		if hinted := strings.Contains(text, "Hint:"); hinted != (i >= 2) {
 			t.Fatalf("try %d: %q", i, text)
 		}
 	}
 	_, got = play(t, s, ws.Message{Type: "click", Item: "box"})
-	play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "417"})
+	play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: code})
 	text, got = play(t, s, ws.Message{Type: "click", Item: "box"})
 	wantText(t, "box again", text, "The box is empty. The big key is in your hand.")
 	for _, m := range got {
@@ -716,7 +802,7 @@ func TestDemoWordsGoWhereMeant(t *testing.T) {
 // Lines that name no room do what they say.
 func TestDemoWordsInRooms(t *testing.T) {
 	cases := []struct{ from, say, want string }{
-		{"corridor", "x marks the spot", "BOX 4 1 7"},
+		{"corridor", "x marks the spot", "BOX "},
 		{"corridor", "talk about it", "You think about"},
 		{"guardroom", "unlock the back door with the key from the box", "The back door is locked."},
 		{"guardroom", "go out", "The back door is locked."},
@@ -834,7 +920,7 @@ func TestDemoEscapeOnLastAction(t *testing.T) {
 	}
 	text, got = play(t, s, ws.Message{Type: "click", Item: "stone"})
 	wantText(t, "caught", text, "sees you standing in the corridor")
-	if strings.Contains(text, "BOX 4 1 7") {
+	if strings.Contains(text, "BOX ") {
 		t.Fatalf("the stone was lifted while caught: %q", text)
 	}
 	ended(t, s, text, got)
@@ -919,8 +1005,9 @@ func TestDemoLockedCorridorEveryWay(t *testing.T) {
 	w := shippedDemo(t)
 	s := inGuardRoom(t, w) // 5 left
 	defer s.Close()
+	code := boxCode(t, w)
 	_, got := play(t, s, ws.Message{Type: "click", Item: "box"})
-	play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "417"}) // 4
+	play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: code}) // 4
 	got = s.Handle(ws.Message{Type: "click", Item: "corridor"})
 	if len(got) != 1 || got[0].Type != "error" || got[0].Message != "no such item" {
 		t.Fatalf("click the hidden door: %+v", got)
@@ -982,8 +1069,9 @@ func TestDemoDoorWithKey(t *testing.T) {
 	defer s.Close()
 	text, _ := play(t, s, ws.Message{Type: "input", Text: "open the door"})
 	wantText(t, "which door", text, "Which door")
+	code := boxCode(t, w)
 	_, got := play(t, s, ws.Message{Type: "click", Item: "box"})
-	play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "417"})
+	play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: code})
 	text, got = play(t, s, ws.Message{Type: "input", Text: "open the door"})
 	escaped(t, s, text, got)
 }
@@ -1012,7 +1100,7 @@ func TestDemoKeepRefused(t *testing.T) {
 	cases := []struct {
 		name    string
 		session func(t *testing.T, w *World) ws.Session
-		act     func(t *testing.T, s ws.Session) (string, []ws.Message)
+		act     func(t *testing.T, w *World, s ws.Session) (string, []ws.Message)
 		room    string // where the player is after a refused act
 		done    string // what the act says once it works
 	}{
@@ -1024,7 +1112,7 @@ func TestDemoKeepRefused(t *testing.T) {
 				askWater(t, s)
 				return s
 			},
-			act: func(t *testing.T, s ws.Session) (string, []ws.Message) {
+			act: func(t *testing.T, _ *World, s ws.Session) (string, []ws.Message) {
 				return play(t, s, ws.Message{Type: "choose", ID: guardDialog(t, s), Option: 1})
 			},
 			room: "cell",
@@ -1038,7 +1126,7 @@ func TestDemoKeepRefused(t *testing.T) {
 				openLock(t, s)
 				return s
 			},
-			act: func(t *testing.T, s ws.Session) (string, []ws.Message) {
+			act: func(t *testing.T, _ *World, s ws.Session) (string, []ws.Message) {
 				return play(t, s, ws.Message{Type: "click", Item: "lock"})
 			},
 			room: "cell",
@@ -1047,9 +1135,10 @@ func TestDemoKeepRefused(t *testing.T) {
 		{
 			name:    "solve locked",
 			session: inGuardRoom,
-			act: func(t *testing.T, s ws.Session) (string, []ws.Message) {
+			act: func(t *testing.T, w *World, s ws.Session) (string, []ws.Message) {
+				code := boxCode(t, w)
 				_, got := play(t, s, ws.Message{Type: "click", Item: "box"})
-				return play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "417"})
+				return play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: code})
 			},
 			room: "guardroom",
 			done: "big iron key",
@@ -1062,7 +1151,7 @@ func TestDemoKeepRefused(t *testing.T) {
 			defer s.Close()
 			full := refuseState(s)
 			full.Store(true)
-			text, _ := c.act(t, s)
+			text, _ := c.act(t, w, s)
 			wantText(t, "refused", text, refused)
 			if strings.Contains(text, c.done) {
 				t.Fatalf("refused write still did it: %q", text)
@@ -1071,7 +1160,7 @@ func TestDemoKeepRefused(t *testing.T) {
 				t.Fatalf("after the refused write in %q, want %q", roomOf(s), c.room)
 			}
 			full.Store(false)
-			text, _ = c.act(t, s)
+			text, _ = c.act(t, w, s)
 			wantText(t, "again", text, c.done)
 			if strings.Contains(text, refused) {
 				t.Fatalf("write refused after the server had room: %q", text)

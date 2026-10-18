@@ -26,10 +26,12 @@ async function escape(page) {
   await input.press("Enter");
   await page.getByRole("button", { name: "open cell door" }).click();
   await page.getByRole("button", { name: "stone with an X" }).click();
+  await expect(story).toContainText(/BOX \d \d \d/);
+  const code = (await story.textContent()).match(/BOX (\d \d \d)/)[1];
   await page.getByRole("button", { name: "door marked GUARDS" }).click();
   await page.getByRole("button", { name: "iron box with number wheels" }).click();
   await expect(page.getByRole("group", { name: /Three number wheels/ })).toBeVisible();
-  await input.fill("417");
+  await input.fill(code);
   await input.press("Enter");
   await page.getByRole("button", { name: "narrow back door" }).click();
   await expect(story.locator(".room-title").last()).toHaveText("A forest clearing");
