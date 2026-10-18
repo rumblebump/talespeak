@@ -1,8 +1,10 @@
 package game
 
 import (
+	"errors"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/rumblebump/talespeak/internal/ws"
@@ -940,7 +942,8 @@ func TestDemoRoomsFitInstances(t *testing.T) {
 func TestDemoSharedHelpersSame(t *testing.T) {
 	w := shippedDemo(t)
 	lib := w.pack.Modules["rooms"]
-	for _, fn := range []string{"function whisp(", "function whisp_ask(", "function keep(", "function guard_away(", "function set_guard_away(", "function solve(", "function solved(", "function go("} {
+	helpers := []string{"function whisp(", "function whisp_ask(", "function keep(", "function guard_away(", "function set_guard_away(", "function solve(", "function solved(", "function go("}
+	for _, fn := range helpers {
 		if !strings.Contains(lib, fn) {
 			t.Errorf("lib/rooms.lua lacks %q", fn)
 		}
@@ -950,8 +953,10 @@ func TestDemoSharedHelpersSame(t *testing.T) {
 		if !strings.Contains(src, `require("rooms")`) {
 			t.Errorf("%s does not require rooms", id)
 		}
-		if strings.Contains(src, "function go(") {
-			t.Errorf("%s still has its own copy of the helpers", id)
+		for _, fn := range helpers {
+			if strings.Contains(src, fn) {
+				t.Errorf("%s still has its own %q", id, fn)
+			}
 		}
 	}
 }
@@ -969,4 +974,106 @@ func TestDemoDoorWithKey(t *testing.T) {
 	text, got = play(t, s, ws.Message{Type: "input", Text: "open the door"})
 	wantText(t, "escape", text, "You escaped. Well done!")
 	ended(t, s, text, got)
+}
+
+// refuseState makes s's state.player refuse every write that grows it
+// while the returned flag is set, as a full server does: keep in
+// lib/rooms.lua then tells the player and returns false.
+func refuseState(s ws.Session) *atomic.Bool {
+	var full atomic.Bool
+	st := &s.(*session).state
+	reserve := st.Reserve
+	st.Reserve = func(delta int64) error {
+		if full.Load() && delta > 0 {
+			return errors.New("full")
+		}
+		return reserve(delta)
+	}
+	return &full
+}
+
+// When the server refuses a write, keep (lib/rooms.lua) says so and the
+// helpers built on it report false: the guard stays, the cell is not left
+// and the box stays shut. Once writes work again, the same action works.
+func TestDemoKeepRefused(t *testing.T) {
+	const refused = "(The game cannot remember that right now. Try again in a moment.)"
+	cases := []struct {
+		name    string
+		session func(t *testing.T, w *World) ws.Session
+		act     func(t *testing.T, s ws.Session) (string, []ws.Message)
+		room    string // where the player is after a refused act
+		done    string // what the act says once it works
+	}{
+		{
+			name: "set_guard_away",
+			session: func(t *testing.T, w *World) ws.Session {
+				s, _ := w.NewSession("")
+				askWater(t, s)
+				askWater(t, s)
+				return s
+			},
+			act: func(t *testing.T, s ws.Session) (string, []ws.Message) {
+				return play(t, s, ws.Message{Type: "choose", ID: guardDialog(t, s), Option: 1})
+			},
+			room: "cell",
+			done: "stomps off down the corridor",
+		},
+		{
+			name: "solve ask",
+			session: func(t *testing.T, w *World) ws.Session {
+				s, _ := w.NewSession("")
+				sendAway(t, s)
+				openLock(t, s)
+				return s
+			},
+			act: func(t *testing.T, s ws.Session) (string, []ws.Message) {
+				return play(t, s, ws.Message{Type: "click", Item: "lock"})
+			},
+			room: "cell",
+			done: "You are out!",
+		},
+		{
+			name:    "solve locked",
+			session: inGuardRoom,
+			act: func(t *testing.T, s ws.Session) (string, []ws.Message) {
+				_, got := play(t, s, ws.Message{Type: "click", Item: "box"})
+				return play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "417"})
+			},
+			room: "guardroom",
+			done: "big iron key",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := shippedDemo(t)
+			s := c.session(t, w)
+			defer s.Close()
+			full := refuseState(s)
+			full.Store(true)
+			text, _ := c.act(t, s)
+			wantText(t, "refused", text, refused)
+			if strings.Contains(text, c.done) {
+				t.Fatalf("refused write still did it: %q", text)
+			}
+			if roomOf(s) != c.room {
+				t.Fatalf("after the refused write in %q, want %q", roomOf(s), c.room)
+			}
+			full.Store(false)
+			text, _ = c.act(t, s)
+			wantText(t, "again", text, c.done)
+			if strings.Contains(text, refused) {
+				t.Fatalf("write refused after the server had room: %q", text)
+			}
+		})
+	}
+}
+
+// guardDialog opens the guard dialog in the cell and returns its id.
+func guardDialog(t *testing.T, s ws.Session) string {
+	t.Helper()
+	_, got := play(t, s, ws.Message{Type: "click", Item: "guard"})
+	if len(got) != 1 || got[0].Type != "dialog" {
+		t.Fatalf("guard: %+v", got)
+	}
+	return got[0].ID
 }
