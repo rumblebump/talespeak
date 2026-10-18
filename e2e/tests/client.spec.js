@@ -81,6 +81,8 @@ test("typed input, history and answering a dialog by typing", async ({ page }) =
   await expect(input).toHaveValue("");
 
   await page.getByRole("button", { name: "lamp" }).click();
+  // Wait for the question, or "look around" is typed as a command.
+  await expect(page.getByRole("group", { name: "Light the lamp?" })).toBeVisible();
   await input.fill("look around"); // not an answer
   await input.press("Enter");
   await expect(page.locator(".hint")).toContainText("Answer the question first");
