@@ -10,6 +10,7 @@ import (
 type recorder struct {
 	out    []string
 	state  State
+	world  State
 	timers map[string]time.Duration
 }
 
@@ -39,6 +40,11 @@ func (h *recorder) Go(room string) bool {
 func (h *recorder) Room() string { return "cell" }
 
 func (h *recorder) PlayerState() *State { return &h.state }
+
+func (h *recorder) WorldState() *State {
+	h.world.World = true
+	return &h.world
+}
 
 // StartTimer keeps at most MaxTimers; a timer's time never passes.
 func (h *recorder) StartTimer(name string, d time.Duration, show string) error {

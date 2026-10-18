@@ -122,6 +122,10 @@ type World struct {
 
 	stateTotal  int64            // what all players keep in state.player, reserved in rt too
 	clientState map[string]int64 // client -> what its players keep in state.player
+
+	world      script.State // state.world, shared by every player
+	changed    []string     // world keys the running hook changed
+	delivering bool         // a delivery of on_change is due
 }
 
 // budget is a token bucket of Lua time in seconds. It may go below zero
@@ -138,6 +142,7 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Opti
 	w := &World{log: log, pack: p, rt: script.New(limits), scripts: map[string]*script.Script{}, sessions: map[*session]struct{}{},
 		budgets: map[string]*budget{}, now: time.Now, after: afterFunc, clientMemory: DefaultClientMemory, clientEnvs: map[string]map[*script.Env]struct{}{},
 		clientState: map[string]int64{}}
+	w.world = script.State{World: true, Reserve: w.reserveWorld, Changed: w.change}
 	WithClientBudget(DefaultClientRate, DefaultClientBurst)(w)
 	for _, o := range opts {
 		o(w)
@@ -311,6 +316,7 @@ type session struct {
 	dialogs  int           // dialogs shown, for unique ids
 	items    []script.Item // what the player can click now
 	state    script.State  // state.player, shared by the player's rooms
+	changed  []string      // world keys others changed that on_change has not seen yet
 	next     string        // the room room.go moves the player to when the hook ends
 	visited  []string      // rooms entered, the latest last
 	moves    int           // room.go moves done for the current message
@@ -769,8 +775,13 @@ func logText(err error) string {
 }
 
 // flush returns the pushed messages still waiting, then the output of
-// the call. The caller holds w.mu.
+// the call, and tells the other players what the call changed in
+// state.world. The caller holds w.mu.
 func (s *session) flush() []ws.Message {
+	if len(s.w.changed) > 0 {
+		s.w.announce(s, s.w.changed)
+		s.w.changed = nil
+	}
 	out := s.out
 	if len(s.queue) > 0 {
 		out = append(s.queue, out...)
@@ -807,6 +818,8 @@ func (s *session) Go(room string) bool {
 func (s *session) Room() string { return s.room }
 
 func (s *session) PlayerState() *script.State { return &s.state }
+
+func (s *session) WorldState() *script.State { return &s.w.world }
 
 // reserve accounts for state.player growing by delta bytes: the world and
 // the player's client address share the limits of script memory. The

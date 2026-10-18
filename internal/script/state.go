@@ -10,15 +10,17 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Limits of state.player, part of the pack format so a pack behaves the
-// same on every server (T-0018 makes them settings).
+// Limits of state.player and state.world, part of the pack format so a
+// pack behaves the same on every server (T-0018 makes them settings).
 const (
 	MaxStateKeyBytes    = 64       // one key
 	MaxStateValueBytes  = 16 << 10 // one value, encoded
 	MaxStateDepth       = 8        // tables in tables
 	MaxPlayerStateBytes = 256 << 10
 	MaxPlayerStateKeys  = 500
-	MaxStateWrites      = 50 // state.player.set calls in one hook
+	MaxWorldStateBytes  = 4 << 20
+	MaxWorldStateKeys   = 5000
+	MaxStateWrites      = 50 // set and update calls of state.player and state.world in one hook
 
 	// maxStateScan is how many table slots one set may look at, empty
 	// ones included: gopher-lua skips empty array slots and removed keys
@@ -27,15 +29,21 @@ const (
 )
 
 // State is one player's values, written with state.player.set and read
-// with state.player.get, shared by every room the player visits. Only
-// what a script sets is kept, encoded: changing a table after set or get
-// changes nothing until the next set. It lasts for the session; T-0018
-// stores the same encoded values in the database.
+// with state.player.get, shared by every room the player visits; or, with
+// World set, the values of state.world, shared by the world's players.
+// Only what a script sets is kept, encoded: changing a table after set or
+// get changes nothing until the next set. It lasts for the session (the
+// world's run for state.world); T-0018 stores the same encoded values in
+// the database.
 type State struct {
 	// Reserve, if set, is asked before the state grows by delta bytes (or
 	// told it shrank); an error refuses the write, for limits shared with
 	// other players.
 	Reserve func(delta int64) error
+	// Changed, if set, is told the key of every write that changed s.
+	Changed func(key string)
+	// World gives s the limits and names of state.world.
+	World bool
 
 	vals map[string][]byte
 	size int64 // the sum of len(key)+len(value)
@@ -43,6 +51,14 @@ type State struct {
 
 // Size is what s keeps, as counted for MaxPlayerStateBytes.
 func (s *State) Size() int64 { return s.size }
+
+// limits are the size limits of s and its name in messages.
+func (s *State) limits() (bytes int64, keys int, name string) {
+	if s.World {
+		return MaxWorldStateBytes, MaxWorldStateKeys, "world"
+	}
+	return MaxPlayerStateBytes, MaxPlayerStateKeys, "player"
+}
 
 // The encoding of a value: one tag byte, then its payload. A table is its
 // key and value pairs, ended by tagEnd. Integers up to 2^53 are zigzag
@@ -227,37 +243,64 @@ func (r *Runtime) playerState(L *lua.LState) *State {
 	return s
 }
 
-// state.player.get(key) returns a copy of the value set for key, or nil.
-func (r *Runtime) stateGet(L *lua.LState) int {
-	s := r.playerState(L)
-	b, ok := s.vals[stateKey(L)]
-	if !ok {
-		L.Push(lua.LNil)
+// worldState returns state.world, or raises an error when called outside
+// a hook.
+func (r *Runtime) worldState(L *lua.LState) *State {
+	if r.cur == nil || r.cur.host == nil || r.cur.thread == nil {
+		L.RaiseError("no player here: call state.world from a hook such as on_enter")
+	}
+	s := r.cur.host.WorldState()
+	if s == nil {
+		L.RaiseError("this world keeps no world state")
+	}
+	return s
+}
+
+// get(key) of state.player or state.world returns a copy of the value set
+// for key, or nil.
+func (r *Runtime) stateGet(which func(*lua.LState) *State, name string) lua.LGFunction {
+	return func(L *lua.LState) int {
+		s := which(L)
+		L.Push(r.get(L, s, stateKey(L), name))
 		return 1
+	}
+}
+
+func (r *Runtime) get(L *lua.LState, s *State, key, name string) lua.LValue {
+	b, ok := s.vals[key]
+	if !ok {
+		return lua.LNil
 	}
 	d := decoder{L: L}
 	v, rest, err := d.value(b, 0)
 	if err != nil || len(rest) != 0 {
-		L.RaiseError("state.player.get: %s", errDamaged)
+		L.RaiseError("%s.get: %s", name, errDamaged)
 	}
-	L.Push(v)
-	return 1
+	return v
 }
 
-// state.player.set(key, value) keeps a copy of value for key; nil removes
-// it. It returns true, or nil and the reason when a limit refuses the
-// write. A value that cannot be kept at all (a function) is an error.
-func (r *Runtime) stateSet(L *lua.LState) int {
-	s := r.playerState(L)
-	key := stateKey(L)
+// set(key, value) of state.player or state.world keeps a copy of value
+// for key; nil removes it. It returns true, or nil and the reason when a
+// limit refuses the write. A value that cannot be kept at all (a function)
+// is an error.
+func (r *Runtime) stateSet(which func(*lua.LState) *State, name string) lua.LGFunction {
+	return func(L *lua.LState) int {
+		s := which(L)
+		key := stateKey(L)
+		return r.setResult(L, name+".set", r.set(s, key, L.Get(2)))
+	}
+}
+
+// setResult pushes what set and update return for err.
+func (r *Runtime) setResult(L *lua.LState, name string, err error) int {
 	var limit limitError
-	switch err := r.set(s, key, L.Get(2)); {
+	switch {
 	case err == nil:
 		L.Push(lua.LTrue)
 		return 1
 	case errors.As(err, &limit):
 		L.Push(lua.LNil)
-		L.Push(lua.LString("state.player.set: " + string(limit)))
+		L.Push(lua.LString(name + ": " + string(limit)))
 		return 2
 	default:
 		L.ArgError(2, err.Error())
@@ -265,11 +308,52 @@ func (r *Runtime) stateSet(L *lua.LState) int {
 	}
 }
 
+// errReadOnlyWorld refuses world writes in on_change, so a change cannot
+// bounce between players for ever.
+var errReadOnlyWorld = limited("on_change cannot change world state")
+
+// state.world.update(key, fn) sets key to fn(value), where value is a
+// copy of what key holds now. Nothing else runs in between, and fn cannot
+// wait for an answer, so two players updating one key never both see the
+// old value. It returns what set returns; an error in fn is the hook's
+// error and changes nothing.
+func (r *Runtime) stateUpdate(L *lua.LState) int {
+	s := r.worldState(L)
+	key := stateKey(L)
+	fn := L.CheckFunction(2)
+	th := r.cur.thread
+	if th.updating {
+		L.RaiseError("state.world.update cannot run inside another update")
+	}
+	if th.readOnlyWorld {
+		return r.setResult(L, "state.world.update", errReadOnlyWorld)
+	}
+	old := r.get(L, s, key, "state.world")
+	th.updating = true
+	L.Push(fn)
+	L.Push(old)
+	err := L.PCall(1, 1, nil)
+	th.updating = false
+	if err != nil {
+		if api, ok := err.(*lua.ApiError); ok {
+			L.Error(api.Object, 0)
+		}
+		L.RaiseError("%v", err)
+	}
+	v := L.Get(-1)
+	L.Pop(1)
+	return r.setResult(L, "state.world.update", r.set(s, key, v))
+}
+
 func (r *Runtime) set(s *State, key string, v lua.LValue) error {
 	th := r.cur.thread
+	if s.World && th.readOnlyWorld {
+		return errReadOnlyWorld
+	}
 	if th.writes++; th.writes > MaxStateWrites {
 		return limited("more than %d writes in one hook", MaxStateWrites)
 	}
+	maxBytes, maxKeys, name := s.limits()
 	old, had := s.vals[key]
 	oldSize := int64(0)
 	if had {
@@ -282,6 +366,9 @@ func (r *Runtime) set(s *State, key string, v lua.LValue) error {
 			if s.Reserve != nil {
 				_ = s.Reserve(-oldSize)
 			}
+			if s.Changed != nil {
+				s.Changed(key)
+			}
 		}
 		return nil
 	}
@@ -290,11 +377,11 @@ func (r *Runtime) set(s *State, key string, v lua.LValue) error {
 		return err
 	}
 	size := int64(len(key) + len(e.buf))
-	if !had && len(s.vals) >= MaxPlayerStateKeys {
-		return limited("more than %d keys", MaxPlayerStateKeys)
+	if !had && len(s.vals) >= maxKeys {
+		return limited("more than %d keys", maxKeys)
 	}
-	if s.size-oldSize+size > MaxPlayerStateBytes {
-		return limited("player state larger than %d bytes", MaxPlayerStateBytes)
+	if s.size-oldSize+size > maxBytes {
+		return limited("%s state larger than %d bytes", name, maxBytes)
 	}
 	if s.Reserve != nil {
 		if err := s.Reserve(size - oldSize); err != nil {
@@ -306,5 +393,8 @@ func (r *Runtime) set(s *State, key string, v lua.LValue) error {
 	}
 	s.vals[key] = append([]byte(nil), e.buf...) // no spare capacity kept
 	s.size += size - oldSize
+	if s.Changed != nil {
+		s.Changed(key)
+	}
 	return nil
 }
