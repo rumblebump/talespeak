@@ -52,7 +52,8 @@ $(grep -rnIE 'x-html|innerHTML|outerHTML|insertAdjacentHTML|setHTMLUnsafe|create
 EOF2
 
 report "URL bindings in web/ (above): only the picture's src is allowed, and app.js validates it" <<EOF2
-$(grep -rnIE '(:|x-bind:)(href|src|action|formaction|srcset|data|poster|style)=' "$tmp/web" | grep -vF ':src="picture.url"' || true)
+$(grep -rnIE '(:|x-bind:)(href|src|action|formaction|srcset|data|poster|style)=' "$tmp/web" | sed 's/:src="picture\.url"//g' |
+	grep -E '^[^:]+:[0-9]+:.*(:|x-bind:)(href|src|action|formaction|srcset|data|poster|style)=' || true)
 EOF2
 
 report "URL assignments in web/ (above): the client never loads or opens a URL from script" <<EOF2

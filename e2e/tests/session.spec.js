@@ -39,7 +39,7 @@ test("reconnects after the connection drops and starts a new session", async ({ 
   // A new session: the story starts again and the room's own items are back.
   await expect(story(page).locator(".room-title")).toHaveText(["Test hall"]);
   await expect(story(page)).not.toContainText("Lamp answer");
-  await expect(page.getByRole("navigation").getByRole("button")).toHaveCount(8);
+  await expect(page.getByRole("navigation").getByRole("button")).toHaveCount(9);
   await input.press("Enter");
   await expect(story(page)).toContainText("You typed: hello?");
 });

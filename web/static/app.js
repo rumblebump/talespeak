@@ -40,6 +40,10 @@ const text = (v) => (v === undefined || v === null ? "" : String(v));
  * (newlines included) become spaces, then it is trimmed. */
 const cleanLine = (s) => s.replace(/[\p{Cc}\u2028\u2029]/gu, " ").trim();
 
+/** speakerName is who says a line, such as the guide: one short line of
+ * text, or "" for the story itself. */
+const speakerName = (v) => cleanLine(text(v)).slice(0, 40);
+
 /** A picture URL must be a pack image on this server. */
 function imageURL(v) {
   const s = text(v);
@@ -124,7 +128,7 @@ function game() {
           this.items = cleanItems(msg.items);
           break;
         case "text":
-          this.addLine(msg.text, "", false, { speak: msg.speak === true, hide: msg.hide === true });
+          this.addLine(msg.text, "", false, { speak: msg.speak === true, hide: msg.hide === true, from: speakerName(msg.from) });
           break;
         case "items":
           this.items = cleanItems(msg.items);
@@ -146,28 +150,37 @@ function game() {
     // addLine adds a story line and reads it aloud when read aloud is on.
     // voice.speak reads it aloud anyway; voice.hide shows it only when this
     // device cannot speak it (a listening exercise), and offers a replay.
+    // voice.from names who says it, such as the guide: the line shows the
+    // name and is read in the guide's voice.
     addLine(value, kind, silent, voice) {
       const s = text(value);
       if (s === "") return;
+      const from = voice && voice.from ? voice.from : "";
       const spoken = !!voice && voice.speak && this.canSpeak;
       const hidden = spoken && voice.hide;
-      this.lines.push({ n: ++lineNo, text: hidden ? "(listen)" : s, kind: hidden ? "spoken" : kind, speech: spoken ? s : "" });
+      this.lines.push({
+        n: ++lineNo,
+        text: hidden ? "(listen)" : s,
+        kind: hidden ? "spoken" : from ? (kind + " guide").trim() : kind,
+        from,
+        speech: spoken ? s : "",
+      });
       if (this.lines.length > MAX_LINES) this.lines.splice(0, this.lines.length - MAX_LINES);
-      if (spoken) speaker.speak(s);
-      else if (!silent) this.say(s);
+      if (spoken) speaker.speak(s, from);
+      else if (!silent) this.say(s, from);
       this.$nextTick(() => {
         const story = this.$refs.story;
         if (story && story.lastElementChild) story.lastElementChild.scrollIntoView({ block: "nearest" });
       });
     },
 
-    say(s) {
-      if (this.readAloud && this.canSpeak) speaker.speak(s);
+    say(s, from) {
+      if (this.readAloud && this.canSpeak) speaker.speak(s, from);
     },
 
     // replay speaks a spoken line again.
     replay(line) {
-      if (line && line.speech) speaker.speak(line.speech);
+      if (line && line.speech) speaker.speak(line.speech, line.from);
     },
 
     // Items
@@ -202,6 +215,7 @@ function game() {
         max: Math.min(max, options.length),
         ask,
         strict: ask && msg.strict === true,
+        from: speakerName(msg.from),
         speech: "",
         hide: false,
       };
@@ -210,9 +224,9 @@ function game() {
       if (msg.speak === true && this.canSpeak) {
         this.dialog.speech = title;
         this.dialog.hide = msg.hide === true;
-        speaker.speak(title);
+        speaker.speak(title, this.dialog.from);
       } else {
-        this.say(ask ? title : title + ". " + options.map((o, i) => i + 1 + ": " + o).join(". "));
+        this.say(ask ? title : title + ". " + options.map((o, i) => i + 1 + ": " + o).join(". "), this.dialog.from);
       }
       this.picked = [];
       this.hint = "";
@@ -237,9 +251,12 @@ function game() {
       this.hint = "";
     },
 
-    // answered closes the question after its answer was sent; receive
-    // reopens it if the engine refuses the answer.
-    answered() {
+    // answered writes the question and its answer into the story, so the
+    // story reads on after the question box closes, and closes the
+    // question; receive reopens it if the engine refuses the answer.
+    answered(answer) {
+      this.addLine(this.dialogTitle, "asked", true, { from: this.dialog.from });
+      this.addLine(answer, "you", true);
       this.sent = this.dialog;
       this.closeDialog();
     },
@@ -252,7 +269,13 @@ function game() {
       return this.dialog !== null && this.dialog.speech !== "";
     },
     replayQuestion() {
-      if (this.canReplayQuestion) speaker.speak(this.dialog.speech);
+      if (this.canReplayQuestion) speaker.speak(this.dialog.speech, this.dialog.from);
+    },
+    get dialogLabel() {
+      return this.dialogFrom ? this.dialogFrom + ": " + this.dialogTitle : this.dialogTitle;
+    },
+    get dialogFrom() {
+      return this.dialog ? this.dialog.from : "";
     },
     get isAsk() {
       return this.dialog !== null && this.dialog.ask;
@@ -289,8 +312,7 @@ function game() {
       if (!this.isSingle || n < 1 || n > this.dialog.options.length) return;
       const d = this.dialog;
       if (conn.send({ type: "choose", id: d.id, option: n })) {
-        this.addLine(d.options[n - 1], "you", true);
-        this.answered();
+        this.answered(d.options[n - 1]);
       }
     },
 
@@ -316,8 +338,7 @@ function game() {
       const d = this.dialog;
       if (conn.send({ type: "choose", id: d.id, choices: this.picked })) {
         const labels = this.picked.map((n) => d.options[n - 1]);
-        this.addLine(labels.length ? labels.join(", ") : "(nothing)", "you", true);
-        this.answered();
+        this.answered(labels.length ? labels.join(", ") : "(nothing)");
       }
     },
 
@@ -336,8 +357,7 @@ function game() {
       if (this.isAsk) {
         const d = this.dialog;
         if (conn.send({ type: "answer", id: d.id, text: line })) {
-          this.addLine(line, "you", true);
-          this.answered();
+          this.answered(line);
           this.draft = "";
         }
         return;

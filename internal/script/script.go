@@ -102,6 +102,13 @@ type Host interface {
 	// Image shows one of the pack's images; it reports false when the pack
 	// has no image of that name.
 	Image(name, caption string) bool
+	// Go moves the player to room once the hook ends; it reports false
+	// when the pack has no such room.
+	Go(room string) bool
+	// Room is the id of the player's current room.
+	Room() string
+	// PlayerState is the player's state.player; nil when there is none.
+	PlayerState() *State
 }
 
 // Voice says how a line reaches the player, set by say(text, {speak =
@@ -110,6 +117,9 @@ type Host interface {
 type Voice struct {
 	Speak bool
 	Hide  bool
+	// From is the speaker's name, such as a guide, shown with the line and
+	// read aloud in another voice; "" is the story itself.
+	From string
 }
 
 // Item is something the player can click, set with ui.items.
@@ -184,10 +194,13 @@ type Thread struct {
 	Dialog Dialog
 
 	co       *lua.LState
-	env      *lua.LTable  // the globals of the Instance it runs in
-	resume   chan *answer // the player's answer; nil ends the hook
-	events   chan result  // the end of each call: a dialog, or the hook's end
-	canceled bool         // set on the hook's goroutine once resume sent nil
+	env      *lua.LTable     // the globals of the Instance it runs in
+	resume   chan *answer    // the player's answer; nil ends the hook
+	events   chan result     // the end of each call: a dialog, or the hook's end
+	canceled bool            // set on the hook's goroutine once resume sent nil
+	moved    bool            // room.go was called: the hook may not wait again
+	writes   int             // state.player.set calls, across its dialogs
+	loading  map[string]bool // modules this hook is running now, for require's cycle check
 }
 
 type result struct {
@@ -205,9 +218,13 @@ type Runtime struct {
 	paused map[*Thread]struct{}      // hooks waiting in ui.dialog
 	shared map[lua.LValue]struct{}   // what every Instance reaches but none keeps: the libraries
 
-	cur    *call // the call in progress, nil between calls
-	total  int64 // the sum of kept and sinceWalk over envs: at least what they keep
-	closed bool
+	cur   *call // the call in progress, nil between calls
+	total int64 // the sum of kept and sinceWalk over envs: at least what they keep
+	extra int64 // what Reserve holds for the world, outside any Instance
+
+	modules map[string]*Script          // require's modules by name
+	loaded  map[*lua.LTable]*lua.LTable // each Instance's required modules, by its globals
+	closed  bool
 }
 
 // envState is what one Instance keeps, as last measured, plus what its
@@ -240,7 +257,8 @@ func New(limits Limits) *Runtime {
 	if limits.PlayerMemory <= 0 || limits.PlayerMemory > limits.StateMemory {
 		limits.PlayerMemory = limits.StateMemory
 	}
-	r := &Runtime{L: L, limits: limits, locked: map[*lua.LTable]bool{}, paused: map[*Thread]struct{}{}, envs: map[*lua.LTable]*envState{}}
+	r := &Runtime{L: L, limits: limits, locked: map[*lua.LTable]bool{}, paused: map[*Thread]struct{}{}, envs: map[*lua.LTable]*envState{},
+		loaded: map[*lua.LTable]*lua.LTable{}}
 	r.lib = r.openSandbox()
 	r.shared = map[lua.LValue]struct{}{r.lib: {}, L.G.Global: {}, L.G.Registry: {}}
 	return r
@@ -325,6 +343,7 @@ func (r *Runtime) Release(e *Env) {
 		r.total -= st.kept + st.sinceWalk
 		delete(r.envs, e.table)
 	}
+	delete(r.loaded, e.table)
 }
 
 // Load compiles a script and runs its top level in a new Env.
@@ -361,6 +380,9 @@ func (r *Runtime) Run(host Host, env *Env, hook, player string, args ...string) 
 	}
 	p := r.L.NewTable()
 	p.RawSetString("name", lua.LString(player))
+	if host != nil {
+		p.RawSetString("room", lua.LString(host.Room()))
+	}
 	values := []lua.LValue{p}
 	for _, a := range args {
 		values = append(values, lua.LString(a))
@@ -508,6 +530,9 @@ func (r *Runtime) pause(L *lua.LState, d *Dialog) *answer {
 	if th.canceled {
 		L.RaiseError(errLeft)
 	}
+	if th.moved {
+		L.RaiseError("the player is leaving this room (room.go was called): a hook cannot wait for an answer after it")
+	}
 	th.events <- result{dialog: d}
 	a := <-th.resume // the caller has called begin
 	L.SetContext(r.cur.ctx)
@@ -546,11 +571,12 @@ func (r *Runtime) checkState(env *lua.LTable) error {
 	return nil
 }
 
-// full reports whether the world's Instances keep more than StateMemory. It
+// full reports whether the world's Instances and Reserve keep more than
+// StateMemory. It
 // measures the Instances that ran since their last measurement only when
 // the cheap upper bound is past the limit.
 func (r *Runtime) full() bool {
-	if r.total <= r.limits.StateMemory {
+	if r.total+r.extra <= r.limits.StateMemory {
 		return false
 	}
 	paused := map[*lua.LTable][]*Thread{}
@@ -562,13 +588,38 @@ func (r *Runtime) full() bool {
 			r.measure(env, st, paused[env])
 		}
 	}
-	return r.total > r.limits.StateMemory
+	return r.total+r.extra > r.limits.StateMemory
+}
+
+// Reserve counts delta more bytes (or fewer, when negative) toward the
+// world's StateMemory, for what is kept outside any Instance, such as
+// state.player. Growing past the limit, with what the Instances keep, is
+// refused with ErrFull and changes nothing. The caller serializes it with
+// the Runtime's other calls.
+//
+// Called from a hook, it compares the cheap upper bound only: measuring
+// the world there would run on the caller's time and memory budgets, and
+// would miss what the running hook holds in its locals. The check after
+// the call measures and corrects the bound.
+func (r *Runtime) Reserve(delta int64) error {
+	r.extra += delta
+	if delta <= 0 {
+		return nil
+	}
+	if r.cur != nil && r.total+r.extra <= r.limits.StateMemory || r.cur == nil && !r.full() {
+		return nil
+	}
+	r.extra -= delta
+	return ErrFull
 }
 
 // measure walks what env keeps: its globals and the stacks of its paused
 // hooks, without the shared libraries.
 func (r *Runtime) measure(env *lua.LTable, st *envState, paused []*Thread) {
 	roots := []lua.LValue{env}
+	if mods := r.loaded[env]; mods != nil {
+		roots = append(roots, mods)
+	}
 	for _, th := range paused {
 		roots = append(roots, stackValues(th.co)...)
 	}

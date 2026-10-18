@@ -123,6 +123,11 @@ func TestLoadErrors(t *testing.T) {
 		{"script absolute", map[string]*string{"rooms/r.yaml": s(goodRoom + "script: /etc/r.lua\n")}, []string{"rooms/r.yaml", "script"}},
 		{"script backslash", map[string]*string{"rooms/r.yaml": s(goodRoom + "script: \"..\\\\r.lua\"\n")}, []string{"rooms/r.yaml", "script"}},
 		{"script too large", map[string]*string{"rooms/r.yaml": s(goodRoom + "script: r.lua\n"), "scripts/r.lua": s(long(MaxScriptBytes + 1))}, []string{"rooms/r.yaml", "larger than"}},
+		{"module too large", map[string]*string{"lib/m.lua": s(long(MaxScriptBytes + 1))}, []string{"lib/m.lua", "larger than"}},
+		{"module not lua", map[string]*string{"lib/m.txt": s("x=1")}, []string{"lib/m.txt", "<name>.lua"}},
+		{"module upper case", map[string]*string{"lib/Rooms.lua": s("x=1")}, []string{"lib/Rooms.lua", "<name>.lua"}},
+		{"module in a folder", map[string]*string{"lib/sub/m.lua": s("x=1")}, []string{"lib/sub", "<name>.lua"}},
+		{"module external url", map[string]*string{"lib/m.lua": s(`x = "https://example.com/x.js"`)}, []string{"lib/m.lua"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -139,6 +144,31 @@ func TestLoadErrors(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLoadModules(t *testing.T) {
+	p, err := Load(fsWith(map[string]*string{
+		"lib/rooms.lua":    s("return {}"),
+		"lib/my_mod-2.lua": s("x = 1"),
+		"lib/.hidden.lua":  s("ignored"),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Modules) != 2 || p.Modules["rooms"] != "return {}" || p.Modules["my_mod-2"] != "x = 1" {
+		t.Errorf("Modules = %q", p.Modules)
+	}
+	files := map[string]*string{}
+	for i := range MaxModules + 1 {
+		files["lib/m"+strconv.Itoa(i)+".lua"] = s("")
+	}
+	if _, err := Load(fsWith(files)); err == nil || !strings.Contains(err.Error(), "more than 100 modules") {
+		t.Errorf("too many modules: %v", err)
+	}
+	delete(files, "lib/m0.lua")
+	if _, err := Load(fsWith(files)); err != nil {
+		t.Errorf("MaxModules modules: %v", err)
 	}
 }
 
@@ -230,8 +260,15 @@ func FuzzLoad(f *testing.F) {
 	f.Add("id: t\ntitle: T\nstart: r\n---\n", "id: r\ntitle: R\ndescription: >-\n  a\n  b\n", "")
 	f.Add("{id: t, title: T, start: r}", "{id: r, title: R, description: d, script: ../r.lua}", "")
 	f.Add("id: &a t\ntitle: *a\nstart: r\n", "id: r\ntitle: R\ndescription: !!binary aGk=\n", "")
+	f.Add(goodPack, "id: r\ntitle: R\ndescription: !!binary aHR0cHM6Ly94LmV4YW1wbGU=\n", "")
 	f.Add(goodPack, goodRoom+"items:\n  - {id: straw, label: heap of straw}\n  - {id: door, label: \"a\\nb\"}\n", "")
 	f.Add(goodPack, goodRoom+"items: [{id: a, label: x}, {id: a, label: y}]\n", "")
+	// Pack lint: references in values, keys, comments and script literals.
+	f.Add("id: t\ntitle: www.x.example\nstart: r\n", goodRoom+"# https://ok.example\n", "")
+	f.Add(goodPack, "id: r\ntitle: R\ndescription: |\n  a\n  //cdn.example/x\n", "")
+	f.Add(goodPack, "id: r\ntitle: R\ndescription: \"\\x68ttps://x\"\nscript: r.lua\n", "-- https://ok\r\nsay([==[\nwss://x]==])")
+	f.Add(goodPack, goodRoom+"script: r.lua\n", "say(\"\\104ttps:\\47/x\") --[[ www.ok.example ]]")
+	f.Add(goodPack, goodRoom+"script: r.lua\n", "say('ok') ~ say('https://after.example')")
 	f.Fuzz(func(t *testing.T, packYAML, roomYAML, script string) {
 		p, err := Load(fstest.MapFS{
 			"pack.yaml":     {Data: []byte(packYAML)},
@@ -246,6 +283,19 @@ func FuzzLoad(f *testing.F) {
 		}
 		if !idPattern.MatchString(p.ID) || checkTitle(p.Title) != nil {
 			t.Fatalf("accepted pack %+v", p)
+		}
+		// Offline: no text a player sees points to another server.
+		texts := []string{p.Title}
+		for _, r := range p.Rooms {
+			texts = append(texts, r.Title, r.Description)
+			for _, it := range r.Items {
+				texts = append(texts, it.Label)
+			}
+		}
+		for _, text := range texts {
+			if _, ok := findRef(text); ok {
+				t.Fatalf("accepted text with an external reference: %q", text)
+			}
 		}
 		start := p.Rooms[p.Start]
 		if start == nil {

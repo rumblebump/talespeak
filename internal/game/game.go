@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,7 +43,8 @@ const (
 // address may keep in a world together: a quarter of the default world
 // limit, so a few addresses holding many connections cannot fill a world
 // and keep everyone else out. A class of 30 behind one NAT address fits
-// with a 10000-word list.
+// with a 10000-word list in one room; word lists in several rooms cost up
+// to MaxRoomInstances times that per player.
 const DefaultClientMemory = 64 << 20
 
 // ErrBusy is returned when a client address has used up its Lua time.
@@ -96,6 +99,9 @@ type World struct {
 
 	clientMemory int64                               // script state one client may keep
 	clientEnvs   map[string]map[*script.Env]struct{} // client -> its players' script instances
+
+	stateTotal  int64            // what all players keep in state.player, reserved in rt too
+	clientState map[string]int64 // client -> what its players keep in state.player
 }
 
 // budget is a token bucket of Lua time in seconds. It may go below zero
@@ -110,10 +116,21 @@ type budget struct {
 // error.
 func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Option) (*World, error) {
 	w := &World{log: log, pack: p, rt: script.New(limits), scripts: map[string]*script.Script{},
-		budgets: map[string]*budget{}, now: time.Now, clientMemory: DefaultClientMemory, clientEnvs: map[string]map[*script.Env]struct{}{}}
+		budgets: map[string]*budget{}, now: time.Now, clientMemory: DefaultClientMemory, clientEnvs: map[string]map[*script.Env]struct{}{},
+		clientState: map[string]int64{}}
 	WithClientBudget(DefaultClientRate, DefaultClientBurst)(w)
 	for _, o := range opts {
 		o(w)
+	}
+	for _, name := range slices.Sorted(maps.Keys(p.Modules)) {
+		sc, err := w.rt.Compile("lib/"+name+".lua", p.Modules[name])
+		if err == nil {
+			err = w.rt.AddModule(name, sc)
+		}
+		if err != nil {
+			w.rt.Close()
+			return nil, fmt.Errorf("lib/%s.lua: %w", name, err)
+		}
 	}
 	for id, room := range p.Rooms {
 		if room.Source == "" {
@@ -149,6 +166,7 @@ func (w *World) Close() {
 // "" has no budget (tests and local tools).
 func (w *World) NewSession(client string) (ws.Session, []ws.Message) {
 	s := &session{w: w, name: DefaultPlayerName, client: budgetKey(client)}
+	s.state.Reserve = s.reserve
 	return s, s.enter(w.pack.Start)
 }
 
@@ -218,14 +236,22 @@ func (w *World) pruneBudgets(now time.Time) bool {
 	return false
 }
 
-// clientKept is at least what the players of client keep in script state.
-// The caller holds w.mu.
+// clientKept is at least what the players of client keep in script
+// instances and state.player. The caller holds w.mu.
 func (w *World) clientKept(client string) int64 {
-	var n int64
+	n := w.clientState[client]
 	for env := range w.clientEnvs[client] {
 		n += w.rt.Kept(env)
 	}
 	return n
+}
+
+// kept is what env keeps; 0 for nil. The caller holds w.mu.
+func (w *World) kept(env *script.Env) int64 {
+	if env == nil {
+		return 0
+	}
+	return w.rt.Kept(env)
 }
 
 // release frees one of client's script instances. The caller holds w.mu.
@@ -254,11 +280,21 @@ type session struct {
 	dialogID string
 	dialogs  int           // dialogs shown, for unique ids
 	items    []script.Item // what the player can click now
+	state    script.State  // state.player, shared by the player's rooms
+	next     string        // the room room.go moves the player to when the hook ends
+	visited  []string      // rooms entered, the latest last
+	moves    int           // room.go moves done for the current message
 
 	out []ws.Message // collects output during one hook call
 }
 
+// MaxMoves caps the rooms one player message can move through, so rooms
+// whose on_enter calls room.go cannot send a player round in circles, and
+// one message cannot hold the world for many hooks' time.
+const MaxMoves = 4
+
 func (s *session) Handle(m ws.Message) []ws.Message {
+	s.moves = 0
 	switch m.Type {
 	case "choose":
 		return s.choose(m)
@@ -283,31 +319,47 @@ func (s *session) Close() {
 		s.w.release(s.client, env)
 	}
 	s.envs = nil
+	_ = s.reserve(-s.state.Size())
+	s.state = script.State{}
 }
 
 // env returns the player's instance of room's script, starting it on first
-// use; nil when the room has no script. The caller holds w.mu.
+// use; nil when the room has no script. When the player keeps
+// MaxRoomInstances already, the room entered longest ago gives way. The
+// caller holds w.mu.
 func (s *session) env(room string) (*script.Env, error) {
+	env, victim, _, err := s.start(room)
+	if victim != "" {
+		s.free(victim)
+	}
+	return env, err
+}
+
+// start is env without freeing: it returns the room whose instance should
+// give way, if any, and whether it started a new instance, so a move can
+// free the one or the other once it knows whether it happens. The caller
+// holds w.mu.
+func (s *session) start(room string) (env *script.Env, victim string, started bool, err error) {
 	sc := s.w.scripts[room]
 	if sc == nil {
-		return nil, nil
+		return nil, "", false, nil
 	}
 	if env := s.envs[room]; env != nil {
-		return env, nil
+		return env, "", false, nil
 	}
 	if s.w.closed {
-		return nil, script.ErrClosed
+		return nil, "", false, script.ErrClosed
 	}
-	if s.client != "" && s.w.clientKept(s.client) >= s.w.clientMemory {
-		return nil, ErrClientFull
+	victim = s.victim(room)
+	if s.client != "" && s.w.clientKept(s.client)-s.w.kept(s.envs[victim]) >= s.w.clientMemory {
+		return nil, "", false, ErrClientFull
 	}
-	var env *script.Env
-	err := s.w.timed(s.client, func() (err error) {
+	err = s.w.timed(s.client, func() (err error) {
 		env, err = s.w.rt.Instance(sc)
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, "", false, err
 	}
 	if s.envs == nil {
 		s.envs = map[string]*script.Env{}
@@ -319,7 +371,41 @@ func (s *session) env(room string) (*script.Env, error) {
 		}
 		s.w.clientEnvs[s.client][env] = struct{}{}
 	}
-	return env, nil
+	return env, victim, true, nil
+}
+
+// free releases the player's instance of room's script. The caller holds
+// w.mu.
+func (s *session) free(room string) {
+	if env := s.envs[room]; env != nil {
+		s.w.release(s.client, env)
+		delete(s.envs, room)
+	}
+}
+
+// MaxRoomInstances is how many room script instances one player keeps:
+// coming back to one of the last rooms finds its globals, older rooms
+// start over. State that must last goes into state.player (T-0023).
+const MaxRoomInstances = 4
+
+// victim is the room entered longest ago, other than room and the current
+// one, whose instance gives way when the player already keeps
+// MaxRoomInstances; "" when none needs to. The caller holds w.mu.
+func (s *session) victim(room string) string {
+	if len(s.envs) < MaxRoomInstances {
+		return ""
+	}
+	for _, old := range s.visited {
+		if s.envs[old] != nil && old != room && old != s.room {
+			return old
+		}
+	}
+	for old := range s.envs { // not in visited: should not happen, but never exceed the cap
+		if old != room && old != s.room {
+			return old
+		}
+	}
+	return ""
 }
 
 // reset frees the player's instance of room's script, which keeps too much
@@ -344,24 +430,77 @@ func (s *session) drop() {
 func (s *session) enter(room string) []ws.Message {
 	s.w.mu.Lock()
 	defer s.w.mu.Unlock()
+	return s.enterLocked(room, false)
+}
+
+// enterLocked is enter for a caller that holds w.mu. After room.go (moved),
+// the output so far stays in front of the new room's, and the client is
+// told the new room's items first, since its on_enter may not describe it.
+// A move whose room cannot start, or whose on_enter cannot run yet because
+// the player's address used up its Lua time, leaves the player where they
+// were.
+func (s *session) enterLocked(room string, moved bool) []ws.Message {
 	s.drop()
+	if s.w.closed {
+		return s.after(nil, script.ErrClosed)
+	}
+	if !moved {
+		s.place(room)
+		env, err := s.env(room)
+		if err != nil {
+			return s.after(nil, err)
+		}
+		if env == nil {
+			s.DescribeRoom()
+			return s.flush()
+		}
+		return s.after(s.run1(func() (*script.Thread, error) { return s.w.rt.Run(s, env, "on_enter", s.name) }))
+	}
+	env, victim, started, err := s.start(room)
+	if err != nil {
+		return s.refuseMove(room, err)
+	}
+	oldRoom, oldItems, oldVisited, mark := s.room, s.items, slices.Clone(s.visited), len(s.out)
+	s.place(room)
+	s.out = append(s.out, ws.Message{Type: "items", Items: wsItems(s.items)})
+	if env == nil {
+		s.DescribeRoom()
+		return s.flush()
+	}
+	th, err := s.run1(func() (*script.Thread, error) { return s.w.rt.Run(s, env, "on_enter", s.name) })
+	if errors.Is(err, ErrBusy) { // nothing ran: undo the move, and keep the old instances
+		s.room, s.items, s.visited, s.out = oldRoom, oldItems, oldVisited, s.out[:mark]
+		if started {
+			s.free(room)
+		}
+		return s.after(th, err)
+	}
+	if victim != "" {
+		s.free(victim)
+	}
+	return s.after(th, err)
+}
+
+// place puts the player in room with its YAML items.
+func (s *session) place(room string) {
 	s.room = room
 	s.items = nil
 	for _, it := range s.w.pack.Rooms[room].Items {
 		s.items = append(s.items, script.Item{ID: it.ID, Label: it.Label})
 	}
-	if s.w.closed {
-		return s.after(nil, script.ErrClosed)
-	}
-	env, err := s.env(room)
-	if err != nil {
-		return s.after(nil, err)
-	}
-	if env == nil {
-		s.DescribeRoom()
+	s.visited = append(slices.DeleteFunc(s.visited, func(r string) bool { return r == room }), room)
+}
+
+// refuseMove tells the player a move to room did not happen. The caller
+// holds w.mu.
+func (s *session) refuseMove(room string, err error) []ws.Message {
+	if errors.Is(err, ErrBusy) {
+		s.out = append(s.out, ws.Message{Type: "error", Message: busyMessage})
 		return s.flush()
 	}
-	return s.after(s.run1(func() (*script.Thread, error) { return s.w.rt.Run(s, env, "on_enter", s.name) }))
+	s.w.log.Warn("room script failed", "room", room, "err", logText(err))
+	s.out = append(s.out, ws.Message{Type: "error", Message: playerError(err)})
+	return s.flush()
 }
 
 // choose answers the open dialog: option for ui.dialog, choices for
@@ -507,6 +646,7 @@ func (s *session) after(th *script.Thread, err error) []ws.Message {
 		return s.flush()
 	}
 	if err != nil {
+		s.next = "" // a failed hook moves no one
 		s.w.log.Warn("room script failed", "room", s.room, "err", logText(err))
 		if errors.Is(err, script.ErrStateMemory) {
 			s.reset(s.room)
@@ -519,7 +659,7 @@ func (s *session) after(th *script.Thread, err error) []ws.Message {
 		s.pending = th
 		s.dialogID = "d" + strconv.Itoa(s.dialogs)
 		d := th.Dialog
-		m := ws.Message{Type: "dialog", ID: s.dialogID, Title: d.Title, Options: d.Options, Speak: d.Voice.Speak, Hide: d.Voice.Hide}
+		m := ws.Message{Type: "dialog", ID: s.dialogID, Title: d.Title, Options: d.Options, Speak: d.Voice.Speak, Hide: d.Voice.Hide, From: d.Voice.From}
 		switch {
 		case d.Multiple:
 			m.Type, m.Min, m.Max = "select", d.Min, d.Max
@@ -527,6 +667,15 @@ func (s *session) after(th *script.Thread, err error) []ws.Message {
 			m.Type, m.Strict = "ask", d.Strict
 		}
 		s.out = append(s.out, m)
+	} else if s.next != "" {
+		room := s.next
+		s.next = ""
+		if s.moves++; s.moves > MaxMoves {
+			s.w.log.Warn("room script moved a player too often", "room", s.room, "to", room)
+			s.out = append(s.out, ws.Message{Type: "error", Message: "This room's script moved you too often at once. Tell the game master."})
+			return s.flush()
+		}
+		return s.enterLocked(room, true)
 	}
 	return s.flush()
 }
@@ -570,9 +719,10 @@ func (s *session) flush() []ws.Message {
 	return out
 }
 
-// Say, DescribeRoom, Items and Image implement script.Host.
+// Say, DescribeRoom, Items, Image, Go, Room and PlayerState implement
+// script.Host.
 func (s *session) Say(text string, how script.Voice) {
-	s.out = append(s.out, ws.Message{Type: "text", Text: text, Speak: how.Speak, Hide: how.Hide})
+	s.out = append(s.out, ws.Message{Type: "text", Text: text, Speak: how.Speak, Hide: how.Hide, From: how.From})
 }
 
 func (s *session) DescribeRoom() {
@@ -583,6 +733,38 @@ func (s *session) DescribeRoom() {
 func (s *session) Items(items []script.Item) {
 	s.items = items
 	s.out = append(s.out, ws.Message{Type: "items", Items: wsItems(items)})
+}
+
+func (s *session) Go(room string) bool {
+	if s.w.pack.Rooms[room] == nil {
+		return false
+	}
+	s.next = room
+	return true
+}
+
+func (s *session) Room() string { return s.room }
+
+func (s *session) PlayerState() *script.State { return &s.state }
+
+// reserve accounts for state.player growing by delta bytes: the world and
+// the player's client address share the limits of script memory. The
+// caller holds w.mu.
+func (s *session) reserve(delta int64) error {
+	w := s.w
+	if delta > 0 && s.client != "" && w.clientKept(s.client)+delta > w.clientMemory {
+		return errors.New("too many players from this network keep state right now")
+	}
+	if err := w.rt.Reserve(delta); err != nil {
+		return errors.New("this world is full right now")
+	}
+	w.stateTotal += delta
+	if s.client != "" {
+		if w.clientState[s.client] += delta; w.clientState[s.client] <= 0 {
+			delete(w.clientState, s.client)
+		}
+	}
+	return nil
 }
 
 func (s *session) Image(name, caption string) bool {

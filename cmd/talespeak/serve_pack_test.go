@@ -28,6 +28,7 @@ func TestServeRefusesBadConfig(t *testing.T) {
 		env  map[string]string
 		want []string
 	}{
+		{"bad host", map[string]string{"TALESPEAK_HOSTS": "https://a.example"}, []string{"TALESPEAK_HOSTS:", "https://a.example"}},
 		{"bad limit", map[string]string{"TALESPEAK_LUA_TIME": "forever"}, []string{"limits:", `TALESPEAK_LUA_TIME="forever"`}},
 		{"two bad limits", map[string]string{"TALESPEAK_MAX_CONNS": "0", "TALESPEAK_MESSAGE_RATE": "x"}, []string{"TALESPEAK_MAX_CONNS=", "TALESPEAK_MESSAGE_RATE="}},
 		{"missing pack folder", map[string]string{"TALESPEAK_PACK": missing}, []string{"pack " + missing, "pack.yaml"}},

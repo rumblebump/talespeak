@@ -6,6 +6,7 @@ A story pack is a folder of YAML and Lua files. The engine ships one, `content/d
 pack.yaml
 rooms/<any name>.yaml
 scripts/<name>.lua
+lib/<name>.lua          # optional modules every room script can require
 assets/<name>.png       # optional images: .png, .jpg, .jpeg, .gif, .webp
 ```
 
@@ -40,6 +41,18 @@ items:                # optional, what the player can click on entering
 | `script` | A file name ending in `.lua`, read from `scripts/`; no folders. What it can do: [lua-sandbox.md](lua-sandbox.md) |
 | `items` | At most 20; each with an `id` like a room id, unique in the room, and a one-line `label` of 1 to 100 bytes. A click runs the script's `on_click`; the script can change them with `ui.items` |
 
+## lib/
+
+Lua modules the room scripts share, so a helper is written once instead of copied into every room. `require("rooms")` in any script returns what `lib/rooms.lua` returns.
+
+| Rule | |
+| --- | --- |
+| Names | 1 to 64 of a-z, 0-9, `_` and `-`, then `.lua`; plain files only (no links or folders), and nothing else in `lib/` |
+| Size | At most 256 KiB each, and at most 100 modules |
+| Checks | The same as for room scripts, including the offline check below |
+
+How `require` behaves: [lua-sandbox.md](lua-sandbox.md).
+
 ## assets/
 
 Images a script shows with `ui.image`. The engine serves them itself at `/packs/<pack id>/assets/<file>`, so a pack never needs another server.
@@ -49,8 +62,18 @@ Images a script shows with `ui.image`. The engine serves them itself at `/packs/
 | Names | 1 to 64 of a-z, 0-9, `_` and `-`, then `.png`, `.jpg`, `.jpeg`, `.gif` or `.webp`; no folders |
 | Content | Must match the extension (checked from the file's bytes) |
 | Size | At most 2 MiB each and 64 MiB per pack by default; admins can change both ([admin-limits.md](admin-limits.md)) |
-| SVG | Not yet: an SVG file can carry scripts and links, so it waits for pack lint (T-0014) |
+| SVG | Not yet: an SVG file can carry scripts and links, so it needs its own checks first |
 
 Small pixel art (up to 256 pixels wide) is scaled up sharp; larger pictures are scaled smoothly.
+
+## Offline: no external references
+
+A pack must work without the internet, so it carries every file it uses and points nowhere else. Loading refuses:
+
+- a URL with a scheme (`https://`, `http://`, `ws://`, `ftp://` and the like, also `https:host` without slashes), a `javascript:` or `vbscript:` link, a `//host` reference (also inside `url(...)`) or a bare `www.` host in any YAML value or key, or in any Lua string literal, reported with file and line. Text is read the way a browser reads a URL, so `\\host`, `https:\\host` and references broken by a tab or line break count too. A `//` only counts when a host follows it (a name with a dot and a letter top-level domain, a port, an IPv4 or IPv6 address, or `localhost`), so story text like `//INCOMING TRANSMISSION//` is fine;
+- YAML tags (`!!binary`, `!!str`, `!custom`): the format needs none, and `!!binary` would hide text from the check;
+- `.css`, `.svg`, `.svgz`, `.html`, `.htm`, `.shtml`, `.xhtml`, `.xht`, `.xml`, `.xsl`, `.js`, `.mjs`, `.cjs` and `.wasm` files anywhere in the pack: they are not part of the format, and a browser could run them or load more from them. Hidden folders (`.git`) are skipped, because the engine never reads them.
+
+YAML and Lua comments are not checked, and the engine never reads other files (a `README.md` or `LICENSE`), so credits and links for authors go there. A string built at runtime (`"https:" .. "//x"`) is caught only when one literal holds the reference; nor are rarer forms: percent-encoded or non-ASCII host names, numeric IP addresses like `//3232235777`, and names without a dot like `//intranet/x`. For all of them, the browser's Content-Security-Policy still blocks every load from another origin, and the client shows pack text only as text, never in a URL attribute.
 
 Loading is strict: unknown fields, more than one YAML document per file, files over 64 KiB, or scripts over 256 KiB are errors. Every problem is reported with its file, and a pack with errors does not start.

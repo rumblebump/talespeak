@@ -1,0 +1,7 @@
+id: cellar
+title: Test cellar
+description: A second room for moving between rooms.
+script: cellar.lua
+items:
+  - id: stairs
+    label: stairs up

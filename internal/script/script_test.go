@@ -7,7 +7,10 @@ import (
 	"time"
 )
 
-type recorder struct{ out []string }
+type recorder struct {
+	out   []string
+	state State
+}
 
 func (h *recorder) Say(text string, how Voice) {
 	switch {
@@ -16,9 +19,25 @@ func (h *recorder) Say(text string, how Voice) {
 	case how.Speak:
 		text = "(spoken) " + text
 	}
+	if how.From != "" {
+		text = "[" + how.From + "] " + text
+	}
 	h.out = append(h.out, "say:"+text)
 }
 func (h *recorder) DescribeRoom() { h.out = append(h.out, "describe") }
+
+// Go knows two rooms, cell and hall; Room is "cell".
+func (h *recorder) Go(room string) bool {
+	if room != "cell" && room != "hall" {
+		return false
+	}
+	h.out = append(h.out, "go:"+room)
+	return true
+}
+
+func (h *recorder) Room() string { return "cell" }
+
+func (h *recorder) PlayerState() *State { return &h.state }
 
 func (h *recorder) Items(items []Item) {
 	s := "items:"
@@ -202,7 +221,9 @@ func TestSandboxHidesUnsafeGlobals(t *testing.T) {
 	defer r.Close()
 	names := []string{"io", "os", "debug", "package", "channel", "coroutine",
 		"collectgarbage", "dofile", "getfenv", "load", "loadfile", "loadstring",
-		"module", "newproxy", "print", "require", "setfenv", "_printregs"}
+		"module", "newproxy", "print", "setfenv", "_printregs"}
+	// require is the sandbox's own: it runs only the pack's lib modules
+	// (require_test.go), never Lua's package loader.
 	for _, name := range names {
 		env := load(t, r, `function on_enter() say(type(`+name+`)) end`)
 		h := &recorder{}

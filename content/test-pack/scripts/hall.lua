@@ -24,6 +24,9 @@ function on_click(player, item)
   elseif item == "voice" then
     say("Only heard, never read.", {speak = true, show = false})
     say("Heard and read.", {speak = true})
+  elseif item == "door" then
+    say("Down to the cellar.")
+    room.go("cellar")
   elseif item == "trapdoor" then
     ui.dialog("Open the trapdoor?", {"Yes", "No"})
     error("the trapdoor is stuck")
@@ -31,5 +34,12 @@ function on_click(player, item)
 end
 
 function on_input(player, text)
+  if text == "guide" then
+    -- A guide speaks apart from the story (T-0027).
+    say("I am your guide.", { from = "Whisp" })
+    local n, label = ui.dialog("Ready?", { "Yes", "No" }, { from = "Whisp" })
+    say("Guide answer: " .. label)
+    return
+  end
   say("You typed: " .. text)
 end

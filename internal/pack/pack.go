@@ -25,7 +25,10 @@ const (
 	// MaxTitleRunes and MaxDescriptionBytes bound a room's text.
 	MaxTitleRunes       = 120
 	MaxDescriptionBytes = 4000
-	// MaxScriptBytes is the largest Lua script a room may use.
+	// MaxModules bounds the shared Lua modules in a pack's lib folder.
+	MaxModules = 100
+	// MaxScriptBytes is the largest Lua script a room may use, and the
+	// largest module.
 	MaxScriptBytes = 256 << 10
 	// MaxItems and MaxLabelBytes bound a room's clickable items, as
 	// ui.items does.
@@ -56,6 +59,9 @@ type Pack struct {
 	Rooms map[string]*Room `yaml:"-"`
 	// Assets are the pack's images by file name, from assets/.
 	Assets map[string]*Asset `yaml:"-"`
+	// Modules are the sources of lib/<name>.lua by name, what a script's
+	// require(name) runs.
+	Modules map[string]string `yaml:"-"`
 }
 
 // Room is one place in the story.
@@ -93,10 +99,12 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 		errs = append(errs, fmt.Errorf("%s: %s", file, fmt.Sprintf(format, args...)))
 	}
 
-	p := &Pack{Rooms: map[string]*Room{}, Assets: map[string]*Asset{}}
-	if err := decode(fsys, "pack.yaml", p); err != nil {
+	p := &Pack{Rooms: map[string]*Room{}, Assets: map[string]*Asset{}, Modules: map[string]string{}}
+	lint, err := decode(fsys, "pack.yaml", p)
+	if err != nil {
 		return nil, err
 	}
+	errs = append(errs, lint...)
 	if !idPattern.MatchString(p.ID) {
 		fail("pack.yaml", "id %q must be 1 to 64 of a-z, 0-9, _ and -, starting with a letter or digit", p.ID)
 	}
@@ -114,10 +122,12 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 	}
 	for _, file := range files {
 		r := &Room{File: file}
-		if err := decode(fsys, file, r); err != nil {
+		lint, err := decode(fsys, file, r)
+		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
+		errs = append(errs, lint...)
 		switch {
 		case !idPattern.MatchString(r.ID):
 			fail(file, "id %q must be 1 to 64 of a-z, 0-9, _ and -, starting with a letter or digit", r.ID)
@@ -140,6 +150,8 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 			src, err := readScript(fsys, r.Script)
 			if err != nil {
 				fail(file, "script: %v", err)
+			} else {
+				errs = append(errs, lintLua("scripts/"+r.Script, src)...)
 			}
 			r.Source = src
 		}
@@ -149,7 +161,9 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 	} else if p.Rooms[p.Start] == nil {
 		fail("pack.yaml", "start room %q does not exist", p.Start)
 	}
+	errs = append(errs, loadModules(fsys, p)...)
 	errs = append(errs, loadAssets(fsys, p, limits)...)
+	errs = append(errs, lintFiles(fsys)...)
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
@@ -174,22 +188,57 @@ func checkItems(items []Item) error {
 }
 
 // decode reads one YAML file strictly: unknown fields, a second document or
-// a file over MaxYAMLBytes are errors.
-func decode(fsys fs.FS, file string, v any) error {
+// a file over MaxYAMLBytes are errors. It also returns the file's external
+// references, which do not stop the rest of the pack from being checked.
+func decode(fsys fs.FS, file string, v any) ([]error, error) {
 	data, err := readLimited(fsys, file, MaxYAMLBytes)
 	if err != nil {
-		return fmt.Errorf("%s: %w", file, err)
+		return nil, fmt.Errorf("%s: %w", file, err)
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(v); err != nil {
-		return fmt.Errorf("%s: %w", file, err)
+		return nil, fmt.Errorf("%s: %w", file, err)
 	}
 	var extra any
 	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-		return fmt.Errorf("%s: only one YAML document is allowed", file)
+		return nil, fmt.Errorf("%s: only one YAML document is allowed", file)
 	}
-	return nil
+	return lintYAML(file, data), nil
+}
+
+// loadModules reads lib/*.lua into p.Modules. Other files in lib are an
+// error, so a misspelled module is noticed.
+func loadModules(fsys fs.FS, p *Pack) []error {
+	entries, err := fs.ReadDir(fsys, "lib")
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return []error{fmt.Errorf("lib: %w", err)}
+	}
+	var errs []error
+	for _, e := range entries {
+		file := "lib/" + e.Name()
+		name, ok := strings.CutSuffix(e.Name(), ".lua")
+		switch {
+		case strings.HasPrefix(e.Name(), "."):
+			continue
+		case e.IsDir() || !ok || !idPattern.MatchString(name):
+			errs = append(errs, fmt.Errorf("%s: lib holds only modules named <name>.lua, with a name of 1 to 64 of a-z, 0-9, _ and -", file))
+			continue
+		case len(p.Modules) >= MaxModules:
+			return append(errs, fmt.Errorf("lib: more than %d modules", MaxModules))
+		}
+		data, err := readRegular(fsys, file, MaxScriptBytes)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", file, err))
+			continue
+		}
+		p.Modules[name] = string(data)
+		errs = append(errs, lintLua(file, string(data))...)
+	}
+	return errs
 }
 
 // readScript reads scripts/<name>. name is a plain file name ending in .lua,
@@ -198,11 +247,24 @@ func readScript(fsys fs.FS, name string) (string, error) {
 	if path.Base(name) != name || !strings.HasSuffix(name, ".lua") || !fs.ValidPath(name) || strings.HasPrefix(name, ".") {
 		return "", fmt.Errorf("%q must be a file name ending in .lua, in the scripts folder", name)
 	}
-	data, err := readLimited(fsys, "scripts/"+name, MaxScriptBytes)
+	data, err := readRegular(fsys, "scripts/"+name, MaxScriptBytes)
 	if err != nil {
 		return "", err
 	}
 	return string(data), nil
+}
+
+// readRegular is readLimited for a regular file only: a link could reach
+// a file outside the pack, and a device or pipe could block the load.
+func readRegular(fsys fs.FS, file string, limit int64) ([]byte, error) {
+	fi, err := fs.Lstat(fsys, file)
+	if err != nil {
+		return nil, errors.New("not found")
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, errors.New("must be a plain file, not a link or folder")
+	}
+	return readLimited(fsys, file, limit)
 }
 
 func readLimited(fsys fs.FS, file string, limit int64) ([]byte, error) {
