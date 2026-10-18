@@ -1,15 +1,9 @@
 -- The corridor outside the cell. The player is here only while the guard
--- is away refilling his bottle, and he comes back after GUARD_MOVES
--- actions. Under the stone with the X (from the wall map in the cell) is
--- the code for the key box in the guard room; the stairs lead straight to
--- the guard.
---
--- Every room counts the guard's time on its own: one shared countdown
--- comes with state.player (T-0018) or timers (T-0012).
+-- is away refilling his bottle; he comes back when the countdown the cell
+-- started runs out. Under the stone with the X (from the wall map in the
+-- cell) is the code for the key box in the guard room; the stairs lead
+-- straight to the guard. Going back into the solved cell, Whisp asks first.
 
-GUARD_MOVES = 5
-
-away = GUARD_MOVES -- actions left until the guard is back
 lifted = false     -- the player lifted the stone and read the note
 ended = false      -- the story is over
 entered = false    -- the player was here before
@@ -18,7 +12,7 @@ function on_enter(player)
   room.describe()
   if entered then
     show_items()
-    if away <= 1 then
+    if (guard_away() or 0) <= 1 then
       say("The torch still smokes. Footsteps are coming up the stairs!")
     else
       say("The torch still smokes. Down the stairs, water is still splashing.")
@@ -99,13 +93,15 @@ function word(t, w)
 end
 
 function to_guardroom()
-  say("You open the heavy door as quietly as you can.")
-  room.go("guardroom")
+  if go("guardroom") then
+    say("You open the heavy door as quietly as you can.")
+  end
 end
 
 function to_cell()
-  say("You slip back into your cell.")
-  room.go("cell")
+  if go("cell") then
+    say("You slip back into your cell.")
+  end
 end
 
 -- act runs before every action: it counts the guard's time away and
@@ -115,12 +111,14 @@ function act()
     say("The story has ended. Reload the page to play again.")
     return false
   end
+  local away = guard_away() or 0
   if away == 0 then
     say("The guard comes up the stairs with a full bottle and sees you standing in the corridor.")
     caught()
     return false
   end
   away = away - 1
+  set_guard_away(away)
   if away == 1 then
     say("Footsteps on the stairs: the guard is coming back up!")
   end
@@ -171,4 +169,69 @@ function finish()
   ended = true
   ui.items({})
   say("THE END. Reload the page to play again.")
+end
+
+-- Shared by the demo's rooms: Whisp the guide, the guard's countdown and
+-- solved rooms. The values live in state.player, so every room sees the
+-- same ones. Each room script has a copy of this block until packs can
+-- share a Lua module (require, T-0026).
+
+-- whisp says a line as Whisp, the guide; whisp_ask asks Whisp's question
+-- and returns the number of the answer.
+function whisp(text)
+  say("Whisp: " .. text)
+end
+
+function whisp_ask(question, options)
+  return ui.dialog("Whisp: " .. question, options)
+end
+
+-- keep stores value for key in state.player. The server can refuse a write
+-- when it is full; then the player hears so and keep returns false.
+function keep(key, value)
+  local ok = state.player.set(key, value)
+  if not ok then
+    say("(The game cannot remember that right now. Try again in a moment.)")
+    return false
+  end
+  return true
+end
+
+-- guard_away is the number of actions until the guard is back, or nil
+-- while he is at his post.
+function guard_away()
+  return state.player.get("guard_away")
+end
+
+function set_guard_away(n)
+  return keep("guard_away", n)
+end
+
+-- solve marks room id (a room id of this pack, never typed text) as solved
+-- for this player. how is "ask" (Whisp asks text before the player goes
+-- back) or "locked" (Whisp says text and the player stays).
+function solve(id, how, text)
+  return keep("solved_" .. id, { how = how, text = text })
+end
+
+function solved(id)
+  return state.player.get("solved_" .. id)
+end
+
+-- go moves the player to room id once the hook ends, unless the room is
+-- solved and the player stays. Returns whether the player goes.
+function go(id)
+  local s = solved(id)
+  if s and s.how == "locked" then
+    whisp(s.text)
+    return false
+  end
+  if s and s.how == "ask" then
+    if whisp_ask(s.text, { "Yes, go back", "No, stay here" }) ~= 1 then
+      whisp("Good. Onwards!")
+      return false
+    end
+  end
+  room.go(id)
+  return true
 end

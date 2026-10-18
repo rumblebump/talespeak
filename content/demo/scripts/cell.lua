@@ -6,20 +6,20 @@
 -- To escape, the player first gets rid of the guard: asking for water three
 -- times empties his bottle and he goes to refill it. Trying the door while
 -- he watches ends the story in a well; getting out while he is away leads
--- into the corridor (corridor.lua). He is back after AWAY_MOVES actions (a
--- real countdown comes with timers, T-0012).
+-- into the corridor (corridor.lua). He is back after AWAY_MOVES actions,
+-- counted in every room (a real countdown comes with timers, T-0012).
+-- Once out, the cell is solved: going back, Whisp the guide asks first.
 --
 -- Every player runs their own copy of this script: globals are theirs and
--- last until they leave. Lasting progress comes with state.player (T-0018).
+-- last until they leave. What the rooms share is in state.player.
 
-AWAY_MOVES = 6
+AWAY_MOVES = 10
 
 local found_nail = false
 local searched = false
 wrong = 0      -- wrong answers to the riddle
 opened = false -- the lock is open
 cups = 0       -- cups of water from the guard's current bottle
-away = nil     -- actions left until the guard is back; nil while he is here
 ended = false  -- the story is over
 left = false   -- the player went out into the corridor
 
@@ -81,11 +81,12 @@ function act()
     say("The story has ended. Reload the page to play again.")
     return false
   end
+  local away = guard_away()
   if away == nil then
     return true
   end
   if away == 0 then
-    away = nil
+    set_guard_away(nil)
     say("Footsteps. The guard is back with a full bottle.")
     if opened then
       say("He sees the open lock.")
@@ -96,6 +97,7 @@ function act()
     return true
   end
   away = away - 1
+  set_guard_away(away)
   if away == 1 then
     say("Far down the corridor, footsteps are coming closer.")
   end
@@ -103,7 +105,7 @@ function act()
 end
 
 function talk(player)
-  if away then
+  if guard_away() then
     say("The guard's stool is empty. Far away, water splashes into a bottle.")
     return
   end
@@ -119,10 +121,12 @@ function talk(player)
     elseif cups == 2 then
       say("\"Again?\" The guard fills another cup from his bottle and pushes it through the bars.")
     else
+      if not set_guard_away(AWAY_MOVES) then
+        return
+      end
       say("The guard shakes his bottle. Empty! He grumbles and stomps off down the corridor to refill it.")
       say("Now is your chance, but he will not be gone long.")
       cups = 0
-      away = AWAY_MOVES
       show_items()
     end
   elseif choice == 2 then
@@ -157,7 +161,7 @@ end
 function show_items()
   ui.items({
     { id = "straw", label = searched and "flattened straw" or "heap of straw" },
-    { id = "guard", label = away and "empty stool" or "sleepy guard" },
+    { id = "guard", label = guard_away() and "empty stool" or "sleepy guard" },
     { id = "scratches", label = "scratches on the wall" },
     { id = "lock", label = opened and "open cell door" or "lock with letter wheels" },
   })
@@ -167,7 +171,7 @@ end
 -- it is a bad idea; while he is away it is the riddle, and once the lock
 -- is open, the way out.
 function try_door()
-  if not away then
+  if not guard_away() then
     local choice = ui.dialog("The guard is watching you. Try the door anyway?", {
       "Yes, quickly",
       "Better not",
@@ -218,6 +222,9 @@ function caught()
 end
 
 function escaped()
+  if not solve("cell", "ask", "Do you really want to get locked in again?") then
+    return
+  end
   say("You push the cell door open and tiptoe out, past the empty stool.")
   left = true
   room.go("corridor")
@@ -238,4 +245,69 @@ function look_at_wall()
     say("You roll " .. roll .. ": the scratches are hard to make out.")
     ui.image("wall-map-faint.png", "Faint scratches. Maybe a map?")
   end
+end
+
+-- Shared by the demo's rooms: Whisp the guide, the guard's countdown and
+-- solved rooms. The values live in state.player, so every room sees the
+-- same ones. Each room script has a copy of this block until packs can
+-- share a Lua module (require, T-0026).
+
+-- whisp says a line as Whisp, the guide; whisp_ask asks Whisp's question
+-- and returns the number of the answer.
+function whisp(text)
+  say("Whisp: " .. text)
+end
+
+function whisp_ask(question, options)
+  return ui.dialog("Whisp: " .. question, options)
+end
+
+-- keep stores value for key in state.player. The server can refuse a write
+-- when it is full; then the player hears so and keep returns false.
+function keep(key, value)
+  local ok = state.player.set(key, value)
+  if not ok then
+    say("(The game cannot remember that right now. Try again in a moment.)")
+    return false
+  end
+  return true
+end
+
+-- guard_away is the number of actions until the guard is back, or nil
+-- while he is at his post.
+function guard_away()
+  return state.player.get("guard_away")
+end
+
+function set_guard_away(n)
+  return keep("guard_away", n)
+end
+
+-- solve marks room id (a room id of this pack, never typed text) as solved
+-- for this player. how is "ask" (Whisp asks text before the player goes
+-- back) or "locked" (Whisp says text and the player stays).
+function solve(id, how, text)
+  return keep("solved_" .. id, { how = how, text = text })
+end
+
+function solved(id)
+  return state.player.get("solved_" .. id)
+end
+
+-- go moves the player to room id once the hook ends, unless the room is
+-- solved and the player stays. Returns whether the player goes.
+function go(id)
+  local s = solved(id)
+  if s and s.how == "locked" then
+    whisp(s.text)
+    return false
+  end
+  if s and s.how == "ask" then
+    if whisp_ask(s.text, { "Yes, go back", "No, stay here" }) ~= 1 then
+      whisp("Good. Onwards!")
+      return false
+    end
+  end
+  room.go(id)
+  return true
 end
