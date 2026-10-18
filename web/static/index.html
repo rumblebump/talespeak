@@ -30,7 +30,7 @@
 
     <section class="story" x-ref="story" aria-live="polite" aria-label="Story">
       <template x-for="line in lines" :key="line.n">
-        <p :class="line.kind"><span x-text="line.text"></span><template x-if="line.speech"><button type="button" class="replay" @click="replay(line)">listen again</button></template></p>
+        <p :class="line.kind"><template x-if="line.from"><span class="from" x-text="line.from"></span></template><span x-text="line.text"></span><template x-if="line.speech"><button type="button" class="replay" @click="replay(line)">listen again</button></template></p>
       </template>
     </section>
 
@@ -41,8 +41,8 @@
       </template>
     </nav>
 
-    <div class="dialog" x-ref="dialog" x-cloak x-show="dialog" role="group" :aria-label="dialogTitle">
-      <p class="dialog-title"><span x-text="dialogTitle"></span><template x-if="canReplayQuestion"><button type="button" class="replay" @click="replayQuestion">listen again</button></template></p>
+    <div class="dialog" x-ref="dialog" x-cloak x-show="dialog" role="group" :aria-label="dialogLabel">
+      <p class="dialog-title"><template x-if="dialogFrom"><span class="from" x-text="dialogFrom"></span></template><span x-text="dialogTitle"></span><template x-if="canReplayQuestion"><button type="button" class="replay" @click="replayQuestion">listen again</button></template></p>
       <p class="muted" x-show="isAsk">Type your answer below.</p>
       <ol class="dialog-options" x-ref="singleList" x-show="isSingle">
         <template x-for="(label, i) in dialogOptions" :key="i">

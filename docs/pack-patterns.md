@@ -1,6 +1,6 @@
 # Patterns for pack authors
 
-Game mechanics are written in Lua by the pack, not in the engine. This page collects patterns the demo pack (`content/demo`) uses, ready to copy. Once packs can share a Lua module (`require`, T-0026), they move into a library.
+Game mechanics are written in Lua by the pack, not in the engine. This page collects patterns the demo pack (`content/demo`) uses, ready to copy. The demo keeps them in one module, `lib/rooms.lua`, which every room script loads with `require("rooms")`.
 
 ## Solved rooms and Whisp, the guide
 
@@ -17,11 +17,11 @@ The marks live in `state.player`, so every room of the pack sees them. Moving th
 -- whisp says a line as Whisp, the guide; whisp_ask asks Whisp's question
 -- and returns the number of the answer.
 function whisp(text)
-  say("Whisp: " .. text)
+  say(text, { from = "Whisp" })
 end
 
 function whisp_ask(question, options)
-  return ui.dialog("Whisp: " .. question, options)
+  return ui.dialog(question, options, { from = "Whisp" })
 end
 
 -- keep stores value for key in state.player. The server can refuse a write
@@ -81,7 +81,7 @@ and taking the key in the guard room solves the corridor with `locked`, and drop
 solve("corridor", "locked", "You have everything you need from the corridor. The way out is the back door.")
 ```
 
-`ui.dialog` may wait before `room.go`, never after it in the same hook ([lua-sandbox.md](lua-sandbox.md)), which is why `go` asks first and moves last. Whisp's lines are plain text for now; a guide voice the client shows apart from the story is planned in the engine (T-0027), and then only `whisp` and `whisp_ask` change.
+`ui.dialog` may wait before `room.go`, never after it in the same hook ([lua-sandbox.md](lua-sandbox.md)), which is why `go` asks first and moves last. Whisp speaks with `from = "Whisp"`: the client shows the name with the line, styled apart from the story, and reads it in another voice.
 
 ## A countdown across rooms
 

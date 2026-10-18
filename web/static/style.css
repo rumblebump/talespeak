@@ -87,6 +87,10 @@ main { flex: 1; padding: 1rem; max-width: 60rem; margin: 0 auto; width: 100%; }
 .story .you::before { content: "> "; }
 .story .picture-note { color: var(--muted); font-style: italic; }
 .story .spoken { color: var(--muted); }
+/* A line with a speaker, such as the guide: the name first, then the words. */
+.story .guide { border-left: 3px solid var(--accent); padding-left: 0.5rem; }
+.from { color: var(--accent); font-weight: bold; }
+.from::after { content: ": "; }
 .replay {
   margin-left: 0.75rem;
   background: none;

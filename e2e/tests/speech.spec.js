@@ -81,3 +81,40 @@ test("spoken-only lines are shown when the device cannot speak", async ({ page }
   await page.getByRole("button", { name: "spelling" }).click();
   await expect(page.getByRole("group", { name: "Write the word you hear." })).toBeVisible();
 });
+
+// The guide's lines (T-0027) get a second local voice, or the same voice
+// pitched up when there is only one.
+function fakeSpeechWithPitch(voices) {
+  window.__spoken = [];
+  const synth = {
+    getVoices: () => voices,
+    speak: (u) => window.__spoken.push({ text: u.text, voice: u.voice && u.voice.name, pitch: u.pitch || 1 }),
+    cancel: () => {},
+    addEventListener: () => {},
+  };
+  Object.defineProperty(window, "speechSynthesis", { value: synth, configurable: true });
+  window.SpeechSynthesisUtterance = class {
+    constructor(text) {
+      this.text = text;
+    }
+  };
+}
+
+for (const [name, voices, guide] of [
+  ["a second voice", [{ name: "Anna", lang: "en-US", localService: true }, { name: "Ben", lang: "en-GB", localService: true }], { voice: "Ben", pitch: 1 }],
+  ["one voice pitched up", [{ name: "Anna", lang: "en-US", localService: true }], { voice: "Anna", pitch: 1.3 }],
+]) {
+  test(`the guide is read aloud with ${name}`, async ({ page }) => {
+    await page.addInitScript(fakeSpeechWithPitch, voices);
+    await open(page);
+    await page.getByRole("button", { name: /read aloud/ }).click();
+    await page.getByRole("textbox").fill("guide");
+    await page.keyboard.press("Enter");
+    await expect.poll(() => page.evaluate(() => window.__spoken.map((s) => s.text))).toContain("I am your guide.");
+    const spoken = await page.evaluate(() => window.__spoken);
+    expect(spoken.find((s) => s.text === "I am your guide.")).toEqual({ text: "I am your guide.", ...guide });
+    await expect.poll(() => page.evaluate(() => window.__spoken.length)).toBeGreaterThan(1);
+    const question = (await page.evaluate(() => window.__spoken)).find((s) => s.text.startsWith("Ready?"));
+    expect(question).toEqual({ text: "Ready?. 1: Yes. 2: No", ...guide });
+  });
+}

@@ -19,6 +19,9 @@ func (h *recorder) Say(text string, how Voice) {
 	case how.Speak:
 		text = "(spoken) " + text
 	}
+	if how.From != "" {
+		text = "[" + how.From + "] " + text
+	}
 	h.out = append(h.out, "say:"+text)
 }
 func (h *recorder) DescribeRoom() { h.out = append(h.out, "describe") }

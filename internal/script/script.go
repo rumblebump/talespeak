@@ -117,6 +117,9 @@ type Host interface {
 type Voice struct {
 	Speak bool
 	Hide  bool
+	// From is the speaker's name, such as a guide, shown with the line and
+	// read aloud in another voice; "" is the story itself.
+	From string
 }
 
 // Item is something the player can click, set with ui.items.

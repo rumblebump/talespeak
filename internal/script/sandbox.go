@@ -4,6 +4,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	lua "github.com/yuin/gopher-lua"
@@ -335,7 +336,7 @@ func (r *Runtime) output(L *lua.LState) Host {
 	return r.cur.host
 }
 
-// say(text) sends a line of text to the player.
+// say(text [, {speak, show, from}]) sends a line of text to the player.
 func (r *Runtime) say(L *lua.LState) int {
 	text := L.CheckString(1)
 	if len(text) > MaxTextBytes {
@@ -365,11 +366,33 @@ func voiceArg(L *lua.LState, n int) Voice {
 			return false
 		}
 	}
-	v := Voice{Speak: flag("speak", false), Hide: !flag("show", true)}
+	v := Voice{Speak: flag("speak", false), Hide: !flag("show", true), From: fromArg(L, t, n)}
 	if v.Hide && !v.Speak {
 		L.ArgError(n, "show = false needs speak = true: the player must see or hear it")
 	}
 	return v
+}
+
+// MaxFromBytes bounds a speaker's name.
+const MaxFromBytes = 40
+
+// fromArg reads the optional from field of the table at n: who says a
+// line or asks a question, for example "Whisp" for the guide. It is shown
+// as written, so it must be one short line of text.
+func fromArg(L *lua.LState, t *lua.LTable, n int) string {
+	switch v := t.RawGetString("from").(type) {
+	case *lua.LNilType:
+		return ""
+	case lua.LString:
+		s := string(v)
+		if strings.TrimSpace(s) == "" || len(s) > MaxFromBytes || !utf8.ValidString(s) || strings.IndexFunc(s, unicode.IsControl) >= 0 {
+			L.ArgError(n, "from must be a name of 1 to 40 bytes on one line")
+		}
+		return s
+	default:
+		L.ArgError(n, "from must be a string")
+		return ""
+	}
 }
 
 // room.describe() sends the current room's title and description.
@@ -394,17 +417,20 @@ func (r *Runtime) goRoom(L *lua.LState) int {
 	return 0
 }
 
-// ui.dialog(title, options) shows a choice and waits until the player picks
+// ui.dialog(title, options [, {from = name}]) shows a choice and waits until the player picks
 // one. It returns the option's number (1-based) and its label.
 func (r *Runtime) dialog(L *lua.LState) int {
 	d := r.dialogArgs(L, "ui.dialog")
+	if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
+		d.Voice.From = fromArg(L, L.CheckTable(3), 3)
+	}
 	choices := r.pause(L, &d).choices
 	L.Push(lua.LNumber(choices[0]))
 	L.Push(lua.LString(d.Options[choices[0]-1]))
 	return 2
 }
 
-// ui.select(title, options [, {min = 1, max = #options}]) lets the player
+// ui.select(title, options [, {min = 1, max = #options, from = name}]) lets the player
 // pick several options and waits for them. It returns two lists: the
 // numbers picked, in ascending order, and their labels.
 func (r *Runtime) choose(L *lua.LState) int {
@@ -415,6 +441,7 @@ func (r *Runtime) choose(L *lua.LState) int {
 		limits := L.CheckTable(3)
 		d.Min = countField(L, limits, "min", d.Min)
 		d.Max = countField(L, limits, "max", d.Max)
+		d.Voice.From = fromArg(L, limits, 3)
 	}
 	if d.Min < 0 || d.Max < 1 || d.Min > d.Max || d.Max > n {
 		L.ArgError(3, "need 0 <= min <= max, 1 <= max <= number of options")
@@ -474,7 +501,7 @@ func (r *Runtime) dialogArgs(L *lua.LState, name string) Dialog {
 	return d
 }
 
-// ui.ask(question [, {strict = true, speak = true, show = false}]) waits
+// ui.ask(question [, {strict = true, speak = true, show = false, from = name}]) waits
 // for the player to type an answer and returns it: one line, trimmed, with
 // control characters turned into spaces. strict asks the client for no
 // typing help (no autocorrect, autocomplete or suggestions), for spelling

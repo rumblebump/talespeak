@@ -195,3 +195,18 @@ test("room.go: moving to another room and back", async ({ page }) => {
   // The player's cellar script kept its globals.
   await expect(story(page)).toContainText("Cellar visit 2, in cellar.");
 });
+
+test("a guide speaks apart from the story", async ({ page }) => {
+  await open(page);
+  await page.getByRole("textbox").fill("guide");
+  await page.keyboard.press("Enter");
+  const line = story(page).locator("p.guide", { hasText: "I am your guide." });
+  await expect(line.locator(".from")).toHaveText("Whisp");
+  const dialog = page.getByRole("group", { name: "Whisp: Ready?" });
+  await expect(dialog.locator(".from")).toHaveText("Whisp");
+  await dialog.getByRole("button", { name: "Yes" }).click();
+  await expect(story(page).locator("p.asked.guide")).toContainText("WhispReady?");
+  await expect(story(page)).toContainText("Guide answer: Yes");
+  // The story's own lines carry no speaker.
+  await expect(story(page).locator("p", { hasText: "Welcome, traveler." }).locator(".from")).toHaveCount(0);
+});

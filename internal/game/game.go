@@ -659,7 +659,7 @@ func (s *session) after(th *script.Thread, err error) []ws.Message {
 		s.pending = th
 		s.dialogID = "d" + strconv.Itoa(s.dialogs)
 		d := th.Dialog
-		m := ws.Message{Type: "dialog", ID: s.dialogID, Title: d.Title, Options: d.Options, Speak: d.Voice.Speak, Hide: d.Voice.Hide}
+		m := ws.Message{Type: "dialog", ID: s.dialogID, Title: d.Title, Options: d.Options, Speak: d.Voice.Speak, Hide: d.Voice.Hide, From: d.Voice.From}
 		switch {
 		case d.Multiple:
 			m.Type, m.Min, m.Max = "select", d.Min, d.Max
@@ -722,7 +722,7 @@ func (s *session) flush() []ws.Message {
 // Say, DescribeRoom, Items, Image, Go, Room and PlayerState implement
 // script.Host.
 func (s *session) Say(text string, how script.Voice) {
-	s.out = append(s.out, ws.Message{Type: "text", Text: text, Speak: how.Speak, Hide: how.Hide})
+	s.out = append(s.out, ws.Message{Type: "text", Text: text, Speak: how.Speak, Hide: how.Hide, From: how.From})
 }
 
 func (s *session) DescribeRoom() {
