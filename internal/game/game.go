@@ -305,33 +305,42 @@ func (s *session) Close() {
 }
 
 // env returns the player's instance of room's script, starting it on first
-// use; nil when the room has no script. The caller holds w.mu.
+// use; nil when the room has no script. When the player keeps
+// MaxRoomInstances already, the room entered longest ago gives way. The
+// caller holds w.mu.
 func (s *session) env(room string) (*script.Env, error) {
+	env, victim, _, err := s.start(room)
+	if victim != "" {
+		s.free(victim)
+	}
+	return env, err
+}
+
+// start is env without freeing: it returns the room whose instance should
+// give way, if any, and whether it started a new instance, so a move can
+// free the one or the other once it knows whether it happens. The caller
+// holds w.mu.
+func (s *session) start(room string) (env *script.Env, victim string, started bool, err error) {
 	sc := s.w.scripts[room]
 	if sc == nil {
-		return nil, nil
+		return nil, "", false, nil
 	}
 	if env := s.envs[room]; env != nil {
-		return env, nil
+		return env, "", false, nil
 	}
 	if s.w.closed {
-		return nil, script.ErrClosed
+		return nil, "", false, script.ErrClosed
 	}
-	victim := s.victim(room)
+	victim = s.victim(room)
 	if s.client != "" && s.w.clientKept(s.client)-s.w.kept(s.envs[victim]) >= s.w.clientMemory {
-		return nil, ErrClientFull
+		return nil, "", false, ErrClientFull
 	}
-	var env *script.Env
-	err := s.w.timed(s.client, func() (err error) {
+	err = s.w.timed(s.client, func() (err error) {
 		env, err = s.w.rt.Instance(sc)
 		return err
 	})
 	if err != nil {
-		return nil, err
-	}
-	if victim != "" {
-		s.w.release(s.client, s.envs[victim])
-		delete(s.envs, victim)
+		return nil, "", false, err
 	}
 	if s.envs == nil {
 		s.envs = map[string]*script.Env{}
@@ -343,16 +352,25 @@ func (s *session) env(room string) (*script.Env, error) {
 		}
 		s.w.clientEnvs[s.client][env] = struct{}{}
 	}
-	return env, nil
+	return env, victim, true, nil
+}
+
+// free releases the player's instance of room's script. The caller holds
+// w.mu.
+func (s *session) free(room string) {
+	if env := s.envs[room]; env != nil {
+		s.w.release(s.client, env)
+		delete(s.envs, room)
+	}
 }
 
 // MaxRoomInstances is how many room script instances one player keeps:
 // coming back to one of the last rooms finds its globals, older rooms
-// start over. State that must last goes into state.player.
+// start over. State that must last goes into state.player (T-0023).
 const MaxRoomInstances = 4
 
 // victim is the room entered longest ago, other than room and the current
-// one, whose instance makes way when the player already keeps
+// one, whose instance gives way when the player already keeps
 // MaxRoomInstances; "" when none needs to. The caller holds w.mu.
 func (s *session) victim(room string) string {
 	if len(s.envs) < MaxRoomInstances {
@@ -360,6 +378,11 @@ func (s *session) victim(room string) string {
 	}
 	for _, old := range s.visited {
 		if s.envs[old] != nil && old != room && old != s.room {
+			return old
+		}
+	}
+	for old := range s.envs { // not in visited: should not happen, but never exceed the cap
+		if old != room && old != s.room {
 			return old
 		}
 	}
@@ -404,26 +427,37 @@ func (s *session) enterLocked(room string, moved bool) []ws.Message {
 	}
 	if !moved {
 		s.place(room)
-	}
-	env, err := s.env(room)
-	if err != nil {
-		if moved {
-			return s.refuseMove(room, err)
+		env, err := s.env(room)
+		if err != nil {
+			return s.after(nil, err)
 		}
-		return s.after(nil, err)
+		if env == nil {
+			s.DescribeRoom()
+			return s.flush()
+		}
+		return s.after(s.run1(func() (*script.Thread, error) { return s.w.rt.Run(s, env, "on_enter", s.name) }))
+	}
+	env, victim, started, err := s.start(room)
+	if err != nil {
+		return s.refuseMove(room, err)
 	}
 	oldRoom, oldItems, oldVisited, mark := s.room, s.items, slices.Clone(s.visited), len(s.out)
-	if moved {
-		s.place(room)
-		s.out = append(s.out, ws.Message{Type: "items", Items: wsItems(s.items)})
-	}
+	s.place(room)
+	s.out = append(s.out, ws.Message{Type: "items", Items: wsItems(s.items)})
 	if env == nil {
 		s.DescribeRoom()
 		return s.flush()
 	}
 	th, err := s.run1(func() (*script.Thread, error) { return s.w.rt.Run(s, env, "on_enter", s.name) })
-	if moved && errors.Is(err, ErrBusy) { // nothing ran: undo the move
+	if errors.Is(err, ErrBusy) { // nothing ran: undo the move, and keep the old instances
 		s.room, s.items, s.visited, s.out = oldRoom, oldItems, oldVisited, s.out[:mark]
+		if started {
+			s.free(room)
+		}
+		return s.after(th, err)
+	}
+	if victim != "" {
+		s.free(victim)
 	}
 	return s.after(th, err)
 }
