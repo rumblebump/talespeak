@@ -63,12 +63,13 @@ Playing the demo:
 > {"type":"choose","id":"d2","choices":[3,1]}
 < {"type":"text","text":"You keep: A bent nail, A torn piece of cloth."}
 < {"type":"text","text":"The nail might open the lock."}
-< {"type":"items","items":[{"id":"guard","label":"sleepy guard"},{"id":"scratches","label":"scratches on the wall"},{"id":"lock","label":"lock with letter wheels"},{"id":"straw","label":"flattened straw"}]}
+< {"type":"items","items":[{"id":"straw","label":"flattened straw"},{"id":"guard","label":"sleepy guard"},{"id":"scratches","label":"scratches on the wall"},{"id":"lock","label":"lock with letter wheels"}]}
 > {"type":"click","item":"lock"}
 < {"type":"text","text":"Four letter wheels. Someone scratched a riddle next to them:"}
 < {"type":"ask","id":"d3","title":"I have bars but no drinks, and you are standing in me. What am I?","strict":true}
 > {"type":"answer","id":"d3","text":"Cell"}
 < {"type":"text","text":"The wheels click into place: C, E, L, L. The lock opens!"}
+< {"type":"items","items":[{"id":"straw","label":"flattened straw"},{"id":"guard","label":"sleepy guard"},{"id":"scratches","label":"scratches on the wall"},{"id":"lock","label":"open lock"}]}
 > {"type":"click","item":"scratches"}
 < {"type":"text","text":"You roll 14: in the dim light the scratches turn into a map."}
 < {"type":"image","text":"A map scratched into the wall. An X marks the end of the corridor.","url":"/packs/demo/assets/wall-map-clear.png"}

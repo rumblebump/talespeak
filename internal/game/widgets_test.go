@@ -71,7 +71,7 @@ func TestDemoMatchesProtocolDoc(t *testing.T) {
 	expect(t, "choose several", send(t, s, `{"type":"choose","id":"d2","choices":[3,1]}`), []string{
 		`{"type":"text","text":"You keep: A bent nail, A torn piece of cloth."}`,
 		`{"type":"text","text":"The nail might open the lock."}`,
-		`{"type":"items","items":[{"id":"guard","label":"sleepy guard"},{"id":"scratches","label":"scratches on the wall"},{"id":"lock","label":"lock with letter wheels"},{"id":"straw","label":"flattened straw"}]}`,
+		`{"type":"items","items":[{"id":"straw","label":"flattened straw"},{"id":"guard","label":"sleepy guard"},{"id":"scratches","label":"scratches on the wall"},{"id":"lock","label":"lock with letter wheels"}]}`,
 	})
 	expect(t, "riddle", send(t, s, `{"type":"click","item":"lock"}`), []string{
 		`{"type":"text","text":"Four letter wheels. Someone scratched a riddle next to them:"}`,
@@ -79,6 +79,7 @@ func TestDemoMatchesProtocolDoc(t *testing.T) {
 	})
 	expect(t, "answer", send(t, s, `{"type":"answer","id":"d3","text":"Cell"}`), []string{
 		`{"type":"text","text":"The wheels click into place: C, E, L, L. The lock opens!"}`,
+		`{"type":"items","items":[{"id":"straw","label":"flattened straw"},{"id":"guard","label":"sleepy guard"},{"id":"scratches","label":"scratches on the wall"},{"id":"lock","label":"open lock"}]}`,
 	})
 	got = send(t, s, `{"type":"click","item":"scratches"}`)
 	if len(got) != 2 || !strings.HasPrefix(got[0], `{"type":"text","text":"You roll `) ||
