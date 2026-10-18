@@ -2,7 +2,9 @@ package script
 
 import (
 	"math"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -113,6 +115,14 @@ func (r *Runtime) openSandbox() *lua.LTable {
 	lib.RawSetString("room", r.readOnly(room))
 	ui := L.NewTable()
 	ui.RawSetString("dialog", L.NewFunction(r.dialog))
+	ui.RawSetString("select", L.NewFunction(r.choose))
+	ui.RawSetString("items", L.NewFunction(r.items))
+	ui.RawSetString("image", L.NewFunction(r.image))
+	ui.RawSetString("ask", L.NewFunction(r.ask))
+	words := L.NewTable()
+	words.RawSetString("normalize", L.NewFunction(wordsNormalize))
+	words.RawSetString("same", L.NewFunction(wordsSame))
+	lib.RawSetString("words", r.readOnly(words))
 	lib.RawSetString("ui", r.readOnly(ui))
 
 	// Nothing outside lib is reachable from a script, so the full library
@@ -323,8 +333,35 @@ func (r *Runtime) say(L *lua.LState) int {
 	if len(text) > MaxTextBytes {
 		L.ArgError(1, "text longer than 4000 bytes")
 	}
-	r.output(L).Say(text)
+	how := voiceArg(L, 2)
+	r.output(L).Say(text, how)
 	return 0
+}
+
+// voiceArg reads the optional {speak = bool, show = bool} table at n:
+// speak reads the text aloud even when read aloud is off, show = false
+// shows it only when it cannot be spoken (a listening exercise).
+func voiceArg(L *lua.LState, n int) Voice {
+	if L.GetTop() < n || L.Get(n) == lua.LNil {
+		return Voice{}
+	}
+	t := L.CheckTable(n)
+	flag := func(name string, def bool) bool {
+		switch v := t.RawGetString(name).(type) {
+		case *lua.LNilType:
+			return def
+		case lua.LBool:
+			return bool(v)
+		default:
+			L.ArgError(n, name+" must be true or false")
+			return false
+		}
+	}
+	v := Voice{Speak: flag("speak", false), Hide: !flag("show", true)}
+	if v.Hide && !v.Speak {
+		L.ArgError(n, "show = false needs speak = true: the player must see or hear it")
+	}
+	return v
 }
 
 // room.describe() sends the current room's title and description.
@@ -336,6 +373,60 @@ func (r *Runtime) describe(L *lua.LState) int {
 // ui.dialog(title, options) shows a choice and waits until the player picks
 // one. It returns the option's number (1-based) and its label.
 func (r *Runtime) dialog(L *lua.LState) int {
+	d := r.dialogArgs(L, "ui.dialog")
+	choices := r.pause(L, &d).choices
+	L.Push(lua.LNumber(choices[0]))
+	L.Push(lua.LString(d.Options[choices[0]-1]))
+	return 2
+}
+
+// ui.select(title, options [, {min = 1, max = #options}]) lets the player
+// pick several options and waits for them. It returns two lists: the
+// numbers picked, in ascending order, and their labels.
+func (r *Runtime) choose(L *lua.LState) int {
+	d := r.dialogArgs(L, "ui.select")
+	n := len(d.Options)
+	d.Multiple, d.Min, d.Max = true, 1, n
+	if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
+		limits := L.CheckTable(3)
+		d.Min = countField(L, limits, "min", d.Min)
+		d.Max = countField(L, limits, "max", d.Max)
+	}
+	if d.Min < 0 || d.Max < 1 || d.Min > d.Max || d.Max > n {
+		L.ArgError(3, "need 0 <= min <= max, 1 <= max <= number of options")
+	}
+	choices := r.pause(L, &d).choices
+	nums, labels := L.CreateTable(len(choices), 0), L.CreateTable(len(choices), 0)
+	for i, c := range choices {
+		nums.RawSetInt(i+1, lua.LNumber(c))
+		labels.RawSetInt(i+1, lua.LString(d.Options[c-1]))
+	}
+	L.Push(nums)
+	L.Push(labels)
+	return 2
+}
+
+// countField reads limits[name] as a whole number from -9 to 9, or def
+// when it is nil.
+func countField(L *lua.LState, limits *lua.LTable, name string, def int) int {
+	switch v := limits.RawGetString(name).(type) {
+	case *lua.LNilType:
+		return def
+	case lua.LNumber:
+		f := float64(v)
+		if f != math.Trunc(f) || f < -MaxDialogOptions || f > MaxDialogOptions {
+			L.ArgError(3, name+" must be a whole number of options")
+		}
+		return int(f)
+	default:
+		L.ArgError(3, name+" must be a number")
+		return 0
+	}
+}
+
+// dialogArgs checks the title and options of ui.dialog and ui.select, and
+// that there is a player to ask.
+func (r *Runtime) dialogArgs(L *lua.LState, name string) Dialog {
 	title := L.CheckString(1)
 	opts := L.CheckTable(2)
 	if len(title) > MaxTitleBytes {
@@ -354,10 +445,129 @@ func (r *Runtime) dialog(L *lua.LState) int {
 		d.Options[i] = string(s)
 	}
 	if r.cur == nil || r.cur.host == nil {
-		L.RaiseError("no player here: call ui.dialog from a hook such as on_enter")
+		L.RaiseError("no player here: call %s from a hook such as on_enter", name)
 	}
-	choice, label := r.pause(L, &d)
-	L.Push(lua.LNumber(choice))
-	L.Push(lua.LString(label))
-	return 2
+	return d
+}
+
+// ui.ask(question [, {strict = true, speak = true, show = false}]) waits
+// for the player to type an answer and returns it: one line, trimmed, with
+// control characters turned into spaces. strict asks the client for no
+// typing help (no autocorrect, autocomplete or suggestions), for spelling
+// practice and riddles. speak and show work as in say. The script decides
+// whether the answer is right, for example with words.same.
+func (r *Runtime) ask(L *lua.LState) int {
+	title := L.CheckString(1)
+	if title == "" || len(title) > MaxTitleBytes {
+		L.ArgError(1, "question must be 1 to 200 bytes")
+	}
+	d := Dialog{Title: title, Ask: true}
+	if L.GetTop() >= 2 && L.Get(2) != lua.LNil {
+		opts := L.CheckTable(2)
+		switch v := opts.RawGetString("strict").(type) {
+		case *lua.LNilType:
+		case lua.LBool:
+			d.Strict = bool(v)
+		default:
+			L.ArgError(2, "strict must be true or false")
+		}
+		d.Voice = voiceArg(L, 2)
+	}
+	if r.cur == nil || r.cur.host == nil {
+		L.RaiseError("no player here: call ui.ask from a hook such as on_enter")
+	}
+	L.Push(lua.LString(r.pause(L, &d).text))
+	return 1
+}
+
+// normalize lowercases s, trims it and turns every run of spaces into
+// one, so "  The  Castle " and "the castle" compare equal.
+func normalize(s string) string {
+	return strings.Join(strings.Fields(strings.ToLower(s)), " ")
+}
+
+// words.normalize(s) returns s lowercased, trimmed, with single spaces.
+func wordsNormalize(L *lua.LState) int {
+	L.Push(lua.LString(normalize(L.CheckString(1))))
+	return 1
+}
+
+// words.same(a, b) reports whether a and b are the same words, ignoring
+// case and extra spaces: the exact check for spelling practice.
+func wordsSame(L *lua.LState) int {
+	L.Push(lua.LBool(normalize(L.CheckString(1)) == normalize(L.CheckString(2))))
+	return 1
+}
+
+// ui.items({{id = "straw", label = "heap of straw"}, ...}) replaces the
+// things in the room the player can click; on_click(player, id) runs on a
+// click. An empty list clears them.
+func (r *Runtime) items(L *lua.LState) int {
+	list := L.CheckTable(1)
+	n := list.Len()
+	if n > MaxItems {
+		L.ArgError(1, "more than 20 items")
+	}
+	items := make([]Item, n)
+	seen := map[string]bool{}
+	for i := range n {
+		t, ok := list.RawGetInt(i + 1).(*lua.LTable)
+		if !ok {
+			L.ArgError(1, "items must be tables with an id and a label")
+		}
+		id, ok1 := t.RawGetString("id").(lua.LString)
+		label, ok2 := t.RawGetString("label").(lua.LString)
+		if !ok1 || !ok2 || !ValidItemID(string(id)) || !validLabel(string(label)) || seen[string(id)] {
+			L.ArgError(1, "each item needs a unique id (a-z, 0-9, _ and -, at most 64) and a label: one line of 1 to 100 bytes")
+		}
+		seen[string(id)] = true
+		items[i] = Item{ID: string(id), Label: string(label)}
+	}
+	r.output(L).Items(items)
+	return 0
+}
+
+// validLabel is the rule for item labels in room YAML too: one line of
+// UTF-8 text, 1 to MaxLabelBytes long, not only spaces.
+func validLabel(s string) bool {
+	return strings.TrimSpace(s) != "" && len(s) <= MaxLabelBytes && utf8.ValidString(s) && !strings.ContainsAny(s, "\r\n")
+}
+
+// ValidItemID reports whether id can name an item: 1 to 64 of a-z, 0-9, _
+// and -, starting with a letter or digit, like room ids.
+func ValidItemID(id string) bool {
+	if id == "" || len(id) > MaxItemIDBytes {
+		return false
+	}
+	for i, c := range []byte(id) {
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		case (c == '_' || c == '-') && i > 0:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// ui.image(name [, caption]) shows one of the pack's images, from its
+// assets/ folder, as a popup with an optional caption.
+func (r *Runtime) image(L *lua.LState) int {
+	name := L.CheckString(1)
+	caption := L.OptString(2, "")
+	if len(caption) > MaxCaptionBytes {
+		L.ArgError(2, "caption longer than 200 bytes")
+	}
+	if !r.output(L).Image(name, caption) {
+		L.ArgError(1, "the pack has no image named "+strconv.Quote(truncate(name, 64)))
+	}
+	return 0
+}
+
+// truncate cuts s to at most n bytes, for error messages.
+func truncate(s string, n int) string {
+	if len(s) > n {
+		return s[:n] + "..."
+	}
+	return s
 }

@@ -1,0 +1,13 @@
+{
+  "name": "talespeak-e2e",
+  "private": true,
+  "description": "Browser tests for the Talespeak web client, against a real server (docs/testing.md)",
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
+  }
+}

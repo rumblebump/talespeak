@@ -1,6 +1,7 @@
 // Command talespeak runs the Talespeak engine.
 //
-//	talespeak serve        start the server (TALESPEAK_LISTEN, TALESPEAK_DATA)
+//	talespeak serve        start the server (TALESPEAK_LISTEN, TALESPEAK_DATA, TALESPEAK_PACK;
+//	                       limits: docs/admin-limits.md)
 //	talespeak healthcheck  exit 0 if the local server reports healthy (used by Docker)
 //	talespeak version      print the version
 package main
@@ -25,7 +26,6 @@ import (
 	"github.com/rumblebump/talespeak/internal/clientip"
 	"github.com/rumblebump/talespeak/internal/game"
 	"github.com/rumblebump/talespeak/internal/pack"
-	"github.com/rumblebump/talespeak/internal/script"
 	"github.com/rumblebump/talespeak/internal/server"
 	"github.com/rumblebump/talespeak/internal/store/sqlite"
 	"github.com/rumblebump/talespeak/internal/ws"
@@ -89,20 +89,33 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
-	log := slog.Default()
-	demo, err := pack.Load(content.Demo())
+	lim, err := loadLimits(os.Getenv)
 	if err != nil {
-		return fmt.Errorf("demo pack: %w", err)
+		return fmt.Errorf("limits: %w", err)
 	}
-	world, err := game.NewWorld(demo, script.DefaultLimits, log)
+	log := slog.Default()
+	// Until packs can be installed (T-0010), the server runs one pack: the
+	// demo, or the folder in TALESPEAK_PACK (the browser tests use it).
+	packName, packFS := "demo pack", content.Demo()
+	if dir := os.Getenv("TALESPEAK_PACK"); dir != "" {
+		packName, packFS = "pack "+dir, os.DirFS(dir)
+	}
+	p, err := pack.LoadLimits(packFS, lim.pack)
 	if err != nil {
-		return fmt.Errorf("demo pack: %w", err)
+		return fmt.Errorf("%s: %w", packName, err)
+	}
+	world, err := game.NewWorld(p, lim.script, log, game.WithClientBudget(lim.luaClientRate, lim.luaClientBurst), game.WithClientMemory(lim.luaClientMemory))
+	if err != nil {
+		return fmt.Errorf("%s: %w", packName, err)
 	}
 	defer world.Close()
-	sockets := ws.New(version, log, ws.WithClientIP(proxies.IP), ws.WithGame(world))
+	sockets := ws.New(version, log, ws.WithClientIP(proxies.IP), ws.WithGame(world),
+		ws.WithMaxConns(lim.maxConns), ws.WithMaxConnsPerClient(lim.maxConnsPerClient),
+		ws.WithConnectRate(lim.connectRate, lim.connectBurst),
+		ws.WithRateLimit(lim.messageRate, lim.messageBurst), ws.WithIdleTimeout(lim.idleTimeout))
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           server.New(server.Options{Version: version, Store: db, WebSocket: sockets}),
+		Handler:           server.New(server.Options{Version: version, Store: db, WebSocket: sockets, Assets: pack.AssetHandler(p)}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second, // the WebSocket handler clears both for its connections
@@ -111,7 +124,7 @@ func serve(args []string) error {
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
-	log.Info("talespeak started", "version", version, "listen", *listen, "data", *data)
+	log.Info("talespeak started", "version", version, "listen", *listen, "data", *data, "pack", p.ID)
 
 	select {
 	case err := <-errc:

@@ -17,6 +17,9 @@ func FuzzLoad(f *testing.F) {
 		`function on_enter() say(("a"):rep(10):upper():sub(2, 3)) end`,
 		`error({})`,
 		`return`,
+		`function on_enter() local a = ui.ask("?", {strict = true}) say(words.normalize(a)) end`,
+		`function on_enter() local n, l = ui.select("?", {"a", "b", "c"}, {min = 2}) say(table.concat(l, ",")) end`,
+		`function on_enter() ui.items({{id = "a", label = "b"}}) ui.image("map.png", "c") say("x", {speak = true, show = false}) end`,
 	} {
 		f.Add(src)
 	}
@@ -35,10 +38,7 @@ func FuzzLoad(f *testing.F) {
 			h := &recorder{}
 			th, err := r.Run(h, env, "on_enter", "p")
 			for i := 0; th != nil && i < 3; i++ {
-				if len(th.Dialog.Options) < 1 || len(th.Dialog.Options) > MaxDialogOptions {
-					t.Fatalf("dialog with %d options", len(th.Dialog.Options))
-				}
-				th, err = r.Resume(h, th, 1)
+				th, err = answerAny(t, r, h, th)
 			}
 			if !known(err) {
 				t.Fatalf("Run = %v", err)
@@ -51,4 +51,32 @@ func FuzzLoad(f *testing.F) {
 			t.Fatalf("took %v", d)
 		}
 	})
+}
+
+// answerAny checks the dialog th waits on and answers it with something
+// it accepts: a typed word for ui.ask, the first Min options (at least
+// one) for ui.select, option 1 for ui.dialog.
+func answerAny(t *testing.T, r *Runtime, h Host, th *Thread) (*Thread, error) {
+	t.Helper()
+	d := th.Dialog
+	if d.Ask {
+		if len(d.Options) != 0 || d.Multiple || d.Title == "" || len(d.Title) > MaxTitleBytes {
+			t.Fatalf("ask dialog %+v", d)
+		}
+		return r.Answer(h, th, "x")
+	}
+	if len(d.Options) < 1 || len(d.Options) > MaxDialogOptions {
+		t.Fatalf("dialog with %d options", len(d.Options))
+	}
+	if !d.Multiple {
+		return r.Resume(h, th, 1)
+	}
+	if d.Min < 0 || d.Max < 1 || d.Min > d.Max || d.Max > len(d.Options) {
+		t.Fatalf("select dialog %+v", d)
+	}
+	choices := []int{1}
+	for c := 2; c <= d.Min; c++ {
+		choices = append(choices, c)
+	}
+	return r.Resume(h, th, choices...)
 }

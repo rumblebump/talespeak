@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -13,7 +14,6 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
-	"github.com/rumblebump/talespeak/content"
 	"github.com/rumblebump/talespeak/internal/pack"
 	"github.com/rumblebump/talespeak/internal/script"
 	"github.com/rumblebump/talespeak/internal/ws"
@@ -23,7 +23,7 @@ var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 func demoWorld(t *testing.T) *World {
 	t.Helper()
-	demo, err := pack.Load(content.Demo())
+	demo, err := pack.Load(os.DirFS("testdata/dialog"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,9 +44,14 @@ func kinds(ms []ws.Message) string {
 	return strings.Join(parts, " ")
 }
 
+// isError reports whether ms is one error, with or without a question id.
+func isError(ms []ws.Message) bool {
+	return len(ms) == 1 && ms[0].Type == "error"
+}
+
 func TestDemoFlow(t *testing.T) {
 	w := demoWorld(t)
-	s, first := w.NewSession()
+	s, first := w.NewSession("")
 	defer s.Close()
 	if got := kinds(first); got != "room:cell text: dialog:d1" {
 		t.Fatalf("first = %s", got)
@@ -77,10 +82,10 @@ func TestDemoFlow(t *testing.T) {
 
 func TestChooseRejectsBadOptions(t *testing.T) {
 	w := demoWorld(t)
-	s, _ := w.NewSession()
+	s, _ := w.NewSession("")
 	defer s.Close()
 	for _, opt := range []int{0, -1, 4, 1 << 30} {
-		if got := s.Handle(ws.Message{Type: "choose", ID: "d1", Option: opt}); kinds(got) != "error:" {
+		if got := s.Handle(ws.Message{Type: "choose", ID: "d1", Option: opt}); kinds(got) != "error:d1" {
 			t.Errorf("option %d: %+v", opt, got)
 		}
 	}
@@ -92,7 +97,7 @@ func TestChooseRejectsBadOptions(t *testing.T) {
 
 func TestUnknownMessage(t *testing.T) {
 	w := demoWorld(t)
-	s, _ := w.NewSession()
+	s, _ := w.NewSession("")
 	defer s.Close()
 	if got := s.Handle(ws.Message{Type: "dance"}); kinds(got) != "error:" {
 		t.Errorf("got %+v", got)
@@ -118,7 +123,7 @@ func TestScriptErrorReachesPlayerWithoutDetails(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer w.Close()
-	_, first := w.NewSession()
+	_, first := w.NewSession("")
 	if kinds(first) != "text: error:" || strings.Contains(first[1].Message, "secret") {
 		t.Errorf("first = %+v", first)
 	}
@@ -130,7 +135,7 @@ func TestScriptLimitReachesPlayer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer w.Close()
-	_, first := w.NewSession()
+	_, first := w.NewSession("")
 	if kinds(first) != "error:" || !strings.Contains(first[0].Message, "limits") {
 		t.Errorf("first = %+v", first)
 	}
@@ -156,7 +161,7 @@ func TestRoomWithoutScriptIsDescribed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer w.Close()
-	if _, first := w.NewSession(); kinds(first) != "room:r" {
+	if _, first := w.NewSession(""); kinds(first) != "room:r" {
 		t.Errorf("first = %+v", first)
 	}
 }
@@ -208,7 +213,7 @@ func TestDialogOverWebSocket(t *testing.T) {
 }
 
 func TestCloseWorldWithPausedSessions(t *testing.T) {
-	demo, err := pack.Load(content.Demo())
+	demo, err := pack.Load(os.DirFS("testdata/dialog"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,13 +221,13 @@ func TestCloseWorldWithPausedSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, _ := w.NewSession() // waits in the demo dialog
+	s, _ := w.NewSession("") // waits in the demo dialog
 	w.Close()
 	if got := s.Handle(ws.Message{Type: "choose", ID: "d1", Option: 1}); kinds(got) != "error:" || !strings.Contains(got[0].Message, "closed") {
 		t.Errorf("choose after Close: %+v", got)
 	}
 	s.Close() // after the world: no panic
-	if _, first := w.NewSession(); kinds(first) != "error:" {
+	if _, first := w.NewSession(""); kinds(first) != "error:" {
 		t.Errorf("new session after Close: %+v", first)
 	}
 }
@@ -230,7 +235,7 @@ func TestCloseWorldWithPausedSessions(t *testing.T) {
 func TestSessionCloseEndsPausedHook(t *testing.T) {
 	w := demoWorld(t)
 	for range 5 {
-		s, _ := w.NewSession()
+		s, _ := w.NewSession("")
 		s.Close()
 	}
 	if n := w.rt.Paused(); n != 0 {

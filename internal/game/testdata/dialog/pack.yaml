@@ -1,0 +1,4 @@
+# The first demo pack (T-0003), kept as a fixture: one room whose on_enter waits in a dialog loop.
+id: dialog-test
+title: The damp cell
+start: cell
