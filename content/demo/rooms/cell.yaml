@@ -4,3 +4,12 @@ description: >-
   Stone walls, a heap of straw and a narrow window far above you.
   Iron bars separate you from a dim corridor.
 script: cell.lua
+items:
+  - id: straw
+    label: heap of straw
+  - id: guard
+    label: sleepy guard
+  - id: scratches
+    label: scratches on the wall
+  - id: lock
+    label: lock with letter wheels

@@ -394,6 +394,7 @@ func TestCaddyfileMatchesEngineHeaders(t *testing.T) {
 	got := map[string]string{}
 	for _, line := range strings.Split(string(data), "\n") {
 		name, value, ok := strings.Cut(strings.TrimSpace(line), " ")
+		name = strings.TrimPrefix(name, "?") // set only when the engine did not
 		if ok {
 			got[name] = strings.Trim(strings.TrimSpace(value), `"`)
 		}

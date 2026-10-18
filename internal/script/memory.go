@@ -65,12 +65,16 @@ const (
 	sizeEntry  = 96
 )
 
-// retained estimates the bytes reachable from roots, and stops counting
-// once it passes limit. What matters is that a table or string growing
-// without bound is caught. It walks with its own stack, so deeply nested
-// tables cannot overflow the Go stack.
-func retained(roots []lua.LValue, limit int64) int64 {
-	seen := map[lua.LValue]struct{}{}
+// retained estimates the bytes reachable from roots, without what is only
+// reachable through skip, and stops counting once it passes limit. What
+// matters is that a table or string growing without bound is caught. It
+// walks with its own stack, so deeply nested tables cannot overflow the Go
+// stack.
+func retained(roots []lua.LValue, skip map[lua.LValue]struct{}, limit int64) int64 {
+	seen := make(map[lua.LValue]struct{}, len(skip))
+	for v := range skip {
+		seen[v] = struct{}{}
+	}
 	var stack []lua.LValue
 	var total int64
 	push := func(v lua.LValue) {

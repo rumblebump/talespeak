@@ -1,12 +1,38 @@
+/* Terminal theme. Colors are CSS variables: dark by default, light when
+   the system asks for it, and .large on <html> for large text. */
+
 :root {
   --bg: #0d1117;
+  --panel: #161b22;
   --fg: #c9d1d9;
   --accent: #7ee787;
   --muted: #8b949e;
+  --warn: #f0883e;
+  --you: #79c0ff;
+  --line: #30363d;
+  --size: 16px;
   color-scheme: dark;
 }
 
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #fdfdf8;
+    --panel: #f0f0e8;
+    --fg: #1f2328;
+    --accent: #116329;
+    --muted: #59636e;
+    --warn: #9a3b00;
+    --you: #0550ae;
+    --line: #d0d7de;
+    color-scheme: light;
+  }
+}
+
+:root.large { --size: 21px; }
+
 * { box-sizing: border-box; }
+
+html { font-size: var(--size); scroll-padding-bottom: 5rem; } /* keeps focused options clear of the input bar */
 
 body {
   margin: 0;
@@ -15,35 +41,153 @@ body {
   flex-direction: column;
   background: var(--bg);
   color: var(--fg);
-  font: 16px/1.5 ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  font: 1rem/1.5 ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
 }
 
-main { flex: 1; padding: 2rem 1rem; max-width: 60rem; margin: 0 auto; width: 100%; }
-.banner { color: var(--accent); overflow-x: auto; }
-.muted { color: var(--muted); }
-.cursor { animation: blink 1s steps(1) infinite; }
-footer { padding: 1rem; text-align: center; color: var(--muted); font-size: 0.875rem; }
-a { color: var(--accent); }
-.status { color: var(--muted); }
+[x-cloak] { display: none !important; }
+
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: 0.5; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  align-items: baseline;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+.brand { color: var(--accent); font-weight: bold; }
+.status { color: var(--muted); flex: 1; min-width: 10rem; }
 .status[data-state="online"] { color: var(--accent); }
-.status[data-state="offline"] { color: #f0883e; }
+.status[data-state="offline"] { color: var(--warn); }
+.settings { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.toggle {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+
+main { flex: 1; padding: 1rem; max-width: 60rem; margin: 0 auto; width: 100%; }
+.banner { color: var(--accent); overflow-x: auto; margin: 0 0 1rem; font-size: 0.8rem; }
+.muted { color: var(--muted); }
 
 .story p { margin: 0 0 0.75rem; white-space: pre-wrap; }
 .story .room-title { color: var(--accent); font-weight: bold; margin-bottom: 0.25rem; }
-.story .error { color: #f0883e; }
+.story .error { color: var(--warn); }
+.story .you { color: var(--you); }
+.story .you::before { content: "> "; }
+.story .picture-note { color: var(--muted); font-style: italic; }
+.story .spoken { color: var(--muted); }
+.replay {
+  margin-left: 0.75rem;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 0.5rem;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.items { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; margin: 1rem 0; }
+.item {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0.25rem 0.6rem;
+  min-height: 2.25rem; /* easy to tap */
+}
+.item::before { content: "["; color: var(--muted); }
+.item::after { content: "]"; color: var(--muted); }
+.item:hover { border-color: var(--accent); color: var(--accent); }
+
 .dialog { border-left: 2px solid var(--accent); padding-left: 1rem; margin: 1rem 0; }
 .dialog-title { margin: 0 0 0.5rem; }
-.dialog-options { margin: 0; padding-left: 1.5rem; }
-.dialog-options button {
-  font: inherit;
-  color: var(--fg);
+.dialog-options { margin: 0; padding-left: 1.75rem; }
+.dialog-options li { margin: 0.125rem 0; }
+.option {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: baseline;
   background: none;
   border: none;
-  padding: 0.125rem 0;
-  cursor: pointer;
+  padding: 0.25rem 0;
+  min-height: 2.25rem;
   text-align: left;
+  cursor: pointer;
 }
-.dialog-options button:hover, .dialog-options button:focus-visible { color: var(--accent); outline: none; text-decoration: underline; }
+button.option:hover, button.option:focus-visible, label.option:hover { color: var(--accent); text-decoration: underline; }
+.option input { accent-color: var(--accent); width: 1.1rem; height: 1.1rem; }
+.dialog-actions { display: flex; gap: 1rem; align-items: baseline; margin: 0.5rem 0 0; }
+.confirm {
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  border-radius: 3px;
+  padding: 0.25rem 1rem;
+  min-height: 2.25rem;
+}
 
-@keyframes blink { 50% { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
+.hint { color: var(--warn); margin: 0.5rem 0; }
+
+.prompt {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+.prompt-sign { color: var(--accent); }
+.prompt input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0.4rem 0.5rem;
+}
+.prompt button {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0.4rem 0.75rem;
+}
+
+.picture {
+  max-width: min(90vw, 50rem);
+  padding: 1rem;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.picture::backdrop { background: rgb(0 0 0 / 0.7); }
+.picture figure { margin: 0; }
+.picture img {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+}
+.picture img.pixel { image-rendering: pixelated; } /* small pixel art scaled up stays sharp */
+.picture figcaption { margin-top: 0.5rem; }
+.picture .close { margin-top: 0.75rem; background: none; border: 1px solid var(--line); border-radius: 3px; padding: 0.25rem 0.75rem; }
+
+footer { padding: 0.75rem 1rem; text-align: center; color: var(--muted); font-size: 0.8rem; }
+
+@media (max-width: 30rem) {
+  main { padding: 0.75rem; }
+  .banner { font-size: 0.55rem; }
+  .bar { padding: 0.5rem 0.75rem; }
+  .prompt { padding: 0.5rem 0.75rem; }
+}

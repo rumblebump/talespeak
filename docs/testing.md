@@ -29,14 +29,18 @@ Every feature ships with its tests in the same pull request. Quick tests run on 
 The client is plain JavaScript, so the tests are plain JavaScript too, with `@playwright/test`.
 
 ```sh
+CGO_ENABLED=0 go build -o bin/talespeak ./cmd/talespeak
 cd e2e
 npm ci
 npx playwright install chromium
-npx playwright test                  # starts ../bin/talespeak with the test pack
+npx playwright test                  # starts ../bin/talespeak twice: the test pack and the demo
 npx playwright test --ui             # watch and debug locally
 ```
 
-- The server starts from a fresh data directory with `content/test-pack`, a tiny pack made for tests (two rooms, one dialog, one timer, one soundboard).
+- Two projects, both Chromium: `chromium` (desktop) and `phone` (Pixel 7 size and touch).
+- Import `test` and `expect` from `e2e/tests/fixtures.js`: its automatic `guard` fixture is the offline and CSP guard below.
+
+- The server starts from a fresh data directory with `content/test-pack` (`TALESPEAK_PACK`), a tiny pack with every renderer once; T-0015 adds a second room, a timer and a soundboard. The connect burst is raised for the tests, since every test connects from 127.0.0.1.
 - Chromium on every full run. Firefox and WebKit later, before releases.
 - **Offline and CSP guard:** every test fails if the page requests anything from another origin, or if the browser reports a Content-Security-Policy violation. This keeps the offline promise tested on every release.
 - Timers are tested with Playwright's clock control (`page.clock`), not by waiting.

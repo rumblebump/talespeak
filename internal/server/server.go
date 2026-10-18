@@ -41,6 +41,8 @@ type Options struct {
 	Store Pinger
 	// WebSocket serves /ws; nil leaves /ws unrouted.
 	WebSocket http.Handler
+	// Assets serves pack images under /packs/; nil leaves it unrouted.
+	Assets http.Handler
 }
 
 // New returns the engine's HTTP handler.
@@ -67,6 +69,9 @@ func New(opts Options) http.Handler {
 	})
 	if opts.WebSocket != nil {
 		mux.Handle("GET /ws", opts.WebSocket)
+	}
+	if opts.Assets != nil {
+		mux.Handle("GET /packs/", opts.Assets)
 	}
 	mux.Handle("GET /", http.FileServerFS(static))
 

@@ -9,8 +9,33 @@ import (
 
 type recorder struct{ out []string }
 
-func (h *recorder) Say(text string) { h.out = append(h.out, "say:"+text) }
-func (h *recorder) DescribeRoom()   { h.out = append(h.out, "describe") }
+func (h *recorder) Say(text string, how Voice) {
+	switch {
+	case how.Hide:
+		text = "(spoken only) " + text
+	case how.Speak:
+		text = "(spoken) " + text
+	}
+	h.out = append(h.out, "say:"+text)
+}
+func (h *recorder) DescribeRoom() { h.out = append(h.out, "describe") }
+
+func (h *recorder) Items(items []Item) {
+	s := "items:"
+	for _, it := range items {
+		s += it.ID + "=" + it.Label + ";"
+	}
+	h.out = append(h.out, s)
+}
+
+// Image knows one image, map.png.
+func (h *recorder) Image(name, caption string) bool {
+	if name != "map.png" {
+		return false
+	}
+	h.out = append(h.out, "image:"+name+"|"+caption)
+	return true
+}
 
 func load(t *testing.T, r *Runtime, src string) *Env {
 	t.Helper()

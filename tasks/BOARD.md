@@ -10,7 +10,6 @@ Nothing here.
 
 | Id | Title | Type | Priority |
 | --- | --- | --- | --- |
-| [T-0004](open/T-0004-terminal-web-client.md) | Terminal-style web client renderer | feature | high |
 | [T-0005](open/T-0005-whisp-prototype.md) | Whisp tiers 0 and 1 prototype and benchmark | research | high |
 | [T-0006](open/T-0006-kids-chat-filter.md) | Kids mode chat filter | feature | high |
 | [T-0007](open/T-0007-ci-cd-workflows.md) | CI branch flow, scans, deploys and releases | chore | high |
@@ -23,6 +22,9 @@ Nothing here.
 | [T-0014](open/T-0014-offline-csp-enforcement.md) | Offline first and strict CSP enforcement | feature | high |
 | [T-0015](open/T-0015-test-harness.md) | Test harness for Go and Playwright | chore | high |
 | [T-0016](open/T-0016-world-visibility.md) | Public, invite-only and secret worlds with player limits | feature | medium |
+| [T-0017](open/T-0017-speech-to-text.md) | Speech to text, private by default | feature | medium |
+| [T-0018](open/T-0018-persistent-state.md) | Player, world and game state stored in SQLite | feature | high |
+| [T-0019](open/T-0019-turn-order.md) | Free and turn-based rounds in a room | feature | high |
 
 ## Done
 
@@ -31,3 +33,4 @@ Nothing here.
 | [T-0001](done/T-0001-repo-bootstrap.md) | Repository bootstrap | chore | high |
 | [T-0002](done/T-0002-engine-skeleton.md) | Engine skeleton: HTTP, WebSocket, storage interface | feature | high |
 | [T-0003](done/T-0003-lua-runtime-spike.md) | Lua runtime, YAML room and dialog coroutine | feature | high |
+| [T-0004](done/T-0004-terminal-web-client.md) | Terminal-style web client renderer | feature | high |

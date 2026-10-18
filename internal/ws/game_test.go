@@ -26,7 +26,7 @@ func newFakeGame(first ...Message) *fakeGame {
 	return &fakeGame{closed: make(chan struct{}), first: first}
 }
 
-func (g *fakeGame) NewSession() (Session, []Message) {
+func (g *fakeGame) NewSession(string) (Session, []Message) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.sessions++

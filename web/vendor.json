@@ -1,0 +1,10 @@
+{
+  "alpine-csp": {
+    "package": "@alpinejs/csp",
+    "version": "3.17.4",
+    "file": "package/dist/module.esm.min.js",
+    "license": "MIT",
+    "dest": "web/static/vendor/alpine-csp.js",
+    "sha256": "8f73b4b31013b6ae48a556c5143fcfd73e19e63f407f3d45100860e333f38a99"
+  }
+}

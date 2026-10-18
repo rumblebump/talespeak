@@ -1,0 +1,21 @@
+id: hall
+title: Test hall
+description: A plain room for tests.
+script: hall.lua
+items:
+  - id: lamp
+    label: lamp
+  - id: chest
+    label: chest
+  - id: painting
+    label: painting
+  - id: broken
+    label: broken lever
+  - id: riddle
+    label: riddle
+  - id: spelling
+    label: spelling
+  - id: voice
+    label: voice
+  - id: trapdoor
+    label: trapdoor

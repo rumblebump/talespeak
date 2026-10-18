@@ -27,7 +27,25 @@ const (
 	MaxDescriptionBytes = 4000
 	// MaxScriptBytes is the largest Lua script a room may use.
 	MaxScriptBytes = 256 << 10
+	// MaxItems and MaxLabelBytes bound a room's clickable items, as
+	// ui.items does.
+	MaxItems      = 20
+	MaxLabelBytes = 100
+	// MaxAssets bounds the files in assets/.
+	MaxAssets = 500
 )
+
+// Limits bound a pack's images. Admins can change them (see
+// docs/admin-limits.md); the other limits are part of the pack format.
+type Limits struct {
+	// AssetBytes is the largest single image.
+	AssetBytes int64
+	// AssetsBytes is the most all of a pack's images may add up to.
+	AssetsBytes int64
+}
+
+// DefaultLimits are the limits without configuration.
+var DefaultLimits = Limits{AssetBytes: 2 << 20, AssetsBytes: 64 << 20}
 
 // Pack is a loaded story pack.
 type Pack struct {
@@ -36,6 +54,8 @@ type Pack struct {
 	// Start is the room new players enter.
 	Start string           `yaml:"start"`
 	Rooms map[string]*Room `yaml:"-"`
+	// Assets are the pack's images by file name, from assets/.
+	Assets map[string]*Asset `yaml:"-"`
 }
 
 // Room is one place in the story.
@@ -45,23 +65,35 @@ type Room struct {
 	Description string `yaml:"description"`
 	// Script is a Lua file in the pack's scripts/ folder, without the folder.
 	Script string `yaml:"script"`
+	// Items are the things the player can click when entering the room.
+	Items []Item `yaml:"items"`
 	// Source is the script's content, read by Load.
 	Source string `yaml:"-"`
 	// File is the YAML file the room came from, for messages.
 	File string `yaml:"-"`
 }
 
+// Item is something in a room the player can click.
+type Item struct {
+	ID    string `yaml:"id"`
+	Label string `yaml:"label"`
+}
+
 var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
-// Load reads pack.yaml, rooms/*.yaml and the scripts they name from fsys.
-// Every problem found is reported, each prefixed with its file.
-func Load(fsys fs.FS) (*Pack, error) {
+// Load is LoadLimits with DefaultLimits.
+func Load(fsys fs.FS) (*Pack, error) { return LoadLimits(fsys, DefaultLimits) }
+
+// LoadLimits reads pack.yaml, rooms/*.yaml, the scripts they name and the
+// images in assets/ from fsys. Every problem found is reported, each
+// prefixed with its file.
+func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 	var errs []error
 	fail := func(file, format string, args ...any) {
 		errs = append(errs, fmt.Errorf("%s: %s", file, fmt.Sprintf(format, args...)))
 	}
 
-	p := &Pack{Rooms: map[string]*Room{}}
+	p := &Pack{Rooms: map[string]*Room{}, Assets: map[string]*Asset{}}
 	if err := decode(fsys, "pack.yaml", p); err != nil {
 		return nil, err
 	}
@@ -101,6 +133,9 @@ func Load(fsys fs.FS) (*Pack, error) {
 		if strings.TrimSpace(r.Description) == "" || len(r.Description) > MaxDescriptionBytes || !utf8.ValidString(r.Description) {
 			fail(file, "description must be 1 to %d bytes of UTF-8 text", MaxDescriptionBytes)
 		}
+		if err := checkItems(r.Items); err != nil {
+			fail(file, "items: %v", err)
+		}
 		if r.Script != "" {
 			src, err := readScript(fsys, r.Script)
 			if err != nil {
@@ -114,10 +149,28 @@ func Load(fsys fs.FS) (*Pack, error) {
 	} else if p.Rooms[p.Start] == nil {
 		fail("pack.yaml", "start room %q does not exist", p.Start)
 	}
+	errs = append(errs, loadAssets(fsys, p, limits)...)
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
 	return p, nil
+}
+
+func checkItems(items []Item) error {
+	if len(items) > MaxItems {
+		return fmt.Errorf("%d items, at most %d", len(items), MaxItems)
+	}
+	seen := map[string]bool{}
+	for _, it := range items {
+		if !idPattern.MatchString(it.ID) || seen[it.ID] {
+			return fmt.Errorf("id %q must be unique and 1 to 64 of a-z, 0-9, _ and -, starting with a letter or digit", it.ID)
+		}
+		seen[it.ID] = true
+		if strings.TrimSpace(it.Label) == "" || len(it.Label) > MaxLabelBytes || !utf8.ValidString(it.Label) || strings.ContainsAny(it.Label, "\r\n") {
+			return fmt.Errorf("label of %q must be one line of 1 to %d bytes", it.ID, MaxLabelBytes)
+		}
+	}
+	return nil
 }
 
 // decode reads one YAML file strictly: unknown fields, a second document or
