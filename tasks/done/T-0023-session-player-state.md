@@ -13,11 +13,11 @@ A player's progress follows them from room to room: what they found in the cell 
 
 ## Acceptance
 
-- [ ] `state.player.get(key)` and `state.player.set(key, value)` with the T-0018 value rules: nil, booleans, finite numbers, strings and tables of them, copied on set and get
-- [ ] Limits from T-0018: key 64 bytes, value 16 KiB, depth 8, 256 KiB and 500 keys per player, 50 writes per call; a refused write returns nil and the reason
-- [ ] Shared by every room of one player, never by other players; kept for the session only
-- [ ] Counts toward the memory limits of the player's address and the world, and is freed when the player leaves
-- [ ] Tests in the script and game packages
+- [x] `state.player.get(key)` and `state.player.set(key, value)` with the T-0018 value rules: nil, booleans, finite numbers, strings and tables of them, copied on set and get
+- [x] Limits from T-0018: key 64 bytes, value 16 KiB encoded, depth 8, 256 KiB and 500 keys per player, 50 writes per hook; a refused write returns nil and the reason
+- [x] Shared by every room of one player, never by other players; kept for the session only
+- [x] Counts toward the memory limits of the player's address and the world, and is freed when the player leaves
+- [x] Tests in the script and game packages
 
 ## Notes
 

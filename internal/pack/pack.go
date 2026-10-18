@@ -94,9 +94,11 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 	}
 
 	p := &Pack{Rooms: map[string]*Room{}, Assets: map[string]*Asset{}}
-	if err := decode(fsys, "pack.yaml", p); err != nil {
+	lint, err := decode(fsys, "pack.yaml", p)
+	if err != nil {
 		return nil, err
 	}
+	errs = append(errs, lint...)
 	if !idPattern.MatchString(p.ID) {
 		fail("pack.yaml", "id %q must be 1 to 64 of a-z, 0-9, _ and -, starting with a letter or digit", p.ID)
 	}
@@ -114,10 +116,12 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 	}
 	for _, file := range files {
 		r := &Room{File: file}
-		if err := decode(fsys, file, r); err != nil {
+		lint, err := decode(fsys, file, r)
+		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
+		errs = append(errs, lint...)
 		switch {
 		case !idPattern.MatchString(r.ID):
 			fail(file, "id %q must be 1 to 64 of a-z, 0-9, _ and -, starting with a letter or digit", r.ID)
@@ -140,6 +144,8 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 			src, err := readScript(fsys, r.Script)
 			if err != nil {
 				fail(file, "script: %v", err)
+			} else {
+				errs = append(errs, lintLua("scripts/"+r.Script, src)...)
 			}
 			r.Source = src
 		}
@@ -150,6 +156,7 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 		fail("pack.yaml", "start room %q does not exist", p.Start)
 	}
 	errs = append(errs, loadAssets(fsys, p, limits)...)
+	errs = append(errs, lintFiles(fsys)...)
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
@@ -174,22 +181,23 @@ func checkItems(items []Item) error {
 }
 
 // decode reads one YAML file strictly: unknown fields, a second document or
-// a file over MaxYAMLBytes are errors.
-func decode(fsys fs.FS, file string, v any) error {
+// a file over MaxYAMLBytes are errors. It also returns the file's external
+// references, which do not stop the rest of the pack from being checked.
+func decode(fsys fs.FS, file string, v any) ([]error, error) {
 	data, err := readLimited(fsys, file, MaxYAMLBytes)
 	if err != nil {
-		return fmt.Errorf("%s: %w", file, err)
+		return nil, fmt.Errorf("%s: %w", file, err)
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(v); err != nil {
-		return fmt.Errorf("%s: %w", file, err)
+		return nil, fmt.Errorf("%s: %w", file, err)
 	}
 	var extra any
 	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-		return fmt.Errorf("%s: only one YAML document is allowed", file)
+		return nil, fmt.Errorf("%s: only one YAML document is allowed", file)
 	}
-	return nil
+	return lintYAML(file, data), nil
 }
 
 // readScript reads scripts/<name>. name is a plain file name ending in .lua,

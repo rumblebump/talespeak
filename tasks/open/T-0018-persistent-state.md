@@ -28,6 +28,8 @@ Scripts keep progress in the database, not in Lua variables: a player's progress
 
 ## Notes
 
+Core vs Lua (Carl 2026-10-18): the engine stores state, positions and inventories and moves inventories between worlds; what death, revival, save points or inventory rules mean in a game is Lua (a ruleset library), which reads and writes that state. The world's death setting is a stored value the script reads.
+
 Carl 2026-10-18 (death, inventory, position, no chat log, world state deleted when the world ends): see the acceptance items above. Pack authors write state with explicit calls rather than saved globals, because globals hold functions and temporary values and would make every variable shared or lasting by accident.
 
 Decided by Carl 2026-10-17: script globals are per player and only live as long as the session (T-0004); everything that must last is stored in the database.

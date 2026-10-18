@@ -89,6 +89,10 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
+	hosts, err := server.ParseHosts(os.Getenv("TALESPEAK_HOSTS"))
+	if err != nil {
+		return fmt.Errorf("TALESPEAK_HOSTS: %w", err)
+	}
 	lim, err := loadLimits(os.Getenv)
 	if err != nil {
 		return fmt.Errorf("limits: %w", err)
@@ -115,7 +119,7 @@ func serve(args []string) error {
 		ws.WithRateLimit(lim.messageRate, lim.messageBurst), ws.WithIdleTimeout(lim.idleTimeout))
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           server.New(server.Options{Version: version, Store: db, WebSocket: sockets, Assets: pack.AssetHandler(p)}),
+		Handler:           server.New(server.Options{Version: version, Store: db, WebSocket: sockets, Assets: pack.AssetHandler(p), Hosts: hosts}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second, // the WebSocket handler clears both for its connections

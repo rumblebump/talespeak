@@ -1,0 +1,16 @@
+id: guardroom
+title: The guard room
+description: >-
+  A warm room with a table, three chairs and a game of cards nobody
+  finished. A small iron box with three number wheels sits on a shelf.
+  In the far wall is a narrow back door with a big keyhole.
+script: guardroom.lua
+items:
+  - id: box
+    label: iron box with number wheels
+  - id: cards
+    label: game of cards
+  - id: backdoor
+    label: narrow back door
+  - id: corridor
+    label: door to the corridor
