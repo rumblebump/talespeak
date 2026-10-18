@@ -34,8 +34,8 @@ const (
 // World set, the values of state.world, shared by the world's players.
 // Only what a script sets is kept, encoded: changing a table after set or
 // get changes nothing until the next set. It lasts for the session (the
-// world's run for state.world); T-0018 stores the same encoded values in
-// the database.
+// world's run for state.world) in memory; a world with a store saves the
+// same encodings in the database after every hook (package game).
 type State struct {
 	// Reserve, if set, is asked before the state grows by delta bytes (or
 	// told it shrank); an error refuses the write, for limits shared with
@@ -52,6 +52,46 @@ type State struct {
 
 // Size is what s keeps, as counted for MaxPlayerStateBytes.
 func (s *State) Size() int64 { return s.size }
+
+// Encoded returns the encoding kept for key, for the database; callers
+// must not change it.
+func (s *State) Encoded(key string) ([]byte, bool) {
+	v, ok := s.vals[key]
+	return v, ok
+}
+
+// Load replaces what s keeps with vals, encodings from the database. It
+// checks the limits a script's writes are held to, so a damaged or
+// hand-edited database cannot load more than a script could set, and asks
+// Reserve for the size. A value that is damaged inside fails when a script
+// gets it.
+func (s *State) Load(vals map[string][]byte) error {
+	maxBytes, maxKeys, name := s.limits()
+	if len(vals) > maxKeys {
+		return fmt.Errorf("stored %s state has more than %d keys", name, maxKeys)
+	}
+	var size int64
+	for k, v := range vals {
+		if k == "" || len(k) > MaxStateKeyBytes || len(v) == 0 || len(v) > MaxStateValueBytes {
+			return fmt.Errorf("stored %s state has a key or value out of bounds", name)
+		}
+		size += int64(len(k) + len(v))
+	}
+	if size > maxBytes {
+		return fmt.Errorf("stored %s state is larger than %d bytes", name, maxBytes)
+	}
+	if s.Reserve != nil {
+		if err := s.Reserve(size - s.size); err != nil {
+			return err
+		}
+	}
+	s.vals = make(map[string][]byte, len(vals))
+	for k, v := range vals {
+		s.vals[k] = append([]byte(nil), v...)
+	}
+	s.size = size
+	return nil
+}
 
 // limits are the size limits of s and its name in messages.
 func (s *State) limits() (bytes int64, keys int, name string) {

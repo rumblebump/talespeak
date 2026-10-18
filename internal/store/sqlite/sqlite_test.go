@@ -78,8 +78,12 @@ func TestReopenKeepsDataAndSkipsMigrations(t *testing.T) {
 	if err := s2.db.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if n != 1 {
-		t.Errorf("schema_migrations rows = %d, want 1", n)
+	files, err := fs.Glob(migrations, "migrations/*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != len(files) {
+		t.Errorf("schema_migrations rows = %d, want %d", n, len(files))
 	}
 }
 

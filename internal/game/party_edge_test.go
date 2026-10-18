@@ -70,13 +70,13 @@ func TestPlayerNamesLowestFree(t *testing.T) {
 	w, _ := edgeWorld(t)
 	var ss []ws.Session
 	for range 4 {
-		s, _ := w.NewSession("")
+		s, _ := w.NewSession("", ws.Who{})
 		ss = append(ss, s)
 	}
 	ss[0].Close()
 	ss[2].Close()
 	for _, want := range []string{"p5 traveler", "p6 traveler 3", "p7 traveler 5"} {
-		s, _ := w.NewSession("")
+		s, _ := w.NewSession("", ws.Who{})
 		ss = append(ss, s)
 		if got := texts(input(s, "who")); got != want {
 			t.Errorf("who = %q, want %q", got, want)
@@ -85,7 +85,7 @@ func TestPlayerNamesLowestFree(t *testing.T) {
 	for _, s := range ss {
 		s.Close()
 	}
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	if got := texts(input(s, "who")); got != "p8 traveler" {
 		t.Errorf("after everyone left: %q", got)
@@ -95,10 +95,10 @@ func TestPlayerNamesLowestFree(t *testing.T) {
 // A world that closed still hands out sessions, which do nothing.
 func TestPlayerNameAfterWorldClosed(t *testing.T) {
 	w, _ := edgeWorld(t)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
 	w.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	s2.Close()
 	if sess := s2.(*session); sess.id != "p2" || sess.name != "traveler 2" {
 		t.Errorf("session of a closed world: %q %q", sess.id, sess.name)
@@ -109,12 +109,12 @@ func TestPlayerNameAfterWorldClosed(t *testing.T) {
 // it with the time left in the first messages; a secret one not at all.
 func TestRoomTimerShownToNewPlayer(t *testing.T) {
 	w, c := edgeWorld(t)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
 	input(s1, "start turn")
 	input(s1, "secret hidden")
 	c.Advance(12 * time.Second)
-	s2, first := w.NewSession("")
+	s2, first := w.NewSession("", ws.Who{})
 	defer s2.Close()
 	var timers []ws.Message
 	for _, m := range first {
@@ -134,9 +134,9 @@ func TestRoomTimerShownToNewPlayer(t *testing.T) {
 // a full room does not stop another room's timers.
 func TestRoomTimersPerRoom(t *testing.T) {
 	w, c := edgeWorld(t)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
 	input(s2, "go b")
 	if got := texts(input(s1, "fill")); got != "nil timer.start: more than 10 room timers running" {
@@ -178,9 +178,9 @@ func TestRoomTimersPerRoom(t *testing.T) {
 // by secret removes it, secret by secret and a secret cancel say nothing.
 func TestRoomTimerReplaceShownAndSecret(t *testing.T) {
 	w, c := edgeWorld(t)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
 	tests := []struct {
 		cmd  string
@@ -225,11 +225,11 @@ func TestRoomTimerReplaceShownAndSecret(t *testing.T) {
 // again, and an earlier changer gets the latest.
 func TestRoomTimerDeliveriesSpaced(t *testing.T) {
 	w, c := edgeWorld(t)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
-	s3, _ := w.NewSession("")
+	s3, _ := w.NewSession("", ws.Who{})
 	defer s3.Close()
 	input(s1, "start y")
 	input(s1, "start x")
@@ -266,9 +266,9 @@ func TestRoomTimerDeliveriesSpaced(t *testing.T) {
 // others hear of it: the failed hook's output still flushes.
 func TestRoomTimerFromFailingHook(t *testing.T) {
 	w, c := edgeWorld(t)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
 	got := input(s1, "fail doom")
 	if len(got) == 0 || got[0].Type != "error" {
@@ -291,10 +291,10 @@ func TestRoomTimerFromFailingHook(t *testing.T) {
 // longest. The leaver's on_leave sees only those still here.
 func TestRoomTimerStarterLeftWorld(t *testing.T) {
 	w, c := edgeWorld(t)
-	s1, _ := w.NewSession("")
-	s2, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
-	s3, _ := w.NewSession("")
+	s3, _ := w.NewSession("", ws.Who{})
 	defer s3.Close()
 	input(s1, "secret turn")
 	s1.Close()
@@ -315,9 +315,9 @@ func TestRoomTimerStarterLeftWorld(t *testing.T) {
 // the next player in the room; the shown countdown goes once for everyone.
 func TestRoomTimerBusyStarterNextPlayer(t *testing.T) {
 	w, c := edgeWorld(t, WithClientBudget(time.Second, time.Second))
-	s1, _ := w.NewSession("192.0.2.1")
+	s1, _ := w.NewSession("192.0.2.1", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
 	input(s1, "start turn")
 	c.Advance(DeliverGap)
@@ -342,9 +342,9 @@ func TestRoomTimerBusyStarterNextPlayer(t *testing.T) {
 // see it) but still running, and nobody sees it go twice.
 func TestRoomTimerAllBusyRetries(t *testing.T) {
 	w, c := edgeWorld(t, WithClientBudget(time.Second, time.Second))
-	s1, _ := w.NewSession("192.0.2.1")
+	s1, _ := w.NewSession("192.0.2.1", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("192.0.2.2")
+	s2, _ := w.NewSession("192.0.2.2", ws.Who{})
 	defer s2.Close()
 	input(s2, "start turn") // p2 starts it, so p2 runs it once there is time
 	c.Advance(DeliverGap)
@@ -359,7 +359,7 @@ func TestRoomTimerAllBusyRetries(t *testing.T) {
 			t.Errorf("%s at the deadline = %+v, want only the removal", name, got)
 		}
 	}
-	s3, first := w.NewSession("") // a newcomer would run it, but comes too late to be first
+	s3, first := w.NewSession("", ws.Who{}) // a newcomer would run it, but comes too late to be first
 	defer s3.Close()
 	if m := find(first, "timer"); m != nil {
 		t.Errorf("a newcomer sees the waiting timer: %+v", m)
@@ -395,7 +395,7 @@ function on_timer(p, name, kind)
   local ok = pcall(ui.dialog, "Now?", {"Yes"})
   say(name .. " " .. kind .. " asked " .. tostring(ok))
 end`, partyRoomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	input(s, "start")
 	q := dialogID(t, input(s, "ask"))
@@ -412,9 +412,9 @@ end`, partyRoomB)
 // nothing once it closed.
 func TestRoomTimersStopOnWorldClose(t *testing.T) {
 	w, c := edgeWorld(t)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
 	input(s1, "start x")
 	input(s1, "secret y")
@@ -436,9 +436,9 @@ func TestRoomTimersStopOnWorldClose(t *testing.T) {
 // A player who leaves drops what was queued for them.
 func TestCloseDropsQueued(t *testing.T) {
 	w, c := edgeWorld(t)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	input(s1, "start x")
 	c.Advance(DeliverGap)
 	s2.Close()
@@ -464,8 +464,8 @@ func TestOnLeaveNotWhenWorldClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s1, _ := w.NewSession("")
-	s2, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
+	s2, _ := w.NewSession("", ws.Who{})
 	s1.Close()
 	w.Close()
 	s2.Close()
@@ -484,9 +484,9 @@ func TestOnLeaveNotWhenWorldClosed(t *testing.T) {
 // going on, then on_leave runs.
 func TestOnLeaveWithQuestionOpen(t *testing.T) {
 	w, c := edgeWorld(t)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	dialogID(t, input(s2, "ask"))
 	s2.Close()
 	c.Advance(DeliverGap)
@@ -508,9 +508,9 @@ func TestOnLeaveWithoutLuaTime(t *testing.T) {
 	clk := &stepClock{t: time.Unix(1e9, 0)}
 	fake := newClock()
 	w, _ := edgeWorld(t, WithClientBudget(time.Second, time.Second), WithClock(clk.now, fake.After))
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("192.0.2.9")
+	s2, _ := w.NewSession("192.0.2.9", ws.Who{})
 	if got := texts(input(s2, "who")); got != "p2 traveler 2" {
 		t.Fatalf("who = %q", got)
 	}
@@ -540,7 +540,7 @@ func TestOnLeaveWithoutLuaTime(t *testing.T) {
 	if got := texts(input(s1, "list")); got != "a: p1" {
 		t.Errorf("list = %q", got)
 	}
-	s3, _ := w.NewSession("")
+	s3, _ := w.NewSession("", ws.Who{})
 	defer s3.Close()
 	if got := texts(input(s3, "who")); got != "p3 traveler 2" {
 		t.Errorf("who = %q", got)
@@ -551,9 +551,9 @@ func TestOnLeaveWithoutLuaTime(t *testing.T) {
 // player there longest. Started by the last to leave, it is dropped.
 func TestOnLeaveStartsRoomTimer(t *testing.T) {
 	w, c := edgeWorld(t)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	input(s1, "go b")
 	input(s2, "go b")
 	pending(t, s1)
@@ -593,11 +593,11 @@ func TestRoomPlayersAfterUndoneMove(t *testing.T) {
 	clk := &stepClock{t: time.Unix(1e9, 0)}
 	fake := newClock()
 	w, _ := edgeWorld(t, WithClock(clk.now, fake.After))
-	s1, _ := w.NewSession("192.0.2.1")
+	s1, _ := w.NewSession("192.0.2.1", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
-	s3, _ := w.NewSession("")
+	s3, _ := w.NewSession("", ws.Who{})
 	defer s3.Close()
 	input(s3, "go b")
 	input(s3, "start bt") // a shown timer in b
@@ -638,7 +638,7 @@ func TestConcurrentPartyOps(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for round := range 5 {
-				s, _ := w.NewSession("")
+				s, _ := w.NewSession("", ws.Who{})
 				for i := range 12 {
 					s.Handle(ws.Message{Type: "input", Text: cmds[(g+round+i)%len(cmds)]})
 					s.(ws.Pusher).Pending()

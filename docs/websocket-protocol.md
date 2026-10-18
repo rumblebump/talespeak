@@ -1,6 +1,6 @@
 # WebSocket protocol
 
-The browser talks to the engine over one WebSocket at `/ws` on the same origin. Upgrades from another origin are refused.
+The browser talks to the engine over one WebSocket at `/ws` on the same origin. Upgrades from another origin are refused. The upgrade needs the sign-in cookie ([accounts.md](accounts.md)): without it the server answers 401, and 403 for an account that may not play the world (an invite-only world it has not joined).
 
 Every message, in both directions, is one JSON object with a `type` field.
 
@@ -25,7 +25,7 @@ Per-client limits count IPv6 clients by their /64 network; the Lua time budget c
 
 | Direction | `type` | Fields | Meaning |
 | --- | --- | --- | --- |
-| server → client | `welcome` | `version` | Sent once after connecting; a new session starts in the pack's start room |
+| server → client | `welcome` | `version` | Sent once after connecting. The player continues in the room they were in last (a new character starts in the pack's start room); when that is not the start room, an `items` message with its items comes first, since its `on_enter` may not describe it. A player who cannot join (their stored state does not fit right now) gets an `error`, then the connection closes (1008) |
 | client → server | `ping` | | Keep-alive |
 | server → client | `pong` | | Answer to `ping` |
 | server → client | `room` | `id`, `title`, `text`, `items` | The room the player is in, with the things they can click. When a script moves the player (`room.go`), an `items` message with the new room's items comes first, then the new room's own output, which may or may not include `room` |
@@ -83,6 +83,8 @@ The demo's exchange is checked byte for byte by `TestDemoMatchesProtocolDoc` (th
 
 `GET /packs/<pack id>/assets/<file>` serves a pack's images (PNG, JPEG, GIF, WebP) with their checked media type, an `ETag`, `Cache-Control: public, max-age=300` and `Content-Security-Policy: default-src 'none'; sandbox`. Anything else under `/packs/` is 404.
 
-When the server shuts down it closes connections with 1001 (going away); the client reconnects with backoff (1 s doubling to 30 s).
+When the server shuts down it closes connections with 1001 (going away); the client reconnects with backoff (1 s doubling to 30 s), and asks `/api/me` first, so a sign-in that ended shows the sign-in page instead of retrying.
+
+When the same account connects again (another tab or device), the older connection gets an `error` ("You are playing in another window or on another device now.") and closes with 4001; the client does not reconnect after it on its own.
 
 Audio messages and further widgets (map, slider) are added here as their tasks land.

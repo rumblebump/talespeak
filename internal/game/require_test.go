@@ -34,7 +34,7 @@ func TestRoomsShareModules(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer w.Close()
-	s, out := w.NewSession("")
+	s, out := w.NewSession("", ws.Who{})
 	if got := texts(out); !strings.Contains(got, "hi from a 1") {
 		t.Errorf("enter = %s", got)
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rumblebump/talespeak/internal/account"
 	"github.com/rumblebump/talespeak/internal/game"
 	"github.com/rumblebump/talespeak/internal/pack"
 	"github.com/rumblebump/talespeak/internal/script"
@@ -30,6 +31,7 @@ type limits struct {
 	messageRate                 float64
 	messageBurst                int
 	idleTimeout                 time.Duration
+	signInBurst                 int
 }
 
 // loadLimits reads the limits from getenv. An empty or unset variable keeps
@@ -49,6 +51,7 @@ func loadLimits(getenv func(string) string) (limits, error) {
 		messageRate:       ws.DefaultRate,
 		messageBurst:      ws.DefaultBurst,
 		idleTimeout:       ws.DefaultIdleTimeout,
+		signInBurst:       account.DefaultAddressBurst,
 	}
 	var errs []error
 	duration := func(key string, dst *time.Duration, lo, hi time.Duration) {
@@ -127,6 +130,7 @@ func loadLimits(getenv func(string) string) (limits, error) {
 	count("TALESPEAK_MESSAGE_BURST", &l.messageBurst, 1, 10_000)
 	// The client pings every 30 s, so less than 45 s would drop idle players.
 	duration("TALESPEAK_IDLE_TIMEOUT", &l.idleTimeout, 45*time.Second, 24*time.Hour)
+	count("TALESPEAK_SIGNIN_BURST", &l.signInBurst, 1, 1_000_000)
 
 	if l.script.StateMemory < l.script.PlayerMemory {
 		errs = append(errs, fmt.Errorf("TALESPEAK_LUA_STATE_MEMORY (%s) is smaller than TALESPEAK_LUA_PLAYER_MEMORY (%s)", formatBytes(l.script.StateMemory), formatBytes(l.script.PlayerMemory)))

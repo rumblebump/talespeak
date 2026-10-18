@@ -108,9 +108,9 @@ function on_change(p, keys) say(#keys .. ": " .. table.concat(keys, ",")) end`
 // A player waiting for Lua time while 60 keys change gets the latest 50.
 func TestWorldChangedKeysCapped(t *testing.T) {
 	w, c := clockWorld(t, changeRoom, timerRoomB, WithClientBudget(time.Second, time.Second))
-	a, _ := w.NewSession("")
+	a, _ := w.NewSession("", ws.Who{})
 	defer a.Close()
-	b, _ := w.NewSession("192.0.2.3")
+	b, _ := w.NewSession("192.0.2.3", ws.Who{})
 	defer b.Close()
 	w.mu.Lock()
 	w.budgets["192.0.2.3"].left = -0.25
@@ -142,9 +142,9 @@ func TestWorldWhatAnnounces(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.text, func(t *testing.T) {
 			w, c := clockWorld(t, changeRoom, timerRoomB)
-			a, _ := w.NewSession("")
+			a, _ := w.NewSession("", ws.Who{})
 			defer a.Close()
-			b, _ := w.NewSession("")
+			b, _ := w.NewSession("", ws.Who{})
 			defer b.Close()
 			a.Handle(ws.Message{Type: "input", Text: "1"})
 			c.Advance(0)
@@ -162,9 +162,9 @@ func TestWorldWhatAnnounces(t *testing.T) {
 // writes announce too.
 func TestWorldAnnouncesFromAnswersAndTimers(t *testing.T) {
 	w, c := clockWorld(t, changeRoom, timerRoomB)
-	a, _ := w.NewSession("")
+	a, _ := w.NewSession("", ws.Who{})
 	defer a.Close()
-	b, _ := w.NewSession("")
+	b, _ := w.NewSession("", ws.Who{})
 	defer b.Close()
 	a.Handle(ws.Message{Type: "input", Text: "ask"})
 	c.Advance(0)
@@ -192,14 +192,14 @@ func TestWorldAnnouncesFromAnswersAndTimers(t *testing.T) {
 // others still get it, and a player who joins after the change does not.
 func TestWorldChangeSessionLeavesBeforeDelivery(t *testing.T) {
 	w, c := clockWorld(t, changeRoom, timerRoomB)
-	a, _ := w.NewSession("")
+	a, _ := w.NewSession("", ws.Who{})
 	defer a.Close()
-	b, _ := w.NewSession("")
-	d, _ := w.NewSession("")
+	b, _ := w.NewSession("", ws.Who{})
+	d, _ := w.NewSession("", ws.Who{})
 	defer d.Close()
 	a.Handle(ws.Message{Type: "input", Text: "1"})
 	b.Close()
-	late, _ := w.NewSession("")
+	late, _ := w.NewSession("", ws.Who{})
 	defer late.Close()
 	c.Advance(0)
 	if got := pending(t, b); len(got) != 0 {
@@ -228,7 +228,7 @@ function on_input(p, text)
   if text == "two" then timer.start("first", 1) timer.start("second", 2) else say("reply") end
 end
 function on_timer(p, name) say(name) end`, timerRoomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	s.Handle(ws.Message{Type: "input", Text: "two"})
 	c.Advance(time.Second)
@@ -252,7 +252,7 @@ func TestSetNotifyLate(t *testing.T) {
 	w, c := clockWorld(t, `
 function on_input(p, text) timer.start("t", 1) end
 function on_timer(p, name) say(name) end`, timerRoomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	p := s.(ws.Pusher)
 	s.Handle(ws.Message{Type: "input", Text: "x"})
@@ -292,7 +292,7 @@ function on_timer(p, name) say(name) end`, timerRoomB)
 // A closed session queues nothing and notifies no one.
 func TestPushAfterClose(t *testing.T) {
 	w, _ := clockWorld(t, timerRoom, timerRoomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	n := 0
 	s.(ws.Pusher).SetNotify(func() { n++ })
 	s.Close()
@@ -309,7 +309,7 @@ func TestPushAfterClose(t *testing.T) {
 func TestExpireRacesAnswer(t *testing.T) {
 	for i := range 30 {
 		w, c := clockWorld(t, timerRoom, timerRoomB)
-		s, _ := w.NewSession("")
+		s, _ := w.NewSession("", ws.Who{})
 		if got := kinds(s.Handle(ws.Message{Type: "input", Text: "ask"})); got != "dialog:d1" {
 			t.Fatalf("question: %s", got)
 		}
@@ -339,7 +339,7 @@ func TestExpireRacesAnswer(t *testing.T) {
 func TestFireRacesClose(t *testing.T) {
 	for i := range 30 {
 		w, c := clockWorld(t, timerRoom, timerRoomB)
-		s, _ := w.NewSession("")
+		s, _ := w.NewSession("", ws.Who{})
 		s.Handle(ws.Message{Type: "input", Text: "short"})
 		s.Handle(ws.Message{Type: "input", Text: "ask"})
 		var wg sync.WaitGroup
@@ -406,7 +406,7 @@ end`)...)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s, _ := w.NewSession("")
+			s, _ := w.NewSession("", ws.Who{})
 			defer s.Close()
 			pusher := s.(ws.Pusher)
 			var mu sync.Mutex
@@ -442,7 +442,7 @@ end`)...)
 		}()
 	}
 	wg.Wait()
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	want := "nil"
 	if counted > 0 {
@@ -472,7 +472,7 @@ function on_change(p, keys) say(table.concat(keys, ",") .. " " .. state.world.ge
 	const players, rounds = 5, 20
 	sessions := make([]ws.Session, players)
 	for i := range sessions {
-		sessions[i], _ = w.NewSession("")
+		sessions[i], _ = w.NewSession("", ws.Who{})
 		defer sessions[i].Close()
 	}
 	var wg sync.WaitGroup

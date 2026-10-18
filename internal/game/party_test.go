@@ -69,10 +69,10 @@ func input(s ws.Session, text string) []ws.Message {
 
 func TestPlayerIDsAndNames(t *testing.T) {
 	w, _ := clockWorld(t, partyRoom, partyRoomB)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
-	s3, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
+	s3, _ := w.NewSession("", ws.Who{})
 	defer s3.Close()
 	for s, want := range map[ws.Session]string{s1: "p1 traveler", s2: "p2 traveler 2", s3: "p3 traveler 3"} {
 		if got := texts(input(s, "who")); got != want {
@@ -80,7 +80,7 @@ func TestPlayerIDsAndNames(t *testing.T) {
 		}
 	}
 	s2.Close()
-	s4, _ := w.NewSession("")
+	s4, _ := w.NewSession("", ws.Who{})
 	defer s4.Close()
 	if got := texts(input(s4, "who")); got != "p4 traveler 2" {
 		t.Errorf("a new player gets a new id and the free name: %q", got)
@@ -89,11 +89,11 @@ func TestPlayerIDsAndNames(t *testing.T) {
 
 func TestRoomPlayersInOrder(t *testing.T) {
 	w, _ := clockWorld(t, partyRoom, partyRoomB)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
-	s3, _ := w.NewSession("")
+	s3, _ := w.NewSession("", ws.Who{})
 	defer s3.Close()
 	if got := texts(input(s2, "list")); got != "p1=traveler,p2=traveler 2,p3=traveler 3" {
 		t.Fatalf("list = %q", got)
@@ -113,9 +113,9 @@ func TestRoomPlayersInOrder(t *testing.T) {
 
 func TestOnLeave(t *testing.T) {
 	w, c := clockWorld(t, partyRoom, partyRoomB)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	s2.Close()
 	c.Advance(DeliverGap)
 	got := texts(pending(t, s1))
@@ -126,7 +126,7 @@ func TestOnLeave(t *testing.T) {
 		t.Errorf("room.go in on_leave moved the leaver to %q", roomOf(s2))
 	}
 	// A leaver whose room has no on_leave changes nothing.
-	s3, _ := w.NewSession("")
+	s3, _ := w.NewSession("", ws.Who{})
 	input(s3, "go")
 	s3.Close()
 	c.Advance(time.Second)
@@ -144,9 +144,9 @@ function on_leave(p)
   state.world.set("after", true)
 end
 function on_change(p, keys) say(table.concat(keys, ",")) end`, partyRoomB)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	s2.Close()
 	c.Advance(DeliverGap)
 	if got := texts(pending(t, s1)); got != "before" {
@@ -156,11 +156,11 @@ function on_change(p, keys) say(table.concat(keys, ",")) end`, partyRoomB)
 
 func TestRoomTimerShownToTheRoom(t *testing.T) {
 	w, c := clockWorld(t, partyRoom, partyRoomB)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
-	s3, _ := w.NewSession("")
+	s3, _ := w.NewSession("", ws.Who{})
 	defer s3.Close()
 	input(s3, "go") // in b: sees nothing of a's timers
 
@@ -218,11 +218,11 @@ func find(ms []ws.Message, typ string) *ws.Message {
 
 func TestRoomTimerRunsForTheFirstHere(t *testing.T) {
 	w, c := clockWorld(t, partyRoom, partyRoomB)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
-	s3, _ := w.NewSession("")
+	s3, _ := w.NewSession("", ws.Who{})
 	defer s3.Close()
 	input(s3, "secret")
 	input(s3, "go")
@@ -237,7 +237,7 @@ func TestRoomTimerRunsForTheFirstHere(t *testing.T) {
 
 func TestRoomTimerEmptyRoomDropsIt(t *testing.T) {
 	w, c := clockWorld(t, partyRoom, partyRoomB)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
 	input(s1, "start")
 	input(s1, "go")
@@ -256,9 +256,9 @@ func TestRoomTimerEmptyRoomDropsIt(t *testing.T) {
 
 func TestRoomTimerCancelLimitCoalesce(t *testing.T) {
 	w, c := clockWorld(t, partyRoom, partyRoomB)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
 	input(s1, "again")
 	input(s1, "again") // within one delivery: still one message
@@ -299,9 +299,9 @@ function on_timer(p, name, kind)
   local ok, err = state.world.set("x", 1)
   say(tostring(ok) .. " " .. tostring(err))
 end`, partyRoomB)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
 	input(s1, "set")
 	c.Advance(DeliverGap)

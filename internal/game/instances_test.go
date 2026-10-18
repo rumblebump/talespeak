@@ -55,7 +55,7 @@ func goTo(t *testing.T, s ws.Session, room string) string {
 func TestRoomInstancesEvicted(t *testing.T) {
 	w := chainWorld(t, 6)
 	const client = "192.0.2.1"
-	s, first := w.NewSession(client)
+	s, first := w.NewSession(client, ws.Who{})
 	if texts(first) != "r1 1" {
 		t.Fatalf("first = %q", texts(first))
 	}
@@ -105,7 +105,7 @@ func busyMove(t *testing.T, room string) ws.Session {
 	w := chainWorld(t, 5)
 	clk := &stepClock{t: time.Unix(1e9, 0)}
 	w.now = clk.now
-	s, _ := w.NewSession("192.0.2.1")
+	s, _ := w.NewSession("192.0.2.1", ws.Who{})
 	t.Cleanup(s.Close)
 	for _, r := range []string{"r2", "r3", "r4"} {
 		goTo(t, s, r)

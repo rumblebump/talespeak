@@ -72,10 +72,10 @@ func hasItem(ms []ws.Message, id string) bool {
 
 func TestClearingDiceInTurns(t *testing.T) {
 	w, c := clearingWorld(t)
-	s1, first := w.NewSession("")
+	s1, first := w.NewSession("", ws.Who{})
 	defer s1.Close()
 	wantText(t, "alone", texts(first), "Nobody else is here yet.")
-	s2, first := w.NewSession("")
+	s2, first := w.NewSession("", ws.Who{})
 	defer s2.Close()
 	wantText(t, "second", texts(first), "By the fire sit traveler.")
 	text, _ := heard(t, c, s1)
@@ -137,9 +137,9 @@ func TestClearingDiceInTurns(t *testing.T) {
 // everyone was skipped ends with nobody rolling.
 func TestClearingTurnDeadline(t *testing.T) {
 	w, c := clearingWorld(t)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
 	click(s1, "dice")
 	heard(t, c, s2)
@@ -158,8 +158,8 @@ func TestClearingTurnDeadline(t *testing.T) {
 
 func TestClearingLeaverIsSkipped(t *testing.T) {
 	w, c := clearingWorld(t)
-	s1, _ := w.NewSession("")
-	s2, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
 	click(s1, "dice")
 	heard(t, c, s2)
@@ -174,12 +174,12 @@ func TestClearingLeaverIsSkipped(t *testing.T) {
 
 func TestClearingSharedItems(t *testing.T) {
 	w, c := clearingWorld(t)
-	s1, _ := w.NewSession("")
-	s2, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
 
 	wantText(t, "p1 purse", texts(click(s1, "purse")), "your share from the purse: 6 silver.")
-	s3, _ := w.NewSession("")
+	s3, _ := w.NewSession("", ws.Who{})
 	defer s3.Close()
 	got := s3.Handle(ws.Message{Type: "input", Text: "take the purse"})
 	wantText(t, "late", texts(got), "The coins were shared before you came.")
@@ -224,7 +224,7 @@ func TestClearingOnceUnderConcurrentTakes(t *testing.T) {
 	const n = 20
 	ss := make([]ws.Session, n)
 	for i := range ss {
-		ss[i], _ = w.NewSession("")
+		ss[i], _ = w.NewSession("", ws.Who{})
 		defer ss[i].Close()
 	}
 	var wg sync.WaitGroup
@@ -249,7 +249,7 @@ func TestClearingOnceUnderConcurrentTakes(t *testing.T) {
 
 func TestClearingBlessingWearsOff(t *testing.T) {
 	w, c := clearingWorld(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	got := click(s, "shrine")
 	wantText(t, "bless", texts(got), "A warm light settles on you")
@@ -316,14 +316,14 @@ func roundWorld(t *testing.T) (*World, *fakeClock) {
 // leaves the room is skipped.
 func TestRoundJoinerWaitsLeaverSkipped(t *testing.T) {
 	w, c := roundWorld(t)
-	s1, _ := w.NewSession("")
+	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
-	s2, _ := w.NewSession("")
+	s2, _ := w.NewSession("", ws.Who{})
 	defer s2.Close()
 	if got := texts(input(s1, "start")); got != "turn p1" {
 		t.Fatalf("start = %q", got)
 	}
-	s3, _ := w.NewSession("")
+	s3, _ := w.NewSession("", ws.Who{})
 	defer s3.Close()
 	if got := texts(input(s3, "act")); got != "Wait for your turn: traveler is acting." {
 		t.Fatalf("p3 = %q", got)

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rumblebump/talespeak/internal/account"
 	"github.com/rumblebump/talespeak/internal/game"
 	"github.com/rumblebump/talespeak/internal/pack"
 	"github.com/rumblebump/talespeak/internal/script"
@@ -37,6 +38,7 @@ func defaults() limits {
 		messageRate:       ws.DefaultRate,
 		messageBurst:      ws.DefaultBurst,
 		idleTimeout:       ws.DefaultIdleTimeout,
+		signInBurst:       account.DefaultAddressBurst,
 	}
 }
 

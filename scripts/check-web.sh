@@ -8,6 +8,8 @@
 #   - no HTML sinks: server text is only shown with x-text or textContent
 #   - no URL bindings or URL assignments other than the picture's src,
 #     which app.js validates, and no style bindings
+#   - no fetch other than the account API's, in app.js, whose path it
+#     checks
 set -eu
 cd "$(dirname "$0")/.."
 fail=0
@@ -57,7 +59,8 @@ $(grep -rnIE '(:|x-bind:)(href|src|action|formaction|srcset|data|poster|style)='
 EOF2
 
 report "URL assignments in web/ (above): the client never loads or opens a URL from script" <<EOF2
-$(grep -rnIE '\.(src|href|srcset|action|formAction|poster|data)[[:space:]]*=[^=]|location[[:space:]]*=[^=]|location\.(href|assign|replace)|window\.open|\.style\.|setProperty\(|new (Image|Audio|Worker|SharedWorker|EventSource)\(|importScripts|import\(|fetch\(' "$tmp/web" || true)
+$(grep -rnIE '\.(src|href|srcset|action|formAction|poster|data)[[:space:]]*=[^=]|location[[:space:]]*=[^=]|location\.(href|assign|replace)|window\.open|\.style\.|setProperty\(|new (Image|Audio|Worker|SharedWorker|EventSource)\(|importScripts|import\(|fetch\(' "$tmp/web" |
+	grep -vE '^[^:]*/static/app\.js:[0-9]+:[[:space:]]*resp = await fetch\(apiPath, ' || true)
 EOF2
 
 scripts/vendor.sh check || fail=1

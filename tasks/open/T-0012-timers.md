@@ -23,4 +23,6 @@ Packs can put time pressure on a scene ("escape before the guards arrive in 1 ho
 
 ## Notes
 
+Since T-0034 a world's `state.world` and `state.player` survive a restart, but player timers, room timers (T-0031) and question timeouts do not: the turn library's deadline (`lib/round.lua`) is lost on restart.
+
 Section "Timers" in the design doc. Design: Talespeak Engine Design doc, https://claude.ai/code/artifact/15bc0469-681c-4afa-b7b9-5d227560ebc6

@@ -13,6 +13,9 @@
     <span class="brand">talespeak</span>
     <span class="status" :data-state="state" x-text="statusText" role="status">loading…</span>
     <span class="settings">
+      <span class="who" x-cloak x-show="signedIn" x-text="accountName"></span>
+      <button type="button" class="toggle" x-cloak x-show="canInvite" @click="makeInvite">invite</button>
+      <button type="button" class="toggle" x-cloak x-show="signedIn" @click="signOut">sign out</button>
       <button type="button" class="toggle" x-cloak x-show="canSpeak" :aria-pressed="readAloud" @click="toggleReadAloud" x-text="readAloudLabel">read aloud</button>
       <button type="button" class="toggle" :aria-pressed="largeText" @click="toggleLargeText" x-text="largeTextLabel">large text</button>
     </span>
@@ -28,7 +31,31 @@
                       |_|</pre>
     <noscript><p class="error">Talespeak needs JavaScript to talk to the server.</p></noscript>
 
-    <section class="story" x-ref="story" aria-live="polite" aria-label="Story">
+    <form class="account" x-cloak x-show="showSignIn" @submit.prevent="signIn" aria-label="Sign in">
+      <p x-show="canRegister">Sign in, or pick a name and a password to make a new account.</p>
+      <p x-show="!canRegister">Sign in with the account your admin or teacher gave you.</p>
+      <label>name <input x-ref="name" x-model="form.name" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="20" required></label>
+      <label>password <input type="password" x-model="form.password" autocomplete="current-password" maxlength="128" required></label>
+      <p class="actions">
+        <button type="submit" :disabled="busy">sign in</button>
+        <button type="button" x-show="canRegister" :disabled="busy" @click="register">new account</button>
+      </p>
+      <p class="form-error" x-show="formError" x-text="formError" role="alert"></p>
+    </form>
+
+    <form class="account" x-cloak x-show="showJoin" @submit.prevent="join" aria-label="Join the world">
+      <p>This world is invite only. Type the invite code you got from its game master.</p>
+      <label>invite code <input x-ref="code" x-model="form.code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="40" required></label>
+      <p class="actions"><button type="submit" :disabled="busy">join</button></p>
+      <p class="form-error" x-show="formError" x-text="formError" role="alert"></p>
+    </form>
+
+    <div class="account" x-cloak x-show="showReplaced">
+      <p>You are playing in another window or on another device now.</p>
+      <p class="actions"><button type="button" @click="playHere">play here</button></p>
+    </div>
+
+    <section class="story" x-show="showPlay" x-ref="story" aria-live="polite" aria-label="Story">
       <template x-for="line in lines" :key="line.n">
         <p :class="line.kind"><template x-if="line.from"><span class="from" x-text="line.from"></span></template><span x-text="line.text"></span><template x-if="line.speech"><button type="button" class="replay" @click="replay(line)">listen again</button></template></p>
       </template>
@@ -75,7 +102,7 @@
     <p class="hint" x-cloak x-show="hint" x-text="hint" role="alert"></p>
   </main>
 
-  <form class="prompt" @submit.prevent="submit">
+  <form class="prompt" x-show="showPlay" @submit.prevent="submit">
     <label for="command" class="prompt-sign" aria-label="What you do">&gt;</label>
     <input id="command" x-ref="command" x-model="draft" @keydown="onInputKey" :placeholder="placeholder"
            :autocorrect="autocorrect" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="500" enterkeyhint="send">

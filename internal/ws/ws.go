@@ -9,12 +9,13 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/netip"
 	"sync"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+
+	"github.com/rumblebump/talespeak/internal/clientip"
 )
 
 const (
@@ -73,12 +74,20 @@ type Item struct {
 	Label string `json:"label"`
 }
 
+// Who is the signed-in account behind a connection, from WithAuth; the
+// zero Who without it.
+type Who struct {
+	Account int64
+	Name    string
+}
+
 // Game is what a connection plays once it is welcomed.
 type Game interface {
 	// NewSession starts a player's session and returns it with the
 	// messages to send first. client is what the per-client limits count
-	// by: the client's address, or for IPv6 its /64.
-	NewSession(client string) (Session, []Message)
+	// by: the client's address, or for IPv6 its /64. A nil Session refuses
+	// the player: the messages are sent and the connection closes.
+	NewSession(client string, who Who) (Session, []Message)
 }
 
 // Session is one player's connection to a Game.
@@ -98,9 +107,21 @@ type Session interface {
 type Pusher interface {
 	SetNotify(notify func())
 	// Pending returns the messages waiting, oldest first. ok is false when
-	// the session fell too far behind and the connection should close.
+	// the session fell too far behind, or ended, and the connection should
+	// close after sending them.
 	Pending() (ms []Message, ok bool)
 }
+
+// Replacer is a Pusher whose session can be taken over by a newer
+// connection of the same player. Its connection then closes with
+// StatusReplaced, and the client does not reconnect by itself.
+type Replacer interface {
+	Replaced() bool
+}
+
+// StatusReplaced closes a connection whose player connected again
+// elsewhere (in another tab or on another device).
+const StatusReplaced websocket.StatusCode = 4001
 
 // Option changes a Server's limits.
 type Option func(*Server)
@@ -124,6 +145,13 @@ func WithConnectRate(rate float64, burst int) Option {
 // reverse proxy). The default is the TCP peer address.
 func WithClientIP(f func(*http.Request) string) Option { return func(s *Server) { s.clientIP = f } }
 
+// WithAuth makes every connection sign in: auth tells who sent r before
+// the upgrade, or refuses it with an HTTP status (401, 403) when status is
+// not 0.
+func WithAuth(auth func(r *http.Request) (who Who, status int)) Option {
+	return func(s *Server) { s.auth = auth }
+}
+
 // WithGame sets what connections play. Without one, the server answers only
 // ping.
 func WithGame(g Game) Option { return func(s *Server) { s.game = g } }
@@ -142,6 +170,7 @@ type Server struct {
 	maxPerClient int
 	clientIP     func(*http.Request) string
 	game         Game
+	auth         func(*http.Request) (Who, int)
 	connectRate  float64
 	connectBurst int
 	rate         float64
@@ -208,6 +237,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		s.wg.Done()
 	}()
+	// Signing in is checked after the limits, so a client trying upgrades
+	// without a sign-in costs a database lookup only within its connect
+	// rate.
+	var who Who
+	if s.auth != nil {
+		var status int
+		if who, status = s.auth(r); status != 0 {
+			http.Error(w, http.StatusText(status), status)
+			return
+		}
+	}
 
 	// The http.Server's read and write timeouts would otherwise also apply to
 	// the hijacked connection and cut every WebSocket after a few seconds.
@@ -221,13 +261,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.SetReadLimit(MaxMessageBytes)
-	s.handle(s.ctx, c, client)
+	s.handle(s.ctx, c, client, who)
 }
 
 // handle runs one connection. Shutdown and the idle timeout close it from
 // timers rather than by cancelling the read: the library drops a connection
 // without a close frame when an operation's context ends.
-func (s *Server) handle(ctx context.Context, c *websocket.Conn, client string) {
+func (s *Server) handle(ctx context.Context, c *websocket.Conn, client string, who Who) {
 	defer c.CloseNow()
 	stop := context.AfterFunc(ctx, func() {
 		c.Close(websocket.StatusGoingAway, "server shutting down")
@@ -246,7 +286,13 @@ func (s *Server) handle(ctx context.Context, c *websocket.Conn, client string) {
 	var wmu sync.Mutex // held while making and writing replies, so pushed messages never overtake them
 	if s.game != nil {
 		var first []Message
-		session, first = s.game.NewSession(client)
+		session, first = s.game.NewSession(client, who)
+		if session == nil {
+			if writeAll(c, first) == nil {
+				c.Close(websocket.StatusPolicyViolation, "refused")
+			}
+			return
+		}
 		defer session.Close()
 		if err := writeAll(c, first); err != nil {
 			return
@@ -315,6 +361,10 @@ func (s *Server) push(c *websocket.Conn, p Pusher, wmu *sync.Mutex, kick <-chan 
 		err := writeAll(c, ms)
 		wmu.Unlock()
 		if !ok {
+			if r, is := p.(Replacer); is && r.Replaced() && err == nil {
+				c.Close(StatusReplaced, "playing elsewhere")
+				return
+			}
 			c.Close(websocket.StatusPolicyViolation, "too far behind")
 			return
 		}
@@ -351,19 +401,8 @@ func (s *Server) allowConnect(client string) bool {
 	return b.allow()
 }
 
-// clientKey is what the per-client limits count by: the address, or for
-// IPv6 its /64, which one home or school network usually gets as a whole.
-func clientKey(ip string) string {
-	a, err := netip.ParseAddr(ip)
-	if err != nil || !a.Is6() || a.Is4In6() {
-		return ip
-	}
-	p, err := a.Prefix(64)
-	if err != nil {
-		return ip
-	}
-	return p.String()
-}
+// clientKey is what the per-client limits count by (clientip.Key).
+func clientKey(ip string) string { return clientip.Key(ip) }
 
 // peerIP is the TCP peer address without the port.
 func peerIP(r *http.Request) string {

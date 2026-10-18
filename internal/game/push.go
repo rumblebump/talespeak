@@ -18,7 +18,7 @@ func (s *session) SetNotify(notify func()) {
 	s.w.mu.Lock()
 	defer s.w.mu.Unlock()
 	s.notify = notify
-	if len(s.queue) > 0 || s.lagged {
+	if len(s.queue) > 0 || s.lagged || s.replaced {
 		notify()
 	}
 }
@@ -29,7 +29,7 @@ func (s *session) Pending() ([]ws.Message, bool) {
 	defer s.w.mu.Unlock()
 	q := s.queue
 	s.queue, s.queueBytes = nil, 0
-	return q, !s.lagged
+	return q, !s.lagged && !s.replaced
 }
 
 // wireBytes is about what m takes on the wire.

@@ -13,8 +13,8 @@ export const test = base.extend({
         const url = req.url();
         if (url.startsWith("data:") || url.startsWith("blob:")) return;
         const o = new URL(url).origin;
-        // Tests may open the local servers (test pack, demo, party), nothing else.
-        if (o !== origin && !/^http:\/\/127\.0\.0\.1:1876[567]$/.test(o)) problems.push("request to another origin: " + url);
+        // Tests may open the local servers (test pack, demo, party, invite), nothing else.
+        if (o !== origin && !/^http:\/\/127\.0\.0\.1:1876[5-8]$/.test(o)) problems.push("request to another origin: " + url);
       });
       page.on("console", (msg) => {
         if (msg.type() === "error" && !page.allowedErrors?.some((re) => re.test(msg.text()))) {
@@ -36,8 +36,21 @@ export const test = base.extend({
 
 export { expect };
 
-// open loads the client and waits until the engine has welcomed it.
+// signUp registers a new account on the server of url and signs the
+// page's browser context in with it. Every test plays its own character,
+// named traveler_ and a random suffix, since tests run side by side.
+export async function signUp(page, url = "/") {
+  const name = "traveler_" + Math.random().toString(36).slice(2, 10);
+  const api = url.startsWith("http") ? new URL("/api/register", url).href : "/api/register";
+  const resp = await page.request.post(api, { data: { name, password: "correct horse" } });
+  expect(resp.status(), "register " + name).toBe(200);
+  return name;
+}
+
+// open signs up, loads the client and waits until the engine has welcomed
+// it.
 export async function open(page, url = "/") {
+  await signUp(page, url);
   await page.goto(url);
   await expect(page.getByRole("status")).toContainText("connected · engine");
 }

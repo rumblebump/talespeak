@@ -18,6 +18,35 @@ const MAX_HISTORY = 50; // typed lines kept for arrow up and down
 const MAX_TIMERS = 20; // shown timers: 10 of the player and 10 of the room
 const MAX_MS = 24 * 60 * 60 * 1000; // the longest timer or question timeout
 
+/**
+ * api calls the account API: GET without a body, else a JSON POST. It
+ * returns the answer, or throws an Error whose message the player can
+ * read.
+ * @param {string} path
+ * @param {object} [body]
+ */
+async function api(path, body) {
+  // Only this server's account API: a fixed path, never one from the server.
+  const apiPath = /^\/api\/[a-z]+$/.test(path) ? path : "/api/invalid";
+  const init = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  let resp;
+  try {
+    resp = await fetch(apiPath, { ...init, credentials: "same-origin", cache: "no-store" });
+  } catch {
+    throw new Error("The server cannot be reached. Try again in a moment.");
+  }
+  let data = null;
+  try {
+    data = await resp.json();
+  } catch {
+    // not JSON: a proxy's error page
+  }
+  if (!resp.ok || !data || typeof data !== "object") {
+    throw new Error(data && typeof data.error === "string" ? data.error : "Something went wrong (" + resp.status + ").");
+  }
+  return data;
+}
+
 /** Reads a setting saved in this browser; private windows may refuse. */
 function loadSetting(key) {
   try {
@@ -85,6 +114,11 @@ function game() {
   let historyAt = -1;
 
   return {
+    view: "loading", // signin, join, play or replaced
+    me: null, // the answer of /api/me
+    form: { name: "", password: "", code: "" },
+    formError: "",
+    busy: false,
     state: "connecting",
     statusText: "connecting…",
     lines: [],
@@ -116,16 +150,158 @@ function game() {
       speaker.onChange(() => {
         this.canSpeak = speaker.available();
       });
+      this.loadMe();
+    },
+
+    // Accounts
+
+    // loadMe asks the server who is signed in, and shows what fits.
+    async loadMe() {
+      try {
+        this.show(await api("/api/me"));
+      } catch (err) {
+        this.setStatus("offline", "offline · reload the page to try again");
+        this.formError = err.message;
+        this.view = "signin";
+      }
+    },
+
+    // show moves to the view for me, an answer of the account API.
+    show(me) {
+      this.me = me;
+      this.formError = "";
+      this.form.password = "";
+      if (!me.account) {
+        this.stopGame();
+        this.view = "signin";
+        this.setStatus("offline", "not signed in");
+        this.$nextTick(() => this.$refs.name && this.$refs.name.focus());
+      } else if (!me.world || !me.world.play) {
+        this.stopGame();
+        this.view = "join";
+        this.setStatus("offline", "waiting for an invite");
+        this.$nextTick(() => this.$refs.code && this.$refs.code.focus());
+      } else if (this.view !== "play") {
+        this.view = "play";
+        this.startGame();
+      }
+    },
+
+    // send runs one account request and shows its answer.
+    async send(path, body) {
+      if (this.busy) return;
+      this.busy = true;
+      this.formError = "";
+      try {
+        this.show(await api(path, body));
+      } catch (err) {
+        this.formError = err.message;
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    signIn() {
+      this.send("/api/login", { name: this.form.name.trim(), password: this.form.password });
+    },
+    register() {
+      this.send("/api/register", { name: this.form.name.trim(), password: this.form.password });
+    },
+    join() {
+      this.send("/api/join", { code: this.form.code.trim() });
+      this.form.code = "";
+    },
+    signOut() {
+      this.send("/api/logout", {});
+    },
+
+    // makeInvite asks for a one-use invite code and shows it in the story.
+    async makeInvite() {
+      try {
+        const inv = await api("/api/invites", {});
+        const until = new Date(text(inv.expires)).toLocaleDateString();
+        this.addLine("Invite code: " + text(inv.code) + " (for one player, until " + until + ")", "notice", true);
+      } catch (err) {
+        this.addLine(err.message, "error", true);
+      }
+    },
+
+    playHere() {
+      this.view = "loading";
+      this.loadMe();
+    },
+
+    get signedIn() {
+      return !!(this.me && this.me.account);
+    },
+    get accountName() {
+      return this.signedIn ? text(this.me.account.name) : "";
+    },
+    get canRegister() {
+      return !!this.me && this.me.registration === "self";
+    },
+    get canInvite() {
+      return this.signedIn && this.view === "play" && !!this.me.world && this.me.world.invite === true;
+    },
+    get showSignIn() {
+      return this.view === "signin";
+    },
+    get showJoin() {
+      return this.view === "join";
+    },
+    get showPlay() {
+      return this.view === "play";
+    },
+    get showReplaced() {
+      return this.view === "replaced";
+    },
+
+    // The game
+
+    startGame() {
+      this.setStatus("connecting", "connecting…");
       conn = connect({
         onOpen: () => this.setStatus("online", "connected"),
         onMessage: (msg) => this.receive(msg),
         onClose: (retryMs) => {
-          this.closeDialog();
-          this.sent = null;
-          this.timers = []; // the session ended, and its timers with it
+          this.endSession();
           this.setStatus("offline", "offline · retrying in " + Math.round(retryMs / 1000) + " s");
         },
+        onReplaced: () => {
+          this.endSession();
+          conn = null;
+          this.view = "replaced";
+          this.setStatus("offline", "playing elsewhere");
+        },
+        // A connection refused because the sign-in ended or the invite
+        // was taken back looks like any other: ask the server first.
+        canRetry: async () => {
+          const me = await api("/api/me");
+          if (me.account && me.world && me.world.play) return true;
+          this.show(me);
+          return false;
+        },
       });
+    },
+
+    stopGame() {
+      if (conn) conn.stop();
+      conn = null;
+      this.endSession();
+      this.lines = [];
+      this.items = [];
+    },
+
+    // endSession forgets what belonged to the connection that ended.
+    endSession() {
+      this.closeDialog();
+      this.sent = null;
+      this.timers = []; // the session ended, and its timers with it
+    },
+
+    // wire sends msg to the engine; false when there is no connection.
+    wire(msg) {
+      return conn !== null && conn.send(msg);
     },
 
     setStatus(state, s) {
@@ -255,7 +431,7 @@ function game() {
         this.hint = "Answer the question first.";
         return;
       }
-      if (conn.send({ type: "click", item: item.id })) this.addLine(item.label, "you", true);
+      if (this.wire({ type: "click", item: item.id })) this.addLine(item.label, "you", true);
     },
 
     // Dialogs and multiple choice
@@ -373,7 +549,7 @@ function game() {
     choose(n) {
       if (!this.isSingle || n < 1 || n > this.dialog.options.length) return;
       const d = this.dialog;
-      if (conn.send({ type: "choose", id: d.id, option: n })) {
+      if (this.wire({ type: "choose", id: d.id, option: n })) {
         this.answered(d.options[n - 1]);
       }
     },
@@ -398,7 +574,7 @@ function game() {
     confirm() {
       if (!this.canConfirm) return;
       const d = this.dialog;
-      if (conn.send({ type: "choose", id: d.id, choices: this.picked })) {
+      if (this.wire({ type: "choose", id: d.id, choices: this.picked })) {
         const labels = this.picked.map((n) => d.options[n - 1]);
         this.answered(labels.length ? labels.join(", ") : "(nothing)");
       }
@@ -418,7 +594,7 @@ function game() {
       }
       if (this.isAsk) {
         const d = this.dialog;
-        if (conn.send({ type: "answer", id: d.id, text: line })) {
+        if (this.wire({ type: "answer", id: d.id, text: line })) {
           this.answered(line);
           this.draft = "";
         }
@@ -432,7 +608,7 @@ function game() {
         this.hint = "Answer the question first: type its number, or click an answer.";
         return;
       }
-      if (!conn.send({ type: "input", text: line })) return;
+      if (!this.wire({ type: "input", text: line })) return;
       this.addLine(line, "you", true);
       this.remember(line);
       this.draft = "";

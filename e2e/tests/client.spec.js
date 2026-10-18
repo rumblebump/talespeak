@@ -8,7 +8,7 @@ test("room and text renderer", async ({ page }) => {
   await expect(story(page).locator(".room-title")).toHaveText("Test hall");
   await expect(story(page)).toContainText("A plain room for tests.");
   // Players of one world get different names: tests run side by side.
-  await expect(story(page)).toContainText(/Welcome, traveler( \d+)?\./);
+  await expect(story(page)).toContainText(/Welcome, traveler_\w+\./);
 });
 
 test("clickable items, dialog answered with the mouse", async ({ page }) => {
@@ -211,7 +211,7 @@ test("a guide speaks apart from the story", async ({ page }) => {
   await expect(story(page).locator("p.asked.guide")).toContainText("WhispReady?");
   await expect(story(page)).toContainText("Guide answer: Yes");
   // The story's own lines carry no speaker.
-  await expect(story(page).locator("p", { hasText: /Welcome, traveler( \d+)?\./ }).locator(".from")).toHaveCount(0);
+  await expect(story(page).locator("p", { hasText: /Welcome, traveler_\w+\./ }).locator(".from")).toHaveCount(0);
 });
 
 test("timer countdown and a question with a timeout", async ({ page }) => {

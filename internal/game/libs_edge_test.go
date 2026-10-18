@@ -115,7 +115,7 @@ func roundPlayers(t *testing.T, n int) (*World, *fakeClock, []ws.Session) {
 	w, c := demoLibWorld(t, libRound, libRoundB)
 	ss := make([]ws.Session, n)
 	for i := range ss {
-		ss[i], _ = w.NewSession("")
+		ss[i], _ = w.NewSession("", ws.Who{})
 		t.Cleanup(ss[i].Close)
 	}
 	return w, c, ss
@@ -277,7 +277,7 @@ func TestRoundEveryoneLeaves(t *testing.T) {
 	if timers != 0 {
 		t.Errorf("room timers left: %d", timers)
 	}
-	s3, _ := w.NewSession("")
+	s3, _ := w.NewSession("", ws.Who{})
 	defer s3.Close()
 	if got := texts(input(s3, "cur")); got != "nil nil" {
 		t.Errorf("after everyone left, cur = %q", got)
@@ -408,7 +408,7 @@ func itemPlayers(t *testing.T, n int) (*World, *fakeClock, []ws.Session) {
 	w, c := demoLibWorld(t, libItems, libItemsB)
 	ss := make([]ws.Session, n)
 	for i := range ss {
-		ss[i], _ = w.NewSession("")
+		ss[i], _ = w.NewSession("", ws.Who{})
 		t.Cleanup(ss[i].Close)
 	}
 	return w, c, ss
@@ -452,7 +452,7 @@ func TestItemsSplit(t *testing.T) {
 			{1, "take gems", "got 2 gem"},
 			{2, "take gems", "got 2 gem"},
 		})
-		s4, _ := w.NewSession("")
+		s4, _ := w.NewSession("", ws.Who{})
 		defer s4.Close()
 		runSteps(t, []ws.Session{s4}, []step{{0, "take gems", "no late nil"}})
 	})
@@ -567,7 +567,7 @@ local base = on_input
 function on_input(p, text)
   if text == "start" then timer.start("plain", 5) else base(p, text) end
 end`, libItemsB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	t.Cleanup(s.Close)
 	return w, c, []ws.Session{s}
 }

@@ -173,7 +173,7 @@ func noteCode(t *testing.T, text string) string {
 // stone.
 func boxCode(t *testing.T, w *World) string {
 	t.Helper()
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	escapeCell(t, s)
 	text, _ := play(t, s, ws.Message{Type: "click", Item: "stone"})
@@ -187,7 +187,7 @@ func otherCode(code string) string {
 
 func TestDemoEscape(t *testing.T) {
 	w := shippedDemo(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	escapeCell(t, s)
 	text, got := play(t, s, ws.Message{Type: "click", Item: "stone"})
@@ -213,7 +213,7 @@ func TestDemoEscape(t *testing.T) {
 // Going down the stairs walks into the guard.
 func TestDemoCorridorStairs(t *testing.T) {
 	w := shippedDemo(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	escapeCell(t, s)
 	_, got := play(t, s, ws.Message{Type: "input", Text: "go down the stairs"})
@@ -246,7 +246,7 @@ func backToCell(t *testing.T, s ws.Session, m ws.Message) (string, []ws.Message)
 // and warns one action before.
 func TestDemoGuardCatchesInCorridor(t *testing.T) {
 	w := shippedDemo(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	escapeCell(t, s)
 	look := ws.Message{Type: "input", Text: "hmm"}
@@ -266,7 +266,7 @@ func TestDemoGuardCatchesInCorridor(t *testing.T) {
 // out; the guard's one countdown goes on in every room.
 func TestDemoGuardRoom(t *testing.T) {
 	w := shippedDemo(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	escapeCell(t, s)                                             // 7 left
 	play(t, s, ws.Message{Type: "click", Item: "stone"})         // 6
@@ -306,7 +306,7 @@ func TestDemoGuardRoom(t *testing.T) {
 func TestDemoBackInCell(t *testing.T) {
 	for _, m := range []ws.Message{{Type: "click", Item: "cell"}, {Type: "input", Text: "go back to the cell"}, {Type: "input", Text: "open the cell door"}} {
 		w := shippedDemo(t)
-		s, _ := w.NewSession("")
+		s, _ := w.NewSession("", ws.Who{})
 		escapeCell(t, s)
 		text, got := backToCell(t, s, m)
 		wantText(t, "cell", text, "Your old cell.")
@@ -349,7 +349,7 @@ func TestDemoCorridorLockedWithKey(t *testing.T) {
 func TestDemoCaughtAtTheDoor(t *testing.T) {
 	for _, try := range []ws.Message{{Type: "click", Item: "lock"}, {Type: "input", Text: "open the door"}} {
 		w := shippedDemo(t)
-		s, _ := w.NewSession("")
+		s, _ := w.NewSession("", ws.Who{})
 		_, got := play(t, s, try)
 		if len(got) != 1 || got[0].Type != "dialog" || !strings.Contains(got[0].Title, "The guard is watching you") {
 			t.Fatalf("%+v: %+v", try, got)
@@ -367,7 +367,7 @@ func TestDemoCaughtAtTheDoor(t *testing.T) {
 // can be sent away again.
 func TestDemoGuardComesBack(t *testing.T) {
 	w := shippedDemo(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	sendAway(t, s)
 	look := ws.Message{Type: "input", Text: "hmm"}
@@ -388,7 +388,7 @@ func TestDemoGuardComesBack(t *testing.T) {
 // Coming back to an open lock, the guard catches the player.
 func TestDemoGuardSeesOpenLock(t *testing.T) {
 	w := shippedDemo(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	sendAway(t, s)
 	openLock(t, s)
@@ -406,7 +406,7 @@ func TestDemoGuardSeesOpenLock(t *testing.T) {
 // into the guard room.
 func inGuardRoom(t *testing.T, w *World) ws.Session {
 	t.Helper()
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	escapeCell(t, s)
 	play(t, s, ws.Message{Type: "click", Item: "stone"})
 	play(t, s, ws.Message{Type: "click", Item: "door"})
@@ -419,7 +419,7 @@ func inGuardRoom(t *testing.T, w *World) ws.Session {
 // The whole way out by typing only: no clicks after the guard has gone.
 func TestDemoTypedEscape(t *testing.T) {
 	w := shippedDemo(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	sendAway(t, s)
 	_, got := play(t, s, ws.Message{Type: "input", Text: "Open the LOCK"})
@@ -474,7 +474,7 @@ func TestDemoCorridorWords(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.say, func(t *testing.T) {
 			w := shippedDemo(t)
-			s, _ := w.NewSession("")
+			s, _ := w.NewSession("", ws.Who{})
 			defer s.Close()
 			escapeCell(t, s)
 			text, got := play(t, s, ws.Message{Type: "input", Text: c.say})
@@ -612,7 +612,7 @@ func TestDemoBoxCodePerWorld(t *testing.T) {
 // before anyone lifted the stone gets the code the note shows later.
 func TestDemoBoxBeforeStone(t *testing.T) {
 	w := shippedDemo(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	escapeCell(t, s)
 	play(t, s, ws.Message{Type: "click", Item: "door"})
@@ -636,7 +636,7 @@ func TestDemoBoxBeforeStone(t *testing.T) {
 // and every wrong code after the first gets the hint.
 func TestDemoRepeats(t *testing.T) {
 	w := shippedDemo(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	escapeCell(t, s)
 	text, _ := play(t, s, ws.Message{Type: "click", Item: "stone"})
@@ -670,7 +670,7 @@ func TestDemoRepeats(t *testing.T) {
 // Saying no at the stairs keeps the story going, and still costs an action.
 func TestDemoCorridorStayUp(t *testing.T) {
 	w := shippedDemo(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	escapeCell(t, s)
 	_, got := play(t, s, ws.Message{Type: "click", Item: "stairs"})
@@ -694,7 +694,7 @@ func TestDemoCorridorStayUp(t *testing.T) {
 // finds the open lock.
 func TestDemoCaughtBackInCell(t *testing.T) {
 	w := shippedDemo(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	escapeCell(t, s)
 	backToCell(t, s, ws.Message{Type: "click", Item: "cell"}) // asking costs one action
@@ -714,7 +714,7 @@ func TestDemoCaughtBackInCell(t *testing.T) {
 // last action, the player meets him in the guard room.
 func TestDemoGuardCountsInEveryRoom(t *testing.T) {
 	w := shippedDemo(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	escapeCell(t, s)
 	for range leftAfterCell - 1 {
@@ -736,9 +736,9 @@ func TestDemoGuardCountsInEveryRoom(t *testing.T) {
 // not touch another's.
 func TestDemoPlayersApart(t *testing.T) {
 	w := shippedDemo(t)
-	a, _ := w.NewSession("")
+	a, _ := w.NewSession("", ws.Who{})
 	defer a.Close()
-	b, _ := w.NewSession("")
+	b, _ := w.NewSession("", ws.Who{})
 	defer b.Close()
 	escapeCell(t, a)
 	play(t, a, ws.Message{Type: "click", Item: "stone"})
@@ -777,7 +777,7 @@ func TestDemoWordsGoWhereMeant(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.from+"/"+c.say, func(t *testing.T) {
 			w := shippedDemo(t)
-			s, _ := w.NewSession("")
+			s, _ := w.NewSession("", ws.Who{})
 			defer s.Close()
 			escapeCell(t, s)
 			switch c.from {
@@ -812,7 +812,7 @@ func TestDemoWordsInRooms(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.from+"/"+c.say, func(t *testing.T) {
 			w := shippedDemo(t)
-			s, _ := w.NewSession("")
+			s, _ := w.NewSession("", ws.Who{})
 			defer s.Close()
 			escapeCell(t, s)
 			if c.from == "guardroom" {
@@ -846,7 +846,7 @@ func whispAsks(t *testing.T, step string, got []ws.Message) string {
 // turns back, and every no keeps the player in the corridor.
 func TestDemoWhispAsksEveryTime(t *testing.T) {
 	w := shippedDemo(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	escapeCell(t, s)
 	for i, m := range []ws.Message{{Type: "click", Item: "cell"}, {Type: "input", Text: "back"}, {Type: "click", Item: "cell"}} {
@@ -878,7 +878,7 @@ func TestDemoWhispAsksEveryTime(t *testing.T) {
 // the player left it; the cell stays solved.
 func TestDemoOutOfCellAgain(t *testing.T) {
 	w := shippedDemo(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	escapeCell(t, s)                                                 // 7 left
 	play(t, s, ws.Message{Type: "click", Item: "stone"})             // 6
@@ -900,7 +900,7 @@ func TestDemoOutOfCellAgain(t *testing.T) {
 // player can slip out on the very last action, and is caught on the next.
 func TestDemoEscapeOnLastAction(t *testing.T) {
 	w := shippedDemo(t)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	sendAway(t, s)            // 10 left
 	openLock(t, s)            // 9
@@ -940,7 +940,7 @@ func TestDemoWhispOnLastAction(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.room, func(t *testing.T) {
 			w := shippedDemo(t)
-			s, _ := w.NewSession("")
+			s, _ := w.NewSession("", ws.Who{})
 			defer s.Close()
 			escapeCell(t, s)
 			for range leftAfterCell - 1 {
@@ -982,7 +982,7 @@ func TestDemoCorridorAgainSaysHowClose(t *testing.T) {
 	for _, c := range cases {
 		t.Run(strconv.Itoa(c.waits), func(t *testing.T) {
 			w := shippedDemo(t)
-			s, _ := w.NewSession("")
+			s, _ := w.NewSession("", ws.Who{})
 			defer s.Close()
 			escapeCell(t, s) // 7
 			for range c.waits {
@@ -1107,7 +1107,7 @@ func TestDemoKeepRefused(t *testing.T) {
 		{
 			name: "set_guard_away",
 			session: func(t *testing.T, w *World) ws.Session {
-				s, _ := w.NewSession("")
+				s, _ := w.NewSession("", ws.Who{})
 				askWater(t, s)
 				askWater(t, s)
 				return s
@@ -1121,7 +1121,7 @@ func TestDemoKeepRefused(t *testing.T) {
 		{
 			name: "solve ask",
 			session: func(t *testing.T, w *World) ws.Session {
-				s, _ := w.NewSession("")
+				s, _ := w.NewSession("", ws.Who{})
 				sendAway(t, s)
 				openLock(t, s)
 				return s

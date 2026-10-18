@@ -4,6 +4,7 @@
 package game
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,10 +20,12 @@ import (
 
 	"github.com/rumblebump/talespeak/internal/pack"
 	"github.com/rumblebump/talespeak/internal/script"
+	"github.com/rumblebump/talespeak/internal/store"
 	"github.com/rumblebump/talespeak/internal/ws"
 )
 
-// DefaultPlayerName is used until accounts exist (T-0010).
+// DefaultPlayerName is the name of players without an account, in a world
+// without a store (tests and local tools).
 const DefaultPlayerName = "traveler"
 
 // MaxInputBytes bounds one line the player types.
@@ -85,6 +88,16 @@ func WithClock(now func() time.Time, after func(d time.Duration, f func()) (stop
 	return func(w *World) { w.now, w.after = now, after }
 }
 
+// WithStore makes the world last: it is world id in st, its players sign
+// in, and what scripts keep in state.player and state.world, and where
+// each player is, is read from st at start and written after every hook.
+func WithStore(st store.Worlds, world int64) Option {
+	return func(w *World) { w.store, w.worldID = st, world }
+}
+
+// saveTimeout bounds one write to the store, and loading a player.
+const saveTimeout = 5 * time.Second
+
 func afterFunc(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
 
 // retryBusy is how long a timer or a question's timeout waits to run its
@@ -126,6 +139,13 @@ type World struct {
 	stateTotal  int64            // what all players keep in state.player, reserved in rt too
 	clientState map[string]int64 // client -> what its players keep in state.player
 
+	store     store.Worlds         // nil: nothing lasts, and players need no account
+	worldID   int64                // the world in store
+	chars     map[int64]*session   // character id -> its session, with a store
+	unsaved   []string             // world keys a failed save did not write
+	lost      map[int64]store.Save // character -> what a failed save of a player who left did not write
+	lostOrder []int64              // the characters of lost, the oldest first
+
 	world       script.State // state.world, shared by every player
 	changed     []string     // world keys the running hook changed
 	delivering  bool         // a delivery of on_change is due
@@ -155,11 +175,23 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Opti
 	w := &World{log: log, pack: p, rt: script.New(limits), scripts: map[string]*script.Script{}, sessions: map[*session]struct{}{},
 		budgets: map[string]*budget{}, now: time.Now, after: afterFunc, clientMemory: DefaultClientMemory, clientEnvs: map[string]map[*script.Env]struct{}{},
 		clientState: map[string]int64{}, roomTimers: map[string]map[string]*roomTimer{}, timerNews: map[roomTimerKey]struct{}{},
-		timerDue: map[roomTimerKey]*session{}}
+		timerDue: map[roomTimerKey]*session{}, chars: map[int64]*session{}, lost: map[int64]store.Save{}}
 	w.world = script.State{World: true, Reserve: w.reserveWorld, Changed: w.change}
 	WithClientBudget(DefaultClientRate, DefaultClientBurst)(w)
 	for _, o := range opts {
 		o(w)
+	}
+	if w.store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), saveTimeout)
+		vals, err := w.store.WorldState(ctx, w.worldID)
+		cancel()
+		if err == nil {
+			err = w.world.Load(vals)
+		}
+		if err != nil {
+			w.rt.Close()
+			return nil, fmt.Errorf("world state: %w", err)
+		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(p.Modules)) {
 		sc, err := w.rt.Compile("lib/"+name+".lua", p.Modules[name])
@@ -204,21 +236,41 @@ func (w *World) Close() {
 	w.rt.Close()
 }
 
-// NewSession places a new player in the start room. client is the
-// player's address key from package ws, which the Lua time budget counts by;
-// "" has no budget (tests and local tools).
-func (w *World) NewSession(client string) (ws.Session, []ws.Message) {
+// NewSession places a player in the world. client is the player's address
+// key from package ws, which the Lua time budget counts by; "" has no
+// budget (tests and local tools).
+//
+// In a world with a store, who must be signed in: the account's character
+// comes back where it left, with its state.player, and its id as
+// player.id. A session the character still has elsewhere ends first. A
+// world without a store places a new player without an account in the
+// start room.
+func (w *World) NewSession(client string, who ws.Who) (ws.Session, []ws.Message) {
 	s := &session{w: w, client: budgetKey(client)}
 	s.state.Reserve = s.reserve
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.players++
-	s.id = "p" + strconv.Itoa(w.players)
-	s.name = w.freeName()
+	room := w.pack.Start
+	if w.store == nil {
+		w.players++
+		s.id = "p" + strconv.Itoa(w.players)
+		s.name = w.freeName()
+	} else {
+		var err error
+		if room, err = s.load(who); err != nil {
+			if !errors.Is(err, errNoAccount) {
+				w.log.Warn("player could not join", "account", who.Account, "err", err)
+			}
+			return nil, []ws.Message{{Type: "error", Message: joinError(err)}}
+		}
+	}
 	if !w.closed {
 		w.sessions[s] = struct{}{}
+		if s.char != 0 {
+			w.chars[s.char] = s
+		}
 	}
-	return s, s.enterLocked(w.pack.Start, false)
+	return s, s.enterLocked(room, false)
 }
 
 // budgetKey widens an IPv6 key to budgetPrefix bits.
@@ -342,7 +394,8 @@ func (w *World) release(client string, env *script.Env) {
 // field.
 type session struct {
 	w       *World
-	id      string // player.id: unique in the world while it runs
+	id      string // player.id: unique in the world while it runs, and for ever with a store
+	char    int64  // the character in the store; 0 without one
 	name    string
 	client  string
 	room    string
@@ -356,6 +409,9 @@ type session struct {
 	dialogs  int           // dialogs shown, for unique ids
 	items    []script.Item // what the player can click now
 	state    script.State  // state.player, shared by the player's rooms
+	dirty    []string      // state.player keys changed since the last save
+	moved    bool          // room changed since the last save
+	replaced bool          // the player connected again elsewhere: this session ended
 	changed  []string      // world keys others changed that on_change has not seen yet
 	next     string        // the room room.go moves the player to when the hook ends
 	visited  []string      // rooms entered, the latest last
@@ -394,6 +450,9 @@ const MaxMoves = 4
 func (s *session) Handle(m ws.Message) []ws.Message {
 	s.w.mu.Lock()
 	defer s.w.mu.Unlock()
+	if s.closed {
+		return []ws.Message{{Type: "error", Message: endedMessage}}
+	}
 	out := s.handle(m)
 	if len(s.queue) > 0 {
 		out = append(s.queue, out...)
@@ -423,9 +482,19 @@ func (s *session) handle(m ws.Message) []ws.Message {
 func (s *session) Close() {
 	s.w.mu.Lock()
 	defer s.w.mu.Unlock()
+	if !s.closed {
+		s.end()
+	}
+}
+
+// end is Close. The caller holds w.mu.
+func (s *session) end() {
 	s.leave()
 	s.closed = true
 	delete(s.w.sessions, s)
+	if s.char != 0 && s.w.chars[s.char] == s {
+		delete(s.w.chars, s.char)
+	}
 	s.stopTimers()
 	s.drop()
 	for _, env := range s.envs {
@@ -555,9 +624,9 @@ func (s *session) unpend() {
 	s.pending = nil
 }
 
-// enterLocked moves the player into room and runs its on_enter hook. The
-// caller holds w.mu. After room.go (moved),
-// the output so far stays in front of the new room's, and the client is
+// enterLocked moves the player into room and runs its on_enter hook; without
+// moved, the player has just joined. The caller holds w.mu. After room.go
+// (moved), the output so far stays in front of the new room's, and the client is
 // told the new room's items first, since its on_enter may not describe it.
 // A move whose room cannot start, or whose on_enter cannot run yet because
 // the player's address used up its Lua time, leaves the player where they
@@ -569,6 +638,11 @@ func (s *session) enterLocked(room string, moved bool) []ws.Message {
 	}
 	if !moved {
 		s.place(room)
+		if room != s.w.pack.Start {
+			// A player who continues elsewhere learns the room's items as
+			// after a move: its on_enter may not describe it.
+			s.out = append(s.out, ws.Message{Type: "items", Items: wsItems(s.items)})
+		}
 		env, err := s.env(room)
 		if err != nil {
 			return s.after(nil, err)
@@ -613,6 +687,7 @@ func (s *session) onEnter() script.Hook {
 // room's timers instead of the old room's.
 func (s *session) place(room string) {
 	if room != s.room {
+		s.moved = true
 		s.showRoomTimers(s.room, room)
 		s.w.arrivals++
 		s.arrived = s.w.arrivals
@@ -849,6 +924,7 @@ func logText(err error) string {
 // flush returns the output of the call, and tells the other players what
 // the call changed in state.world. The caller holds w.mu.
 func (s *session) flush() []ws.Message {
+	s.w.save(s)
 	if len(s.w.changed) > 0 {
 		s.w.announce(s, s.w.changed)
 		s.w.changed = nil

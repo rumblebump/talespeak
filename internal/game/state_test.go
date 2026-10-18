@@ -14,7 +14,7 @@ func TestStatePlayerAcrossRooms(t *testing.T) {
 function on_enter() say("A sees " .. tostring(state.player.get("nail"))) end
 function on_click() state.player.set("nail", true) room.go("b") end`,
 		`function on_enter() say("B sees " .. tostring(state.player.get("nail"))) end`)
-	s1, first := w.NewSession("192.0.2.1/32")
+	s1, first := w.NewSession("192.0.2.1/32", ws.Who{})
 	defer s1.Close()
 	if texts(first) != "A sees nil" {
 		t.Fatalf("first = %q", texts(first))
@@ -22,7 +22,7 @@ function on_click() state.player.set("nail", true) room.go("b") end`,
 	if got := texts(s1.Handle(ws.Message{Type: "click", Item: "box"})); got != "items:rope | B sees true" {
 		t.Errorf("click = %q", got)
 	}
-	s2, first := w.NewSession("192.0.2.2/32")
+	s2, first := w.NewSession("192.0.2.2/32", ws.Who{})
 	defer s2.Close()
 	if texts(first) != "A sees nil" {
 		t.Errorf("another player sees %q", texts(first))
@@ -56,7 +56,7 @@ end`
 	defer w.Close()
 	var said []string
 	for i := range 3 {
-		s, first := w.NewSession("")
+		s, first := w.NewSession("", ws.Who{})
 		defer s.Close()
 		if len(first) != 1 {
 			t.Fatalf("player %d: %+v", i, first)
@@ -72,7 +72,7 @@ end`
 		t.Fatal(err)
 	}
 	defer w2.Close()
-	a, first := w2.NewSession("192.0.2.1/32")
+	a, first := w2.NewSession("192.0.2.1/32", ws.Who{})
 	defer a.Close()
 	if first[0].Text != "true nil" {
 		t.Fatalf("first player: %+v", first)
@@ -81,7 +81,7 @@ end`
 	w2.mu.Lock()
 	w2.clientMemory = w2.clientKept("192.0.2.1/32") + a.(*session).state.Size()/2
 	w2.mu.Unlock()
-	b, first := w2.NewSession("192.0.2.1/32")
+	b, first := w2.NewSession("192.0.2.1/32", ws.Who{})
 	defer b.Close()
 	if len(first) != 1 || !strings.Contains(first[0].Text, "too many players from this network") {
 		t.Errorf("second player of the address: %+v", first)

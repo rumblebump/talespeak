@@ -119,7 +119,7 @@ func TestRoomGoTargetRefused(t *testing.T) {
 		w := limitedRooms(t, edgeA, edgeB(""), script.DefaultLimits)
 		clk := &stepClock{t: time.Unix(1e9, 0)}
 		w.now = clk.now
-		s, _ := w.NewSession("192.0.2.1")
+		s, _ := w.NewSession("192.0.2.1", ws.Who{})
 		defer s.Close()
 		for range visits {
 			for _, m := range []ws.Message{{Type: "click", Item: "box"}, {Type: "input", Text: "back"}} {
@@ -140,7 +140,7 @@ func TestRoomGoTargetRefused(t *testing.T) {
 
 	t.Run("client memory share used up (ErrClientFull)", func(t *testing.T) {
 		w := limitedRooms(t, edgeA, edgeB(""), script.DefaultLimits, WithClientMemory(1))
-		s, _ := w.NewSession("192.0.2.1")
+		s, _ := w.NewSession("192.0.2.1", ws.Who{})
 		defer s.Close()
 		if got := texts(s.Handle(ws.Message{Type: "input", Text: "grow"})); got != "kept" {
 			t.Fatalf("grow = %q", got)
@@ -153,7 +153,7 @@ func TestRoomGoTargetRefused(t *testing.T) {
 		w := limitedRooms(t, `x = string.rep("x", 1e6) .. "!"
 function on_enter() say("A") room.go("b") end
 function on_click() say("leaving A") room.go("b") end`, edgeB(""), script.DefaultLimits, WithClientMemory(1))
-		s, first := w.NewSession("192.0.2.1")
+		s, first := w.NewSession("192.0.2.1", ws.Who{})
 		defer s.Close()
 		if got := texts(first); !strings.HasPrefix(got, "A | error") {
 			t.Errorf("first = %q", got)
@@ -163,13 +163,13 @@ function on_click() say("leaving A") room.go("b") end`, edgeB(""), script.Defaul
 
 	t.Run("world memory used up (ErrFull)", func(t *testing.T) {
 		w := limitedRooms(t, edgeA, edgeB(`big = {} for i = 1, 3 do big[i] = string.rep("y", 1e6) .. i end`), big)
-		other, _ := w.NewSession("")
+		other, _ := w.NewSession("", ws.Who{})
 		for range 4 { // 4 MB of the 6 MiB; b's top level keeps 3 MB more
 			if got := texts(other.Handle(ws.Message{Type: "input", Text: "grow"})); got != "kept" {
 				t.Fatalf("grow = %q", got)
 			}
 		}
-		s, _ := w.NewSession("")
+		s, _ := w.NewSession("", ws.Who{})
 		defer s.Close()
 		got := s.Handle(ws.Message{Type: "click", Item: "box"})
 		stayedAfterRefusedMove(t, s, got, "full", other.Close, 1)
@@ -183,7 +183,7 @@ func TestRoomGoBusyKeepsScriptItems(t *testing.T) {
 		edgeB(""), script.DefaultLimits)
 	clk := &stepClock{t: time.Unix(1e9, 0)}
 	w.now = clk.now
-	s, _ := w.NewSession("192.0.2.1")
+	s, _ := w.NewSession("192.0.2.1", ws.Who{})
 	defer s.Close()
 	for _, m := range []ws.Message{{Type: "click", Item: "box"}, {Type: "input", Text: "back"}} {
 		s.Handle(m) // b has an instance now
@@ -206,7 +206,7 @@ func TestRoomGoTargetStateMemoryReset(t *testing.T) {
 	w := limitedRooms(t, edgeA, `keep = {}
 function on_enter() for i = 1, 3 do keep[i] = string.rep("z", 1e6) .. i end say("B") end
 function on_input(p, text) say("B has " .. #keep) room.go(text) end`, limits)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	got := s.Handle(ws.Message{Type: "click", Item: "box"})
 	if !strings.HasSuffix(kinds(got), "error:") || !strings.Contains(got[len(got)-1].Message, "limits") {
@@ -229,7 +229,7 @@ func TestRoomGoFailingHookStateMemory(t *testing.T) {
 	w := limitedRooms(t, `keep = {}
 function on_click() room.go("b") for i = 1, 3 do keep[i] = string.rep("z", 1e6) .. i end end
 function on_input() say("A has " .. #keep) end`, edgeB(""), limits)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	got := s.Handle(ws.Message{Type: "click", Item: "box"})
 	if kinds(got) != "error:" {
@@ -254,7 +254,7 @@ func TestRoomGoAtStart(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.to, func(t *testing.T) {
 			w := limitedRooms(t, `n = 0 function on_enter() n = n + 1 say("A") if n == 1 then room.go("`+tt.to+`") end end`, edgeB(""), script.DefaultLimits)
-			s, first := w.NewSession("192.0.2.1")
+			s, first := w.NewSession("192.0.2.1", ws.Who{})
 			defer s.Close()
 			if got := texts(first); got != tt.want {
 				t.Fatalf("first = %q, want %q", got, tt.want)
@@ -277,7 +277,7 @@ function on_enter(p) say("A " .. p.room) end`,
 		`function on_enter(p) say("B " .. p.room) end
 function on_click(p, id) say(id .. " in " .. p.room) end
 function on_input(p, text) local s = ui.ask("?") say(s .. " in " .. p.room) room.go(s) end`, script.DefaultLimits)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	steps := []struct {
 		m    ws.Message
@@ -298,7 +298,7 @@ function on_input(p, text) local s = ui.ask("?") say(s .. " in " .. p.room) room
 // A move replaces items set with ui.items in the old room.
 func TestRoomGoReplacesScriptItems(t *testing.T) {
 	w := limitedRooms(t, `function on_click() ui.items({{id = "lever", label = "a lever"}}) room.go("b") end`, edgeB(""), script.DefaultLimits)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	if got := texts(s.Handle(ws.Message{Type: "click", Item: "box"})); got != "items:lever | items:rope | B b" {
 		t.Fatalf("click = %q", got)
@@ -312,7 +312,7 @@ func TestRoomGoReplacesScriptItems(t *testing.T) {
 // the question is closed and the player stays.
 func TestRoomGoUnknownAfterAnswer(t *testing.T) {
 	w := limitedRooms(t, `function on_input() room.go(ui.ask("Where?")) end`, edgeB(""), script.DefaultLimits)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	if got := kinds(s.Handle(ws.Message{Type: "input", Text: "x"})); got != "ask:d1" {
 		t.Fatalf("input = %q", got)
@@ -334,7 +334,7 @@ func TestRoomGoMaxMovesBoundary(t *testing.T) {
 	w := limitedRooms(t, `
 function on_input(p, text) left = tonumber(text) room.go("a") end
 function on_enter() if left and left > 1 then left = left - 1 room.go("a") end end`, edgeB(""), script.DefaultLimits)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	for _, tt := range []struct {
 		moves int
@@ -357,8 +357,8 @@ function on_enter() if left and left > 1 then left = left - 1 room.go("a") end e
 // A world that closed refuses moves: the player stays, and nothing runs.
 func TestRoomGoWorldClosed(t *testing.T) {
 	w := limitedRooms(t, edgeA, edgeB(""), script.DefaultLimits)
-	s, _ := w.NewSession("")
-	waiting, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
+	waiting, _ := w.NewSession("", ws.Who{})
 	if got := texts(waiting.Handle(ws.Message{Type: "input", Text: "b"})); got != "items:rope | B b" {
 		t.Fatalf("waiting = %q", got)
 	}
@@ -378,7 +378,7 @@ func TestRoomGoWorldClosed(t *testing.T) {
 	s.Close()
 	waiting.Close()
 	// A new player on a closed world gets the error, not a half started room.
-	ns, first := w.NewSession("")
+	ns, first := w.NewSession("", ws.Who{})
 	defer ns.Close()
 	if kinds(first) != "error:" {
 		t.Errorf("NewSession on a closed world = %+v", first)
@@ -405,7 +405,7 @@ func TestConcurrentMovesAndClose(t *testing.T) {
 			if i%2 == 1 {
 				client = "192.0.2.1"
 			}
-			s, first := w.NewSession(client)
+			s, first := w.NewSession(client, ws.Who{})
 			defer s.Close()
 			if len(first) == 0 {
 				errs <- fmt.Errorf("player %d: no first messages", i)
@@ -476,7 +476,7 @@ func FuzzRoomGoSession(f *testing.F) {
 	}
 	f.Cleanup(w.Close)
 	f.Fuzz(func(t *testing.T, text string) {
-		s, _ := w.NewSession("")
+		s, _ := w.NewSession("", ws.Who{})
 		defer s.Close()
 		got := s.Handle(ws.Message{Type: "input", Text: text})
 		line := cleanInput(text)

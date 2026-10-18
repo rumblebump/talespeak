@@ -9,7 +9,9 @@ import (
 // orderGame's sessions record a Handle that came before SetNotify.
 type orderGame struct{ early *atomic.Int32 }
 
-func (g orderGame) NewSession(string) (Session, []Message) { return &orderSession{early: g.early}, nil }
+func (g orderGame) NewSession(string, Who) (Session, []Message) {
+	return &orderSession{early: g.early}, nil
+}
 
 type orderSession struct {
 	mu    sync.Mutex

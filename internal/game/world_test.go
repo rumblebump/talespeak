@@ -47,9 +47,9 @@ end`
 
 func TestWorldStateShared(t *testing.T) {
 	w, c := clockWorld(t, worldRoom, timerRoomB)
-	a, _ := w.NewSession("")
+	a, _ := w.NewSession("", ws.Who{})
 	defer a.Close()
-	b, _ := w.NewSession("")
+	b, _ := w.NewSession("", ws.Who{})
 	defer b.Close()
 	if got := texts(a.Handle(ws.Message{Type: "input", Text: "open"})); got != "true" {
 		t.Fatalf("set = %s", got)
@@ -73,9 +73,9 @@ func TestWorldStateShared(t *testing.T) {
 // Changes made before a delivery reach on_change once, together.
 func TestWorldChangesCoalesce(t *testing.T) {
 	w, c := clockWorld(t, worldRoom, timerRoomB)
-	a, _ := w.NewSession("")
+	a, _ := w.NewSession("", ws.Who{})
 	defer a.Close()
-	b, _ := w.NewSession("")
+	b, _ := w.NewSession("", ws.Who{})
 	defer b.Close()
 	a.Handle(ws.Message{Type: "input", Text: "open"})
 	a.Handle(ws.Message{Type: "input", Text: "both"})
@@ -94,7 +94,7 @@ func TestWorldUpdate(t *testing.T) {
 	w, _ := clockWorld(t, worldRoom, timerRoomB)
 	var got []string
 	for range 10 {
-		s, _ := w.NewSession("")
+		s, _ := w.NewSession("", ws.Who{})
 		defer s.Close()
 		got = append(got, texts(s.Handle(ws.Message{Type: "input", Text: "take"})))
 		s.Handle(ws.Message{Type: "input", Text: "count"})
@@ -102,7 +102,7 @@ func TestWorldUpdate(t *testing.T) {
 	if got[0] != "true true" || strings.Count(strings.Join(got, ";"), "true true") != 1 {
 		t.Errorf("takers: %q", got)
 	}
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	if got := texts(s.Handle(ws.Message{Type: "input", Text: "count"})); got != "11" {
 		t.Errorf("count = %s", got)
@@ -111,7 +111,7 @@ func TestWorldUpdate(t *testing.T) {
 
 func TestWorldUpdateRefuses(t *testing.T) {
 	w, _ := clockWorld(t, worldRoom, timerRoomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	for _, text := range []string{"wait", "nested"} {
 		if got := s.Handle(ws.Message{Type: "input", Text: text}); !isError(got) {
@@ -132,9 +132,9 @@ func TestWorldUpdateRefuses(t *testing.T) {
 // leaves the question open.
 func TestWorldChangeWhileAsking(t *testing.T) {
 	w, c := clockWorld(t, worldRoom, timerRoomB)
-	a, _ := w.NewSession("")
+	a, _ := w.NewSession("", ws.Who{})
 	defer a.Close()
-	b, _ := w.NewSession("")
+	b, _ := w.NewSession("", ws.Who{})
 	defer b.Close()
 	b.Handle(ws.Message{Type: "input", Text: "ask"})
 	a.Handle(ws.Message{Type: "input", Text: "open"})
@@ -151,9 +151,9 @@ func TestWorldChangeWhileAsking(t *testing.T) {
 // every key that changed meanwhile.
 func TestWorldChangeWaitsForBudget(t *testing.T) {
 	w, c := clockWorld(t, worldRoom, timerRoomB, WithClientBudget(time.Second, time.Second))
-	a, _ := w.NewSession("")
+	a, _ := w.NewSession("", ws.Who{})
 	defer a.Close()
-	b, _ := w.NewSession("192.0.2.2")
+	b, _ := w.NewSession("192.0.2.2", ws.Who{})
 	defer b.Close()
 	w.mu.Lock()
 	w.budgets["192.0.2.2"].left = -0.25
@@ -173,11 +173,11 @@ func TestWorldChangeWaitsForBudget(t *testing.T) {
 // A room without on_change, and a player who left, get nothing.
 func TestWorldChangeWithoutHook(t *testing.T) {
 	w, c := clockWorld(t, worldRoom, timerRoomB)
-	a, _ := w.NewSession("")
+	a, _ := w.NewSession("", ws.Who{})
 	defer a.Close()
-	b, _ := w.NewSession("")
+	b, _ := w.NewSession("", ws.Who{})
 	defer b.Close()
-	gone, _ := w.NewSession("")
+	gone, _ := w.NewSession("", ws.Who{})
 	gone.Close()
 	w.mu.Lock()
 	b.(*session).room = "b" // room b has no on_change
@@ -201,7 +201,7 @@ function on_input(p, text)
     if not ok then say(err) return end
   end
 end`, timerRoomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	for i := range 6 {
 		got := texts(s.Handle(ws.Message{Type: "input", Text: strconv.Itoa(i)}))
