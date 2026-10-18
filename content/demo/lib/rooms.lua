@@ -1,8 +1,9 @@
 -- Helpers every room of the demo uses: Whisp the guide, the guard's
--- countdown and solved rooms. A room script loads them with
--- require("rooms"); the module shares the script's globals, so the
--- functions below become the script's own. The values live in
--- state.player, so every room sees the same ones.
+-- countdown, solved rooms and the code of the key box. A room script
+-- loads them with require("rooms"); the module shares the script's
+-- globals, so the functions below become the script's own. The values
+-- live in state.player, so every room sees the same ones; the box code
+-- lives in state.world, so every player of the world sees the same one.
 --
 -- Only function definitions here: a module required at a script's top
 -- level also runs at world start, for no player, where say, ui and
@@ -66,4 +67,31 @@ function go(id)
   end
   room.go(id)
   return true
+end
+
+-- box_code is the code of the key box in the guard room: three digits as
+-- a string, like "417". Every world picks its own the first time a player
+-- needs it, so a new world has a new code, and keeps it in state.world, so
+-- the note under the stone and the box agree for every player of the
+-- world. Returns nil when the world cannot keep it; the player hears so.
+function box_code()
+  local code = state.world.get("box_code")
+  if code then
+    return code
+  end
+  local new = string.format("%03d", math.random(0, 999))
+  local ok = state.world.update("box_code", function(v)
+    return v or new -- two players at once: the first code stays
+  end)
+  if not ok then
+    say("(The game cannot remember that right now. Try again in a moment.)")
+    return nil
+  end
+  return state.world.get("box_code")
+end
+
+-- spelled is a code with spaces between its digits, as on the note:
+-- "417" is "4 1 7".
+function spelled(code)
+  return string.sub(code, 1, 1) .. " " .. string.sub(code, 2, 2) .. " " .. string.sub(code, 3, 3)
 end

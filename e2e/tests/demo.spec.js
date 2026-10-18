@@ -64,7 +64,9 @@ test("demo: guard, straw, wall map, riddle, corridor and escape", async ({ page 
   // The corridor: the X from the wall map hides the code.
   await expect(story.locator(".room-title").last()).toHaveText("A dark corridor");
   await page.getByRole("button", { name: "stone with an X" }).click();
-  await expect(story).toContainText("BOX 4 1 7");
+  // Every world picks its own code: read it from the note.
+  await expect(story).toContainText(/BOX \d \d \d/);
+  const code = (await story.textContent()).match(/BOX (\d \d \d)/)[1];
   // The cell is solved: Whisp asks before the player goes back in.
   await page.getByRole("button", { name: "your cell" }).click();
   await expect(page.getByRole("group", { name: /locked in again/ })).toBeVisible();
@@ -76,7 +78,7 @@ test("demo: guard, straw, wall map, riddle, corridor and escape", async ({ page 
   await expect(story.locator(".room-title").last()).toHaveText("The guard room");
   await page.getByRole("button", { name: "iron box with number wheels" }).click();
   await expect(page.getByRole("group", { name: /Three number wheels/ })).toBeVisible();
-  await input.fill("4 1 7");
+  await input.fill(code);
   await input.press("Enter");
   await expect(story).toContainText("big iron key");
   // With the key, the corridor is solved and its door is gone.

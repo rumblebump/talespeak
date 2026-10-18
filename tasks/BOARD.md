@@ -23,6 +23,7 @@ Nothing here.
 | [T-0016](open/T-0016-world-visibility.md) | Public, invite-only and secret worlds with player limits | feature | medium |
 | [T-0017](open/T-0017-speech-to-text.md) | Speech to text, private by default | feature | medium |
 | [T-0018](open/T-0018-persistent-state.md) | Player, world and game state stored in SQLite | feature | high |
+| [T-0033](open/T-0033-sandbox-math-random.md) | Sandbox math.random without a process-wide seed | chore | low |
 
 ## Done
 
@@ -46,3 +47,4 @@ Nothing here.
 | [T-0029](done/T-0029-session-timers.md) | Timers and question timeouts for the session, first slice of T-0012 | feature | high |
 | [T-0030](done/T-0030-world-state.md) | state.world shared by a world's players, slice of T-0018 | feature | high |
 | [T-0031](done/T-0031-party-primitives.md) | Who is in a room, leaving the world, and room timers | feature | high |
+| [T-0032](done/T-0032-demo-box-code-per-world.md) | Demo key box code picked anew in every world | feature | low |
