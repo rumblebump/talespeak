@@ -2,7 +2,7 @@
 import { test, expect, open } from "./fixtures.js";
 import { DEMO_URL } from "../playwright.config.js";
 
-test("demo: guard, straw, wall map, riddle and escape", async ({ page }) => {
+test("demo: guard, straw, wall map, riddle, corridor and escape", async ({ page }) => {
   await open(page, DEMO_URL + "/");
   const story = page.locator(".story");
   await expect(story.locator(".room-title")).toHaveText("A damp cell");
@@ -58,6 +58,21 @@ test("demo: guard, straw, wall map, riddle and escape", async ({ page }) => {
   await expect(story).toContainText("The lock opens!");
   await expect(page.getByRole("group", { name: /I have bars/ })).toBeHidden();
   await page.getByRole("button", { name: "open cell door" }).click();
+
+  // The corridor: the X from the wall map hides the code.
+  await expect(story.locator(".room-title").last()).toHaveText("A dark corridor");
+  await page.getByRole("button", { name: "stone with an X" }).click();
+  await expect(story).toContainText("BOX 4 1 7");
+  await page.getByRole("button", { name: "door marked GUARDS" }).click();
+
+  // The guard room: the code opens the box, its key the back door.
+  await expect(story.locator(".room-title").last()).toHaveText("The guard room");
+  await page.getByRole("button", { name: "iron box with number wheels" }).click();
+  await expect(page.getByRole("group", { name: /Three number wheels/ })).toBeVisible();
+  await input.fill("4 1 7");
+  await input.press("Enter");
+  await expect(story).toContainText("big iron key");
+  await page.getByRole("button", { name: "narrow back door" }).click();
   await expect(story).toContainText("You escaped. Well done!");
   await expect(story).toContainText("THE END.");
   await expect(page.getByRole("navigation")).toBeHidden();
