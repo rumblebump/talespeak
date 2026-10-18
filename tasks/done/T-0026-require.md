@@ -1,0 +1,24 @@
+---
+id: T-0026
+title: Shared Lua modules with require
+type: feature
+priority: high
+created: 2026-10-18
+depends: [T-0003]
+---
+
+## Goal
+
+A pack writes a helper once and every room script uses it. The content thread asked for it because the demo had to copy a 25-line helper into each room. It is the first core primitive from T-0020: the item take rules will be a Lua module too.
+
+## Acceptance
+
+- [x] `require("name")` loads `lib/<name>.lua` from the pack. Names are like room ids: no folders and no `.lua`
+- [x] The module runs at most once per script instance, with that instance's globals, and what it returns is cached (true when it returns nothing)
+- [x] A missing module, an error in a module, and a cycle are script errors. A failed require caches nothing, so the next one runs the module again (globals it set before the error stay, as documented)
+- [x] Modules have the same size and lint rules as scripts, at most 100 per pack, and nothing but modules goes in `lib/`
+- [x] What a module returns counts toward the instance's memory
+- [x] The test pack uses a module, so the Playwright tests run it
+- [x] Docs: `docs/content-format.md` and `docs/lua-sandbox.md`
+
+Design: the Talespeak Engine Design doc, https://claude.ai/code/artifact/15bc0469-681c-4afa-b7b9-5d227560ebc6

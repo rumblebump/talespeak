@@ -123,6 +123,11 @@ func TestLoadErrors(t *testing.T) {
 		{"script absolute", map[string]*string{"rooms/r.yaml": s(goodRoom + "script: /etc/r.lua\n")}, []string{"rooms/r.yaml", "script"}},
 		{"script backslash", map[string]*string{"rooms/r.yaml": s(goodRoom + "script: \"..\\\\r.lua\"\n")}, []string{"rooms/r.yaml", "script"}},
 		{"script too large", map[string]*string{"rooms/r.yaml": s(goodRoom + "script: r.lua\n"), "scripts/r.lua": s(long(MaxScriptBytes + 1))}, []string{"rooms/r.yaml", "larger than"}},
+		{"module too large", map[string]*string{"lib/m.lua": s(long(MaxScriptBytes + 1))}, []string{"lib/m.lua", "larger than"}},
+		{"module not lua", map[string]*string{"lib/m.txt": s("x=1")}, []string{"lib/m.txt", "<name>.lua"}},
+		{"module upper case", map[string]*string{"lib/Rooms.lua": s("x=1")}, []string{"lib/Rooms.lua", "<name>.lua"}},
+		{"module in a folder", map[string]*string{"lib/sub/m.lua": s("x=1")}, []string{"lib/sub", "<name>.lua"}},
+		{"module external url", map[string]*string{"lib/m.lua": s(`x = "https://example.com/x.js"`)}, []string{"lib/m.lua"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -139,6 +144,31 @@ func TestLoadErrors(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLoadModules(t *testing.T) {
+	p, err := Load(fsWith(map[string]*string{
+		"lib/rooms.lua":    s("return {}"),
+		"lib/my_mod-2.lua": s("x = 1"),
+		"lib/.hidden.lua":  s("ignored"),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Modules) != 2 || p.Modules["rooms"] != "return {}" || p.Modules["my_mod-2"] != "x = 1" {
+		t.Errorf("Modules = %q", p.Modules)
+	}
+	files := map[string]*string{}
+	for i := range MaxModules + 1 {
+		files["lib/m"+strconv.Itoa(i)+".lua"] = s("")
+	}
+	if _, err := Load(fsWith(files)); err == nil || !strings.Contains(err.Error(), "more than 100 modules") {
+		t.Errorf("too many modules: %v", err)
+	}
+	delete(files, "lib/m0.lua")
+	if _, err := Load(fsWith(files)); err != nil {
+		t.Errorf("MaxModules modules: %v", err)
 	}
 }
 

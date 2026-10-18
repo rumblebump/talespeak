@@ -109,6 +109,7 @@ func (r *Runtime) openSandbox() *lua.LTable {
 
 	lib.RawSetString("math", r.readOnly(full.RawGetString("math").(*lua.LTable)))
 
+	lib.RawSetString("require", L.NewFunction(r.require))
 	lib.RawSetString("say", L.NewFunction(r.say))
 	room := L.NewTable()
 	room.RawSetString("describe", L.NewFunction(r.describe))

@@ -40,3 +40,4 @@ Nothing here.
 | [T-0022](done/T-0022-room-go.md) | Scripts move players between rooms | feature | high |
 | [T-0023](done/T-0023-session-player-state.md) | state.player for the session, first slice of T-0018 | feature | high |
 | [T-0025](done/T-0025-solved-rooms.md) | Solved rooms and Whisp's warnings in the demo | feature | medium |
+| [T-0026](done/T-0026-require.md) | Shared Lua modules with require | feature | high |

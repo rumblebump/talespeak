@@ -218,7 +218,9 @@ func TestSandboxHidesUnsafeGlobals(t *testing.T) {
 	defer r.Close()
 	names := []string{"io", "os", "debug", "package", "channel", "coroutine",
 		"collectgarbage", "dofile", "getfenv", "load", "loadfile", "loadstring",
-		"module", "newproxy", "print", "require", "setfenv", "_printregs"}
+		"module", "newproxy", "print", "setfenv", "_printregs"}
+	// require is the sandbox's own: it runs only the pack's lib modules
+	// (require_test.go), never Lua's package loader.
 	for _, name := range names {
 		env := load(t, r, `function on_enter() say(type(`+name+`)) end`)
 		h := &recorder{}
