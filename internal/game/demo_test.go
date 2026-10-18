@@ -932,28 +932,23 @@ func TestDemoRoomsFitInstances(t *testing.T) {
 	}
 }
 
-// Each room script carries the same copy of the shared helpers (whisp,
-// the countdown, solved rooms) until packs can share a module.
+// Every room loads the shared helpers from lib/rooms.lua instead of
+// carrying its own copy.
 func TestDemoSharedHelpersSame(t *testing.T) {
 	w := shippedDemo(t)
-	const mark = "-- Shared by the demo's rooms:"
-	var first, firstRoom string
+	lib := w.pack.Modules["rooms"]
+	for _, fn := range []string{"function whisp(", "function whisp_ask(", "function keep(", "function guard_away(", "function set_guard_away(", "function solve(", "function solved(", "function go("} {
+		if !strings.Contains(lib, fn) {
+			t.Errorf("lib/rooms.lua lacks %q", fn)
+		}
+	}
 	for _, id := range []string{"cell", "corridor", "guardroom"} {
 		src := w.pack.Rooms[id].Source
-		i := strings.Index(src, mark)
-		if i < 0 {
-			t.Fatalf("%s: no shared helpers", id)
+		if !strings.Contains(src, `require("rooms")`) {
+			t.Errorf("%s does not require rooms", id)
 		}
-		block := src[i:]
-		for _, fn := range []string{"function whisp(", "function guard_away(", "function set_guard_away(", "function solve(", "function solved(", "function go("} {
-			if !strings.Contains(block, fn) {
-				t.Errorf("%s: shared helpers lack %q", id, fn)
-			}
-		}
-		if first == "" {
-			first, firstRoom = block, id
-		} else if block != first {
-			t.Errorf("%s: shared helpers differ from %s's", id, firstRoom)
+		if strings.Contains(src, "function go(") {
+			t.Errorf("%s still has its own copy of the helpers", id)
 		}
 	}
 }
