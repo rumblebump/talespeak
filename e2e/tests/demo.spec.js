@@ -2,7 +2,7 @@
 import { test, expect, open } from "./fixtures.js";
 import { DEMO_URL } from "../playwright.config.js";
 
-test("demo: guard, straw and the wall map", async ({ page }) => {
+test("demo: guard, straw, wall map, riddle and escape", async ({ page }) => {
   await open(page, DEMO_URL + "/");
   const story = page.locator(".story");
   await expect(story.locator(".room-title")).toHaveText("A damp cell");
@@ -22,14 +22,55 @@ test("demo: guard, straw and the wall map", async ({ page }) => {
   await expect(page.locator("dialog.picture img")).toHaveAttribute("src", /^\/packs\/demo\/assets\/wall-map-(clear|faint)\.png$/);
   await page.keyboard.press("Escape");
 
+  // While the guard watches, the door is a bad idea.
+  await page.getByRole("button", { name: "lock with letter wheels" }).click();
+  await page.getByRole("button", { name: "Better not" }).click();
+  await expect(story).toContainText("You step back from the door.");
+
+  // Two more cups empty his bottle, and he goes to refill it.
+  await page.getByRole("button", { name: "sleepy guard" }).click();
+  await page.getByRole("button", { name: "Ask for water" }).click();
+  await expect(story).toContainText("\"Again?\"");
+  await page.getByRole("button", { name: "sleepy guard" }).click();
+  await page.getByRole("button", { name: "Ask for water" }).click();
+  await expect(story).toContainText("stomps off down the corridor");
+  await expect(page.getByRole("button", { name: "empty stool" })).toBeVisible();
+
   await page.getByRole("button", { name: "lock with letter wheels" }).click();
   await expect(page.getByRole("navigation")).toBeHidden();
-  await input.fill("cel");
+  await input.fill("A piano.");
   await input.press("Enter");
-  await expect(story).toContainText('You turn the wheels to "cel". Nothing happens.');
+  // The question stays in the story after the box closes, then the answer.
+  await expect(story.locator(".asked").last()).toHaveText("I have bars but no drinks, and you are standing in me. What am I?");
+  await expect(story.locator(".you").last()).toHaveText("A piano.");
+  await expect(story).toContainText("the answer is one word of four letters.");
+  await page.getByRole("button", { name: "lock with letter wheels" }).click();
+  await input.fill("door");
+  await input.press("Enter");
+  await expect(story).toContainText("You turn the wheels to DOOR. Nothing happens.");
+  await expect(story).toContainText("Hint: look around you.");
   await input.fill("open the lock");
   await input.press("Enter");
   await input.fill("CELL");
   await input.press("Enter");
   await expect(story).toContainText("The lock opens!");
+  await expect(page.getByRole("group", { name: /I have bars/ })).toBeHidden();
+  await page.getByRole("button", { name: "open cell door" }).click();
+  await expect(story).toContainText("You escaped. Well done!");
+  await expect(story).toContainText("THE END.");
+  await expect(page.getByRole("navigation")).toBeHidden();
+});
+
+test("demo: trying the door while the guard watches", async ({ page }) => {
+  await open(page, DEMO_URL + "/");
+  const story = page.locator(".story");
+  const input = page.getByRole("textbox");
+  await input.fill("open the door");
+  await input.press("Enter");
+  await page.getByRole("button", { name: "Yes, quickly" }).click();
+  await expect(story).toContainText("SLAP!");
+  await expect(story).toContainText("After a few days, you die.");
+  await input.fill("search the straw");
+  await input.press("Enter");
+  await expect(story).toContainText("The story has ended.");
 });
