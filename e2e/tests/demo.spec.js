@@ -91,3 +91,25 @@ test("demo: trying the door while the guard watches", async ({ page }) => {
   await input.press("Enter");
   await expect(story).toContainText("The story has ended.");
 });
+
+test("demo: caught on the stairs after leaving the cell", async ({ page }) => {
+  await open(page, DEMO_URL + "/");
+  const story = page.locator(".story");
+  const input = page.getByRole("textbox");
+  for (let i = 0; i < 3; i++) {
+    await page.getByRole("button", { name: "sleepy guard" }).click();
+    await page.getByRole("button", { name: "Ask for water" }).click();
+  }
+  await expect(story).toContainText("stomps off down the corridor");
+  await page.getByRole("button", { name: "lock with letter wheels" }).click();
+  await expect(page.getByRole("group", { name: /I have bars/ })).toBeVisible();
+  await input.fill("cell");
+  await input.press("Enter");
+  await page.getByRole("button", { name: "open cell door" }).click();
+  await expect(story.locator(".room-title").last()).toHaveText("A dark corridor");
+  await page.getByRole("button", { name: "stairs down" }).click();
+  await page.getByRole("button", { name: "Yes, go down" }).click();
+  await expect(story).toContainText("straight into the guard");
+  await expect(story).toContainText("THE END.");
+  await expect(page.getByRole("navigation")).toBeHidden();
+});

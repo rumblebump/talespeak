@@ -35,25 +35,34 @@ function on_click(player, item)
   elseif item == "backdoor" then
     back_door()
   elseif item == "corridor" then
-    say("You step back into the corridor.")
-    room.go("corridor")
+    to_corridor()
   end
 end
 
+-- Typed words, checked from the most to the least specific: "unlock the
+-- back door with the key from the box" is the back door.
 function on_input(player, text)
   if not act() then
     return
   end
-  local t = string.lower(text)
-  if has(t, "box") or has(t, "wheel") or has(t, "code") then
+  local t = spaced(text)
+  if has(t, "corridor") then
+    to_corridor()
+  elseif has(t, "back door") or has(t, "backdoor") or has(t, "keyhole") or has(t, "escape")
+      or word(t, "leave") or word(t, "out") then
+    back_door()
+  elseif has(t, "box") or has(t, "wheel") or has(t, "code") then
     open_box()
+  elseif has(t, "key") then
+    back_door()
   elseif has(t, "card") or has(t, "table") or has(t, "sausage") then
     cards()
-  elseif has(t, "back door") or has(t, "keyhole") or has(t, "key") or has(t, "escape") then
-    back_door()
-  elseif has(t, "corridor") or has(t, "back") then
-    say("You step back into the corridor.")
-    room.go("corridor")
+  elseif has(t, "door") then
+    say("Which door: the narrow back door, or the door to the corridor?")
+  elseif word(t, "back") then
+    to_corridor()
+  elseif #digits(t) >= 3 then
+    say("Numbers for the box? Click the box or type \"open the box\" to turn its wheels.")
   elseif has(t, "help") then
     say("Try: open the box, look at the cards, open the back door, go back to the corridor.")
   else
@@ -61,8 +70,37 @@ function on_input(player, text)
   end
 end
 
-function has(text, word)
-  return string.find(text, word, 1, true) ~= nil
+function has(text, part)
+  return string.find(text, part, 1, true) ~= nil
+end
+
+-- spaced turns text into lowercase words between single spaces, with a
+-- space at both ends, so word() matches whole words only ("x" but not
+-- "box", "out" but not "about").
+function spaced(text)
+  local out = { " " }
+  local t = string.lower(text)
+  for i = 1, #t do
+    local c = string.sub(t, i, i)
+    if (c >= "a" and c <= "z") or (c >= "0" and c <= "9") then
+      out[#out + 1] = c
+    elseif out[#out] ~= " " then
+      out[#out + 1] = " "
+    end
+  end
+  if out[#out] ~= " " then
+    out[#out + 1] = " "
+  end
+  return table.concat(out)
+end
+
+function word(t, w)
+  return string.find(t, " " .. w .. " ", 1, true) ~= nil
+end
+
+function to_corridor()
+  say("You step back into the corridor.")
+  room.go("corridor")
 end
 
 -- act runs before every action: it counts the guard's time away and

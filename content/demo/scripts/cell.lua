@@ -61,7 +61,7 @@ function on_input(player, text)
     talk(player)
   elseif has(t, "wall") or has(t, "scratch") or has(t, "map") then
     look_at_wall()
-  elseif has(t, "lock") or has(t, "door") or has(t, "escape") or has(t, "leave") then
+  elseif has(t, "lock") or has(t, "door") or has(t, "escape") or has(t, "leave") or has(t, "corridor") or t == "out" or has(t, "go out") then
     try_door()
   elseif has(t, "help") then
     say("Try: search the straw, talk to the guard, look at the wall, open the lock.")
