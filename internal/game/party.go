@@ -62,8 +62,10 @@ func (s *session) Players() []script.Player {
 
 // leave runs on_leave(player) in the room the player is in as they leave
 // the world: it can change state.world, which the others hear of, but its
-// output reaches no one and it cannot ask or move. It runs within the
-// player's Lua time; when that is used up, it does not run. The caller
+// output reaches no one and it cannot ask or move. It runs even when the
+// player's address has used up its Lua time, so a leaver's cleanup (an
+// item going back, a turn passing on) is never lost; its time is charged
+// all the same, and leaving is bounded by the connect rate. The caller
 // holds w.mu.
 func (s *session) leave() {
 	w := s.w
@@ -76,7 +78,10 @@ func (s *session) leave() {
 	if env != nil && env.HasHook("on_leave") {
 		s.moves = 0
 		h := script.Hook{Name: "on_leave", Player: s.name, PlayerID: s.id, NoWait: true}
-		_, err := s.run1(func() (*script.Thread, error) { return w.rt.RunHook(s, env, h) })
+		err := w.charged(s.client, func() error {
+			_, err := w.rt.RunHook(s, env, h)
+			return err
+		})
 		if err != nil {
 			w.log.Warn("room script failed", "room", s.room, "hook", "on_leave", "err", logText(err))
 		}
@@ -168,26 +173,51 @@ func (w *World) dropRoomTimer(room, name string) {
 }
 
 // announceTimers tells the players in the rooms of the room timers the
-// running hook changed what they show now: one message per timer however
-// often it changed, s's own in its output, the others' pushed. The caller
-// holds w.mu.
+// running hook changed what they show now: s at once, in its output; the
+// others with the next delivery, at most one every DeliverGap per world
+// with the latest state of each timer, so a player changing a shared
+// countdown as fast as they can sends the others a few messages a second.
+// The caller holds w.mu.
 func (w *World) announceTimers(s *session) {
 	if len(w.timerNews) == 0 {
 		return
 	}
-	keys := slices.SortedFunc(maps.Keys(w.timerNews), func(a, b roomTimerKey) int {
+	for _, k := range sortedKeys(w.timerNews) {
+		if s.here(k.room) {
+			s.out = append(s.out, w.timerMessage(k.name, w.roomTimers[k.room][k.name]))
+		}
+		w.timerDue[k] = s
+	}
+	clear(w.timerNews)
+	if !w.closed && !w.timersDelivering {
+		w.timersDelivering = true
+		w.after(max(0, w.lastTimers.Add(DeliverGap).Sub(w.now())), w.deliverTimers)
+	}
+}
+
+func sortedKeys[V any](m map[roomTimerKey]V) []roomTimerKey {
+	return slices.SortedFunc(maps.Keys(m), func(a, b roomTimerKey) int {
 		return cmp.Or(cmp.Compare(a.room, b.room), cmp.Compare(a.name, b.name))
 	})
-	clear(w.timerNews)
+}
+
+// deliverTimers pushes the room timers changed since the last delivery to
+// the players in their rooms, but not to the player who changed them last,
+// who has the latest already.
+func (w *World) deliverTimers() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.timersDelivering = false
+	w.lastTimers = w.now()
+	due := w.timerDue
+	w.timerDue = map[roomTimerKey]*session{}
 	if w.closed {
 		return
 	}
-	for _, k := range keys {
+	for _, k := range sortedKeys(due) {
 		m := w.timerMessage(k.name, w.roomTimers[k.room][k.name])
 		for _, p := range w.inRoom(k.room) {
-			if p == s {
-				s.out = append(s.out, m)
-			} else {
+			if p != due[k] {
 				p.push([]ws.Message{m})
 			}
 		}
@@ -213,8 +243,9 @@ func (s *session) showRoomTimers(old, to string) {
 // fireRoom runs on_timer(player, name, "room") once the room timer t ran
 // out, unless it was stopped or replaced meanwhile: for the player who
 // started it while they are in the room, else for the player there
-// longest. In an empty room it is dropped. When that player's address has
-// no Lua time left, it tries again a little later.
+// longest; when that player's address has no Lua time left, for the next
+// one. In an empty room it is dropped. When nobody in the room has Lua
+// time left, it tries again a little later.
 func (w *World) fireRoom(room, name string, t *roomTimer) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -222,35 +253,32 @@ func (w *World) fireRoom(room, name string, t *roomTimer) {
 		return
 	}
 	w.dropRoomTimer(room, name)
-	target := t.by
-	if !target.here(room) {
-		target = nil
-		if list := w.inRoom(room); len(list) > 0 {
-			target = list[0]
-		}
+	list := w.inRoom(room)
+	if i := slices.Index(list, t.by); i > 0 {
+		list = append(append([]*session{t.by}, list[:i]...), list[i+1:]...)
 	}
-	if target == nil {
+	if len(list) == 0 {
 		return // nobody is there to see it go
 	}
-	mark := len(target.out)
-	if t.show != "" { // gone for everyone, before what on_timer says
+	if t.show != "" {
+		// Gone for everyone, before what on_timer says; while it waits for
+		// Lua time it is a secret timer, which nobody sees.
 		m := w.timerMessage(name, nil)
-		for _, p := range w.inRoom(room) {
-			if p == target {
-				target.out = append(target.out, m)
-			} else {
-				p.push([]ws.Message{m})
-			}
+		for _, p := range list {
+			p.push([]ws.Message{m})
+		}
+		t.show = ""
+	}
+	for _, p := range list {
+		if p.runPushed(script.Hook{Name: "on_timer", Args: []string{name, "room"}, ReadOnlyWorld: t.readOnly}) {
+			return
 		}
 	}
-	if !target.runPushed(script.Hook{Name: "on_timer", Args: []string{name, "room"}, ReadOnlyWorld: t.readOnly}) {
-		target.out = target.out[:mark]
-		if w.roomTimers[room] == nil {
-			w.roomTimers[room] = map[string]*roomTimer{}
-		}
-		w.roomTimers[room][name] = t
-		t.stop = w.after(retryBusy, func() { w.fireRoom(room, name, t) })
+	if w.roomTimers[room] == nil {
+		w.roomTimers[room] = map[string]*roomTimer{}
 	}
+	w.roomTimers[room][name] = t
+	t.stop = w.after(retryBusy, func() { w.fireRoom(room, name, t) })
 }
 
 // stopRoomTimers stops every room timer. The caller holds w.mu.

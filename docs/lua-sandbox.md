@@ -51,7 +51,7 @@ A room script defines global functions the engine calls:
 | `on_change(player, keys)` | Another player's hook (or timer) changed `state.world`; runs in the room the player is in | a list of the changed keys, at most 50, the latest when more changed while the player waited |
 | `on_leave(player)` | The player leaves the world (closes the game or loses the connection); runs in the room they are in | none |
 
-Every hook's `player` has `player.id`, the player's id in the world (`"p1"`, `"p2"`, ...), never given to another player while the world runs, and `player.name`. Until accounts exist (T-0010), players of one world get different names: `traveler`, `traveler 2`, `traveler 3`, ... A name is free again once its player has left.
+Every hook's `player` has `player.id`, the player's id in the world (`"p1"`, `"p2"`, ...), never given to another player while the world runs, and `player.name`. Until accounts exist (T-0010), players of one world get different names: `traveler`, `traveler 2`, `traveler 3`, ... A name is free again once its player has left, so names are for showing only: keep `player.id` to know who took or did something, and look the current name up with `room.players()`. Ids start again at `p1` when the world starts; T-0018 must change that before it keeps `state.world` through a restart.
 
 `on_timer` gets a third argument, `"room"`, when a room timer ran out (below), and nil for the player's own timers.
 

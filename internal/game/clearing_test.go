@@ -47,6 +47,15 @@ func heard(t *testing.T, c *fakeClock, s ws.Session) (string, []ws.Message) {
 	return texts(got), got
 }
 
+func lastOf(ms []ws.Message, typ string) *ws.Message {
+	for i := len(ms) - 1; i >= 0; i-- {
+		if ms[i].Type == typ {
+			return &ms[i]
+		}
+	}
+	return nil
+}
+
 func hasItem(ms []ws.Message, id string) bool {
 	for i := len(ms) - 1; i >= 0; i-- {
 		if ms[i].Type == "items" {
@@ -138,7 +147,7 @@ func TestClearingTurnDeadline(t *testing.T) {
 	c.Advance(30 * time.Second)
 	text, got := heard(t, c, s2)
 	wantText(t, "p2's turn", text, "Your turn!")
-	if m := got[1]; m.Type != "timer" || m.Title != "traveler 2's turn" || got[0].Type != "timer" || got[0].Ms != 0 {
+	if m := lastOf(got, "timer"); got[0].Type != "timer" || got[0].Ms != 0 || m == nil || m.Title != "traveler 2's turn" {
 		t.Fatalf("p2's timer = %+v", got)
 	}
 	c.Advance(30 * time.Second)

@@ -135,6 +135,10 @@ type World struct {
 	arrivals   int64                            // rooms entered, for the order of room.players
 	roomTimers map[string]map[string]*roomTimer // room id -> name -> its timer
 	timerNews  map[roomTimerKey]struct{}        // room timers the running hook changed
+	timerDue   map[roomTimerKey]*session        // room timers changed since the last delivery -> who changed them last
+
+	timersDelivering bool      // a delivery of room timers is due
+	lastTimers       time.Time // when the last delivery of room timers started
 }
 
 // budget is a token bucket of Lua time in seconds. It may go below zero
@@ -150,7 +154,8 @@ type budget struct {
 func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Option) (*World, error) {
 	w := &World{log: log, pack: p, rt: script.New(limits), scripts: map[string]*script.Script{}, sessions: map[*session]struct{}{},
 		budgets: map[string]*budget{}, now: time.Now, after: afterFunc, clientMemory: DefaultClientMemory, clientEnvs: map[string]map[*script.Env]struct{}{},
-		clientState: map[string]int64{}, roomTimers: map[string]map[string]*roomTimer{}, timerNews: map[roomTimerKey]struct{}{}}
+		clientState: map[string]int64{}, roomTimers: map[string]map[string]*roomTimer{}, timerNews: map[roomTimerKey]struct{}{},
+		timerDue: map[roomTimerKey]*session{}}
 	w.world = script.State{World: true, Reserve: w.reserveWorld, Changed: w.change}
 	WithClientBudget(DefaultClientRate, DefaultClientBurst)(w)
 	for _, o := range opts {
@@ -250,6 +255,25 @@ func (w *World) timed(client string, f func() error) error {
 	if b.left <= 0 {
 		return ErrBusy
 	}
+	return w.charge(b, now, f)
+}
+
+// charged runs f like timed, but also when client's budget is used up,
+// which then goes further below zero: for what must run, such as a player
+// leaving. The caller holds w.mu.
+func (w *World) charged(client string, f func() error) error {
+	b := w.budgets[client]
+	if b == nil {
+		return f() // a full budget, or none at all ("")
+	}
+	now := w.now()
+	b.left = min(w.burst, b.left+now.Sub(b.last).Seconds()*w.rate)
+	b.last = now
+	return w.charge(b, now, f)
+}
+
+// charge runs f, which starts at now, and takes its time from b.
+func (w *World) charge(b *budget, now time.Time, f func() error) error {
 	err := f()
 	end := w.now()
 	b.left -= end.Sub(now).Seconds()
@@ -408,6 +432,7 @@ func (s *session) Close() {
 		s.w.release(s.client, env)
 	}
 	s.envs = nil
+	s.out, s.queue, s.queueBytes = nil, nil, 0 // a room timer may keep s until it runs out
 	_ = s.reserve(-s.state.Size())
 	s.state = script.State{}
 }

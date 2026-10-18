@@ -25,6 +25,7 @@ Scripts keep progress in the database, not in Lua variables: a player's progress
 - [ ] Edu mode: strings written into `state.world` or `state.game` pass the chat filter and appear in the GM transcript (typed text shared between players is chat)
 - [ ] Changing world state notifies the other players' sessions (for example a door opened by one player)
 - [ ] A restart continues the same round and turn: the turn library keeps them in `state.world` (`round_<room>`, T-0019), and room timers (T-0031) are stored with the other timers (T-0012)
+- [ ] Player ids (`player.id`, T-0031) never repeat across restarts once `state.world` lasts, or a new `p1` would inherit the old `p1`'s items and turns (from the T-0031 security review); with accounts they become character ids
 - [ ] Tests: restart keeps state, two players see world state, player state stays private, limits, fuzzed values
 
 ## Notes

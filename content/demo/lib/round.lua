@@ -215,11 +215,13 @@ function round.done(player)
   if st.order[st.turn] ~= player.id then
     return nil, "not your turn"
   end
+  st.skipped = nil
   return advance(player, st)
 end
 
 -- round.next(player) ends the current turn, whoever's it is: the script
--- (or later the GM) skips a player.
+-- (or later the GM) skips a player. round.status says so until the next
+-- turn ends.
 function round.next(player)
   local st = load(player)
   if not st then
@@ -245,6 +247,7 @@ function round.leave(player)
   if not j then
     return true
   end
+  st.skipped = nil
   if j == st.turn then
     st.turn = j - 1
     table.remove(st.order, j)

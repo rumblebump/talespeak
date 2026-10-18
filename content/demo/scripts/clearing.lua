@@ -216,7 +216,7 @@ TAKEN = {
 }
 
 NOT_TAKEN = {
-  purse = { late = "The coins were shared before you came.", had = "You have your share." },
+  purse = { late = "The coins were shared before you came.", had = "You have your share.", none = "There were not enough coins for everyone." },
   apples = { had = "You have your apple already." },
   horn = { gone = "took the old horn already." },
   torches = { gone = "The torches are all gone." },

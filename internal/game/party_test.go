@@ -168,20 +168,24 @@ func TestRoomTimerShownToTheRoom(t *testing.T) {
 	if len(got) != 2 || got[0].Text != "true" || got[1].Type != "timer" || got[1].ID != "room:turn" || got[1].Title != "Turn" || got[1].Ms != 30000 {
 		t.Fatalf("start = %+v", got)
 	}
+	if got := pending(t, s2); len(got) != 0 {
+		t.Fatalf("pushed to p2 before the delivery = %+v", got)
+	}
+	c.Advance(DeliverGap)
 	if got := pending(t, s2); len(got) != 1 || got[0].ID != "room:turn" || got[0].Ms != 30000 {
 		t.Fatalf("pushed to p2 = %+v", got)
 	}
 	if got := pending(t, s3); len(got) != 0 {
 		t.Fatalf("pushed to p3 in b = %+v", got)
 	}
-	if got := texts(input(s2, "left")); got != "30 nil" {
+	if got := texts(input(s2, "left")); got != "29.75 nil" {
 		t.Errorf("left = %q: the room's timer, and no player timer of that name", got)
 	}
 
 	// Coming into the room shows it with the time left; leaving removes it.
 	c.Advance(10 * time.Second)
 	got = input(s3, "back")
-	if m := find(got, "timer"); m == nil || m.ID != "room:turn" || m.Ms != 20000 {
+	if m := find(got, "timer"); m == nil || m.ID != "room:turn" || m.Ms != 19750 {
 		t.Fatalf("entering a: %+v", got)
 	}
 	got = input(s2, "go")
@@ -257,12 +261,18 @@ func TestRoomTimerCancelLimitCoalesce(t *testing.T) {
 	s2, _ := w.NewSession("")
 	defer s2.Close()
 	input(s1, "again")
+	input(s1, "again") // within one delivery: still one message
+	c.Advance(DeliverGap)
 	if got := pending(t, s2); len(got) != 1 || got[0].Title != "Turn 5" || got[0].Ms != 50000 {
-		t.Fatalf("five starts in one hook = %+v, want one message", got)
+		t.Fatalf("ten starts in two hooks = %+v, want one message", got)
+	}
+	if got := pending(t, s1); len(got) != 0 {
+		t.Fatalf("the player who changed it last got it again: %+v", got)
 	}
 	if got := texts(input(s2, "cancel")); got != "true | timer" {
 		t.Fatalf("cancel = %q", got)
 	}
+	c.Advance(DeliverGap)
 	if got := pending(t, s1); len(got) != 1 || got[0].ID != "room:turn" || got[0].Ms != 0 {
 		t.Fatalf("p1 after cancel = %+v", got)
 	}

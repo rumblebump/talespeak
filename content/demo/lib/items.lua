@@ -12,9 +12,11 @@
 -- Rules, decided per item:
 --   each   every player takes one, once
 --   once   the first player to take it has it; gone for everyone else
---   count  one each until count are gone
+--   count  first come, first served until count are gone (one player
+--          may take several)
 --   split  the first take shares amount among the players in the room
---          then; each of them takes their share, and the rest stays
+--          then (every connection counts); each of them takes their
+--          share, and the rest stays
 --
 -- What players carry is state.player "inv": { silver = 3, apple = 1 }.
 -- Shared items live in state.world under "item_<id>", so item ids of
@@ -97,12 +99,13 @@ end
 
 -- share splits d.amount among the players in the room now: the same
 -- share each, the rest stays. With fewer than one each, the first to come
--- in get one.
+-- in get one. present keeps who was there, to tell "none" from "late".
 local function share(d)
   local list = room.players()
   local each = math.floor(d.amount / math.max(#list, 1))
-  local shares, rest = {}, d.amount
+  local shares, present, rest = {}, {}, d.amount
   for i, p in ipairs(list) do
+    present[p.id] = true
     if each > 0 then
       shares[p.id] = each
       rest = rest - each
@@ -111,15 +114,16 @@ local function share(d)
       rest = rest - 1
     end
   end
-  return { shares = shares, rest = rest }
+  return { shares = shares, present = present, rest = rest }
 end
 
 -- items.take(player, id) takes item id by its rule. It returns what the
 -- player got, { name = "silver", n = 3 }, or nil and why: "unknown",
--- "had" (each: the player has theirs), "gone" (once, count; with who
--- took a once item), "late" (split: shared before the player came) or
--- "busy" (the game cannot keep it right now). The room says it in its
--- own words.
+-- "had" (each, split: the player has theirs), "gone" (once, count; with who
+-- took a once item), "late" (split: shared before the player came),
+-- "none" (split: the player was there, but there was not enough for
+-- everyone) or "busy" (the game cannot keep it right now; nothing is
+-- taken then). The room says it in its own words.
 function items.take(player, id)
   local d = defs[id]
   if not d then
@@ -131,51 +135,63 @@ function items.take(player, id)
     if state.player.get(k) then
       return nil, "had"
     end
-    if not state.player.set(k, true) then
+    if not items.add(player, name, 1) then
       return nil, "busy"
     end
-    if not items.add(player, name, 1) then
+    if not state.player.set(k, true) then
+      items.add(player, name, -1)
       return nil, "busy"
     end
     return { name = name, n = 1 }
   end
   local got, why, who = nil, nil, nil
   -- update: no other player takes in between, so a once item has one
-  -- owner and a count never goes below zero.
+  -- owner and a count never goes below zero. The player's bag is filled
+  -- inside it: when the game cannot keep that, the item stays where it
+  -- was.
   local ok = state.world.update(wkey(id), function(v)
+    got, why, who = nil, nil, nil
+    local new
     if d.rule == "once" then
       if v then
         why, who = "gone", v.name
         return v
       end
-      got = 1
-      return { id = player.id, name = player.name }
+      got, new = 1, { id = player.id, name = player.name }
     elseif d.rule == "count" then
       local left = v and v.left or d.count
       if left <= 0 then
         why = "gone"
         return v
       end
-      got = 1
-      return { left = left - 1 }
+      got, new = 1, { left = left - 1 }
+    else
+      -- a fresh copy, so v stays as it was if the bag cannot take it
+      new = state.world.get(wkey(id)) or share(d)
+      got = new.shares[player.id]
+      if got == 0 then
+        got, why = nil, "had"
+        return v
+      elseif not got then
+        why = new.present and new.present[player.id] and "none" or "late"
+        return new -- the first take shares the purse, even with none for this player
+      end
+      new.shares[player.id] = 0 -- taken
     end
-    v = v or share(d)
-    got = v.shares[player.id]
-    if not got then
-      why = "late"
+    if not items.add(player, name, got) then
+      got, why = nil, "busy"
       return v
     end
-    v.shares[player.id] = nil
-    return v
+    return new
   end)
   if not ok then
+    if got then
+      items.add(player, name, -got) -- the world did not keep the take
+    end
     return nil, "busy"
   end
   if not got then
     return nil, why, who
-  end
-  if not items.add(player, name, got) then
-    return nil, "busy"
   end
   return { name = name, n = got }
 end
@@ -199,7 +215,7 @@ function items.available(player, id)
   elseif d.rule == "count" then
     return v.left > 0
   end
-  return v.shares[player.id] ~= nil
+  return (v.shares[player.id] or 0) > 0
 end
 
 -- items.visible(player, list) is list (items for ui.items) without the
@@ -243,7 +259,7 @@ function items.bless(player, id, opts)
     error("items.bless: give seconds, moves or both", 2)
   end
   local fx = state.player.get("fx") or {}
-  fx[id] = { moves = opts.moves }
+  fx[id] = { moves = opts.moves, timed = opts.seconds ~= nil }
   local ok, why = state.player.set("fx", fx)
   if not ok then
     return nil, why
@@ -253,13 +269,6 @@ function items.bless(player, id, opts)
   end
   timer.cancel(fx_timer(id))
   return true
-end
-
--- items.blessed(player, id) reports whether the effect id is on the
--- player.
-function items.blessed(player, id)
-  local fx = state.player.get("fx")
-  return fx ~= nil and fx[id] ~= nil
 end
 
 -- wear_off ends effect id and runs on_effect_end.
@@ -274,6 +283,22 @@ local function wear_off(player, id)
   if on_effect_end then
     on_effect_end(player, id)
   end
+end
+
+-- items.blessed(player, id) reports whether the effect id is on the
+-- player. An effect whose time ran out in a room that does not call
+-- items.on_timer wears off here.
+function items.blessed(player, id)
+  local fx = state.player.get("fx")
+  local e = fx and fx[id]
+  if not e then
+    return false
+  end
+  if e.timed and not timer.left(fx_timer(id)) then
+    wear_off(player, id)
+    return false
+  end
+  return true
 end
 
 -- items.move(player) counts one move for every effect on the player that
