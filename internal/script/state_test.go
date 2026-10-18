@@ -48,7 +48,7 @@ func TestStatePlayerLimits(t *testing.T) {
 		{"depth", `local t = {} local c = t for i = 1, 8 do c.x = {} c = c.x end ok, why = state.player.set("k", t)`, "nested deeper than 8"},
 		{"cycle", `local t = {} t.self = t ok, why = state.player.set("k", t)`, "nested deeper than 8"},
 		{"total", `local big = string.rep("x", 16000) for i = 1, 16 do assert(state.player.set("k" .. i, big)) end ok, why = state.player.set("last", big)`, "larger than 262144 bytes"},
-		{"writes", `for i = 1, 50 do state.player.set("k", i) end ok, why = state.player.set("k", 51)`, "more than 50 writes in one call"},
+		{"writes", `for i = 1, 50 do state.player.set("k", i) end ok, why = state.player.set("k", 51)`, "more than 50 writes in one hook"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := runState(t, &recorder{}, tt.body+"\nsay(tostring(ok) .. ' ' .. tostring(why))")

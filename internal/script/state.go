@@ -1,9 +1,11 @@
 package script
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
 	"strconv"
 
 	lua "github.com/yuin/gopher-lua"
@@ -13,43 +15,48 @@ import (
 // same on every server (T-0018 makes them settings).
 const (
 	MaxStateKeyBytes    = 64       // one key
-	MaxStateValueBytes  = 16 << 10 // one value, measured by stateSize
+	MaxStateValueBytes  = 16 << 10 // one value, encoded
 	MaxStateDepth       = 8        // tables in tables
 	MaxPlayerStateBytes = 256 << 10
 	MaxPlayerStateKeys  = 500
-	MaxStateWrites      = 50 // state.player.set calls in one call
+	MaxStateWrites      = 50 // state.player.set calls in one hook
+
+	// maxStateScan is how many table slots one set may look at, empty
+	// ones included: gopher-lua skips empty array slots and removed keys
+	// one by one, in Go, where the call's time limit cannot stop it.
+	maxStateScan = 64 << 10
 )
 
 // State is one player's values, written with state.player.set and read
 // with state.player.get, shared by every room the player visits. Only
-// what a script sets is kept, as a copy: changing a table after set or
-// get changes nothing until the next set. It lasts for the session; T-0018
-// stores it in the database with the same API and limits.
+// what a script sets is kept, encoded: changing a table after set or get
+// changes nothing until the next set. It lasts for the session; T-0018
+// stores the same encoded values in the database.
 type State struct {
 	// Reserve, if set, is asked before the state grows by delta bytes (or
 	// told it shrank); an error refuses the write, for limits shared with
 	// other players.
 	Reserve func(delta int64) error
 
-	vals map[string]kept
-	size int64 // the sum of the kept sizes
-}
-
-// kept is a value and its size: its key's length plus stateCopy's count.
-type kept struct {
-	v    stateValue
-	size int64
+	vals map[string][]byte
+	size int64 // the sum of len(key)+len(value)
 }
 
 // Size is what s keeps, as counted for MaxPlayerStateBytes.
 func (s *State) Size() int64 { return s.size }
 
-// stateValue is nil, bool, float64, string or *stateTable.
-type stateValue any
-
-type stateTable struct {
-	keys, vals []stateValue // keys are strings or float64
-}
+// The encoding of a value: one tag byte, then its payload. A table is its
+// key and value pairs, ended by tagEnd. Integers up to 2^53 are zigzag
+// varints, so small numbers take 2 bytes.
+const (
+	tagEnd byte = iota
+	tagFalse
+	tagTrue
+	tagInt
+	tagFloat
+	tagString
+	tagTable
+)
 
 // limitError is a write the limits refuse: set returns nil and the
 // message. Any other error is a script error.
@@ -59,79 +66,147 @@ func (e limitError) Error() string { return string(e) }
 
 func limited(format string, args ...any) error { return limitError(fmt.Sprintf(format, args...)) }
 
-// stateCopy turns a Lua value into a stateValue of at most budget bytes
-// and returns it with its size. Only nil, booleans, finite numbers,
-// strings and tables of them (string or number keys) can be kept.
-func stateCopy(v lua.LValue, depth int, budget int64) (stateValue, int64, error) {
+var errTooLarge = limited("value larger than %d bytes", MaxStateValueBytes)
+
+// encoder turns a Lua value into its encoding of at most
+// MaxStateValueBytes. Only booleans, finite numbers, strings and tables of
+// them (string or number keys) can be kept.
+type encoder struct {
+	buf  []byte
+	scan int // table slots looked at
+}
+
+func (e *encoder) value(v lua.LValue, depth int) error {
 	switch v := v.(type) {
-	case *lua.LNilType:
-		return nil, 1, nil
 	case lua.LBool:
-		return bool(v), 1, nil
+		if v {
+			e.buf = append(e.buf, tagTrue)
+		} else {
+			e.buf = append(e.buf, tagFalse)
+		}
 	case lua.LNumber:
 		f := float64(v)
-		if math.IsNaN(f) || math.IsInf(f, 0) {
-			return nil, 0, errors.New("numbers must be finite")
+		switch {
+		case math.IsNaN(f) || math.IsInf(f, 0):
+			return errors.New("numbers must be finite")
+		case f == math.Trunc(f) && math.Abs(f) <= 1<<53 && !(f == 0 && math.Signbit(f)):
+			e.buf = append(e.buf, tagInt)
+			e.buf = binary.AppendVarint(e.buf, int64(f))
+		default:
+			e.buf = append(e.buf, tagFloat)
+			e.buf = binary.LittleEndian.AppendUint64(e.buf, math.Float64bits(f))
 		}
-		return f, 8, nil
 	case lua.LString:
-		n := int64(len(v)) + 2
-		if n > budget {
-			return nil, 0, limited("value larger than %d bytes", MaxStateValueBytes)
+		if len(v) > MaxStateValueBytes {
+			return errTooLarge
 		}
-		return string(v), n, nil
+		e.buf = append(e.buf, tagString)
+		e.buf = binary.AppendUvarint(e.buf, uint64(len(v)))
+		e.buf = append(e.buf, v...)
 	case *lua.LTable:
 		if depth >= MaxStateDepth {
-			return nil, 0, limited("tables nested deeper than %d", MaxStateDepth)
+			return limited("tables nested deeper than %d", MaxStateDepth)
 		}
-		t := &stateTable{}
-		size := int64(2)
+		if e.scan += tableSlots(v); e.scan > maxStateScan {
+			return limited("tables with more than %d slots in all, empty ones included", maxStateScan)
+		}
+		e.buf = append(e.buf, tagTable)
 		for k, val := v.Next(lua.LNil); k != lua.LNil; k, val = v.Next(k) {
 			switch k.(type) {
 			case lua.LString, lua.LNumber:
 			default:
-				return nil, 0, errors.New("table keys must be strings or numbers")
+				return errors.New("table keys must be strings or numbers")
 			}
-			kc, kn, err := stateCopy(k, depth+1, budget-size)
-			if err != nil {
-				return nil, 0, err
+			if err := e.value(k, depth+1); err != nil {
+				return err
 			}
-			size += kn
-			vc, vn, err := stateCopy(val, depth+1, budget-size)
-			if err != nil {
-				return nil, 0, err
+			if err := e.value(val, depth+1); err != nil {
+				return err
 			}
-			size += vn
-			if size > budget {
-				return nil, 0, limited("value larger than %d bytes", MaxStateValueBytes)
+			if len(e.buf) > MaxStateValueBytes {
+				return errTooLarge
 			}
-			t.keys = append(t.keys, kc)
-			t.vals = append(t.vals, vc)
 		}
-		return t, size, nil
+		e.buf = append(e.buf, tagEnd)
 	default:
-		return nil, 0, fmt.Errorf("%s values cannot be kept, only nil, booleans, numbers, strings and tables of them", v.Type())
+		return fmt.Errorf("%s values cannot be kept, only nil, booleans, numbers, strings and tables of them", v.Type())
 	}
+	if len(e.buf) > MaxStateValueBytes {
+		return errTooLarge
+	}
+	return nil
 }
 
-// toLua makes a fresh Lua value from v.
-func toLua(L *lua.LState, v stateValue) lua.LValue {
-	switch v := v.(type) {
-	case bool:
-		return lua.LBool(v)
-	case float64:
-		return lua.LNumber(v)
-	case string:
-		return lua.LString(v)
-	case *stateTable:
-		t := L.CreateTable(0, len(v.keys))
-		for i, k := range v.keys {
-			t.RawSet(toLua(L, k), toLua(L, v.vals[i]))
-		}
-		return t
-	default:
-		return lua.LNil
+// The slices behind a table's array part and its hash keys, which keep
+// removed keys: reflect can read their lengths, not their contents.
+var tableArray, tableKeys = tableField("array"), tableField("keys")
+
+func tableField(name string) int {
+	f, ok := reflect.TypeFor[lua.LTable]().FieldByName(name)
+	if !ok || f.Type.Kind() != reflect.Slice {
+		panic("gopher-lua's LTable has no slice " + name + ": check tableSlots")
 	}
+	return f.Index[0]
+}
+
+// tableSlots is how many slots Next may look at to walk t.
+func tableSlots(t *lua.LTable) int {
+	v := reflect.ValueOf(t).Elem()
+	return v.Field(tableArray).Len() + v.Field(tableKeys).Len()
+}
+
+var errDamaged = errors.New("a kept value is damaged")
+
+// decode makes a fresh Lua value from an encoding and returns the rest.
+func decode(L *lua.LState, b []byte, depth int) (lua.LValue, []byte, error) {
+	if len(b) == 0 || depth > MaxStateDepth {
+		return nil, nil, errDamaged
+	}
+	tag, b := b[0], b[1:]
+	switch tag {
+	case tagFalse:
+		return lua.LFalse, b, nil
+	case tagTrue:
+		return lua.LTrue, b, nil
+	case tagInt:
+		n, k := binary.Varint(b)
+		if k <= 0 {
+			return nil, nil, errDamaged
+		}
+		return lua.LNumber(n), b[k:], nil
+	case tagFloat:
+		if len(b) < 8 {
+			return nil, nil, errDamaged
+		}
+		return lua.LNumber(math.Float64frombits(binary.LittleEndian.Uint64(b))), b[8:], nil
+	case tagString:
+		n, k := binary.Uvarint(b)
+		if k <= 0 || n > uint64(len(b)-k) {
+			return nil, nil, errDamaged
+		}
+		b = b[k:]
+		return lua.LString(b[:n]), b[n:], nil
+	case tagTable:
+		t := L.NewTable()
+		for {
+			if len(b) == 0 {
+				return nil, nil, errDamaged
+			}
+			if b[0] == tagEnd {
+				return t, b[1:], nil
+			}
+			var k, v lua.LValue
+			var err error
+			if k, b, err = decode(L, b, depth+1); err != nil {
+				return nil, nil, err
+			}
+			if v, b, err = decode(L, b, depth+1); err != nil {
+				return nil, nil, err
+			}
+			t.RawSet(k, v)
+		}
+	}
+	return nil, nil, errDamaged
 }
 
 func stateKey(L *lua.LState) string {
@@ -145,7 +220,7 @@ func stateKey(L *lua.LState) string {
 // playerState returns the state of the call's player, or raises an error
 // when called outside a hook.
 func (r *Runtime) playerState(L *lua.LState) *State {
-	if r.cur == nil || r.cur.host == nil {
+	if r.cur == nil || r.cur.host == nil || r.cur.thread == nil {
 		L.RaiseError("no player here: call state.player from a hook such as on_enter")
 	}
 	s := r.cur.host.PlayerState()
@@ -158,7 +233,16 @@ func (r *Runtime) playerState(L *lua.LState) *State {
 // state.player.get(key) returns a copy of the value set for key, or nil.
 func (r *Runtime) stateGet(L *lua.LState) int {
 	s := r.playerState(L)
-	L.Push(toLua(L, s.vals[stateKey(L)].v))
+	b, ok := s.vals[stateKey(L)]
+	if !ok {
+		L.Push(lua.LNil)
+		return 1
+	}
+	v, rest, err := decode(L, b, 0)
+	if err != nil || len(rest) != 0 {
+		L.RaiseError("state.player.get: %s", errDamaged)
+	}
+	L.Push(v)
 	return 1
 }
 
@@ -184,40 +268,45 @@ func (r *Runtime) stateSet(L *lua.LState) int {
 }
 
 func (r *Runtime) set(s *State, key string, v lua.LValue) error {
-	if r.cur.writes++; r.cur.writes > MaxStateWrites {
-		return limited("more than %d writes in one call", MaxStateWrites)
+	th := r.cur.thread
+	if th.writes++; th.writes > MaxStateWrites {
+		return limited("more than %d writes in one hook", MaxStateWrites)
 	}
-	val, n, err := stateCopy(v, 0, MaxStateValueBytes)
-	if err != nil {
-		return err
+	old, had := s.vals[key]
+	oldSize := int64(0)
+	if had {
+		oldSize = int64(len(key) + len(old))
 	}
-	old := s.vals[key] // size 0 when there is none
-	if val == nil {
-		if old.size > 0 {
+	if v == lua.LNil {
+		if had {
 			delete(s.vals, key)
-			s.size -= old.size
+			s.size -= oldSize
 			if s.Reserve != nil {
-				_ = s.Reserve(-old.size)
+				_ = s.Reserve(-oldSize)
 			}
 		}
 		return nil
 	}
-	size := n + int64(len(key))
-	if old.size == 0 && len(s.vals) >= MaxPlayerStateKeys {
+	e := encoder{}
+	if err := e.value(v, 0); err != nil {
+		return err
+	}
+	size := int64(len(key) + len(e.buf))
+	if !had && len(s.vals) >= MaxPlayerStateKeys {
 		return limited("more than %d keys", MaxPlayerStateKeys)
 	}
-	if s.size-old.size+size > MaxPlayerStateBytes {
+	if s.size-oldSize+size > MaxPlayerStateBytes {
 		return limited("player state larger than %d bytes", MaxPlayerStateBytes)
 	}
 	if s.Reserve != nil {
-		if err := s.Reserve(size - old.size); err != nil {
+		if err := s.Reserve(size - oldSize); err != nil {
 			return limitError(err.Error())
 		}
 	}
 	if s.vals == nil {
-		s.vals = map[string]kept{}
+		s.vals = map[string][]byte{}
 	}
-	s.vals[key] = kept{v: val, size: size}
-	s.size += size - old.size
+	s.vals[key] = append([]byte(nil), e.buf...) // no spare capacity kept
+	s.size += size - oldSize
 	return nil
 }

@@ -196,6 +196,7 @@ type Thread struct {
 	events   chan result  // the end of each call: a dialog, or the hook's end
 	canceled bool         // set on the hook's goroutine once resume sent nil
 	moved    bool         // room.go was called: the hook may not wait again
+	writes   int          // state.player.set calls, across its dialogs
 }
 
 type result struct {
@@ -215,6 +216,7 @@ type Runtime struct {
 
 	cur    *call // the call in progress, nil between calls
 	total  int64 // the sum of kept and sinceWalk over envs: at least what they keep
+	extra  int64 // what Reserve holds for the world, outside any Instance
 	closed bool
 }
 
@@ -234,7 +236,6 @@ type call struct {
 	ctx     context.Context
 	end     func() int64 // stops the budgets and returns the bytes allocated
 	outputs int
-	writes  int // state.player.set calls
 }
 
 // New returns a Runtime with the sandbox libraries loaded.
@@ -561,11 +562,12 @@ func (r *Runtime) checkState(env *lua.LTable) error {
 	return nil
 }
 
-// full reports whether the world's Instances keep more than StateMemory. It
+// full reports whether the world's Instances and Reserve keep more than
+// StateMemory. It
 // measures the Instances that ran since their last measurement only when
 // the cheap upper bound is past the limit.
 func (r *Runtime) full() bool {
-	if r.total <= r.limits.StateMemory {
+	if r.total+r.extra <= r.limits.StateMemory {
 		return false
 	}
 	paused := map[*lua.LTable][]*Thread{}
@@ -577,7 +579,21 @@ func (r *Runtime) full() bool {
 			r.measure(env, st, paused[env])
 		}
 	}
-	return r.total > r.limits.StateMemory
+	return r.total+r.extra > r.limits.StateMemory
+}
+
+// Reserve counts delta more bytes (or fewer, when negative) toward the
+// world's StateMemory, for what is kept outside any Instance, such as
+// state.player. Growing past the limit, with what the Instances keep, is
+// refused with ErrFull and changes nothing. The caller serializes it with
+// the Runtime's other calls.
+func (r *Runtime) Reserve(delta int64) error {
+	r.extra += delta
+	if delta > 0 && r.full() {
+		r.extra -= delta
+		return ErrFull
+	}
+	return nil
 }
 
 // measure walks what env keeps: its globals and the stacks of its paused

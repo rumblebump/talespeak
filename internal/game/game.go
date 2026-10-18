@@ -99,8 +99,7 @@ type World struct {
 	clientMemory int64                               // script state one client may keep
 	clientEnvs   map[string]map[*script.Env]struct{} // client -> its players' script instances
 
-	stateMemory int64            // state.player all players of the world may keep; 0: no limit
-	stateTotal  int64            // what they keep
+	stateTotal  int64            // what all players keep in state.player, reserved in rt too
 	clientState map[string]int64 // client -> what its players keep in state.player
 }
 
@@ -117,7 +116,7 @@ type budget struct {
 func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Option) (*World, error) {
 	w := &World{log: log, pack: p, rt: script.New(limits), scripts: map[string]*script.Script{},
 		budgets: map[string]*budget{}, now: time.Now, clientMemory: DefaultClientMemory, clientEnvs: map[string]map[*script.Env]struct{}{},
-		stateMemory: limits.StateMemory, clientState: map[string]int64{}}
+		clientState: map[string]int64{}}
 	WithClientBudget(DefaultClientRate, DefaultClientBurst)(w)
 	for _, o := range opts {
 		o(w)
@@ -708,13 +707,11 @@ func (s *session) PlayerState() *script.State { return &s.state }
 // caller holds w.mu.
 func (s *session) reserve(delta int64) error {
 	w := s.w
-	if delta > 0 {
-		if w.stateMemory > 0 && w.stateTotal+delta > w.stateMemory {
-			return errors.New("this world is full right now")
-		}
-		if s.client != "" && w.clientKept(s.client)+delta > w.clientMemory {
-			return errors.New("too many players from this network keep state right now")
-		}
+	if delta > 0 && s.client != "" && w.clientKept(s.client)+delta > w.clientMemory {
+		return errors.New("too many players from this network keep state right now")
+	}
+	if err := w.rt.Reserve(delta); err != nil {
+		return errors.New("this world is full right now")
 	}
 	w.stateTotal += delta
 	if s.client != "" {
