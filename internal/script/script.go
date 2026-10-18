@@ -587,13 +587,21 @@ func (r *Runtime) full() bool {
 // state.player. Growing past the limit, with what the Instances keep, is
 // refused with ErrFull and changes nothing. The caller serializes it with
 // the Runtime's other calls.
+//
+// Called from a hook, it compares the cheap upper bound only: measuring
+// the world there would run on the caller's time and memory budgets, and
+// would miss what the running hook holds in its locals. The check after
+// the call measures and corrects the bound.
 func (r *Runtime) Reserve(delta int64) error {
 	r.extra += delta
-	if delta > 0 && r.full() {
-		r.extra -= delta
-		return ErrFull
+	if delta <= 0 {
+		return nil
 	}
-	return nil
+	if r.cur != nil && r.total+r.extra <= r.limits.StateMemory || r.cur == nil && !r.full() {
+		return nil
+	}
+	r.extra -= delta
+	return ErrFull
 }
 
 // measure walks what env keeps: its globals and the stacks of its paused

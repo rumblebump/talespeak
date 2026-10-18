@@ -157,8 +157,17 @@ func tableSlots(t *lua.LTable) int {
 
 var errDamaged = errors.New("a kept value is damaged")
 
-// decode makes a fresh Lua value from an encoding and returns the rest.
-func decode(L *lua.LState, b []byte, depth int) (lua.LValue, []byte, error) {
+// decoder makes fresh Lua values from encodings. scan counts the table
+// slots it made, as the encoder counts those it looked at: gopher-lua fills
+// an array up to an integer key with empty slots, in one loop no limit can
+// stop, so a damaged encoding must not name a large one.
+type decoder struct {
+	L    *lua.LState
+	scan int
+}
+
+// value decodes the value at the start of b and returns the rest.
+func (d *decoder) value(b []byte, depth int) (lua.LValue, []byte, error) {
 	if len(b) == 0 || depth > MaxStateDepth {
 		return nil, nil, errDamaged
 	}
@@ -187,7 +196,7 @@ func decode(L *lua.LState, b []byte, depth int) (lua.LValue, []byte, error) {
 		b = b[k:]
 		return lua.LString(b[:n]), b[n:], nil
 	case tagTable:
-		t := L.NewTable()
+		t := d.L.NewTable()
 		for {
 			if len(b) == 0 {
 				return nil, nil, errDamaged
@@ -197,13 +206,20 @@ func decode(L *lua.LState, b []byte, depth int) (lua.LValue, []byte, error) {
 			}
 			var k, v lua.LValue
 			var err error
-			if k, b, err = decode(L, b, depth+1); err != nil {
+			if k, b, err = d.value(b, depth+1); err != nil {
 				return nil, nil, err
 			}
-			if v, b, err = decode(L, b, depth+1); err != nil {
+			if v, b, err = d.value(b, depth+1); err != nil {
 				return nil, nil, err
 			}
+			if n, ok := k.(lua.LNumber); ok && n > maxStateScan && float64(n) < float64(lua.MaxArrayIndex) && n == lua.LNumber(math.Trunc(float64(n))) {
+				return nil, nil, errDamaged // the encoder never keeps such an array
+			}
+			before := tableSlots(t)
 			t.RawSet(k, v)
+			if d.scan += tableSlots(t) - before; d.scan > maxStateScan {
+				return nil, nil, errDamaged
+			}
 		}
 	}
 	return nil, nil, errDamaged
@@ -238,7 +254,8 @@ func (r *Runtime) stateGet(L *lua.LState) int {
 		L.Push(lua.LNil)
 		return 1
 	}
-	v, rest, err := decode(L, b, 0)
+	d := decoder{L: L}
+	v, rest, err := d.value(b, 0)
 	if err != nil || len(rest) != 0 {
 		L.RaiseError("state.player.get: %s", errDamaged)
 	}
