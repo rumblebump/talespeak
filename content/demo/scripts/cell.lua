@@ -5,9 +5,9 @@
 --
 -- To escape, the player first gets rid of the guard: asking for water three
 -- times empties his bottle and he goes to refill it. Trying the door while
--- he watches ends the story in a well; getting out while he is away ends it
--- with an escape. He is back after AWAY_MOVES actions (a real countdown
--- comes with timers, T-0012).
+-- he watches ends the story in a well; getting out while he is away leads
+-- into the corridor (corridor.lua). He is back after AWAY_MOVES actions (a
+-- real countdown comes with timers, T-0012).
 --
 -- Every player runs their own copy of this script: globals are theirs and
 -- last until they leave. Lasting progress comes with state.player (T-0018).
@@ -21,9 +21,15 @@ opened = false -- the lock is open
 cups = 0       -- cups of water from the guard's current bottle
 away = nil     -- actions left until the guard is back; nil while he is here
 ended = false  -- the story is over
+left = false   -- the player went out into the corridor
 
 function on_enter(player)
   room.describe()
+  if left then
+    show_items()
+    say("Your old cell. Outside, the guard's stool is still empty.")
+    return
+  end
   say("A guard leans against the bars, half asleep.")
   say("Click something in the cell, or type what you do.")
 end
@@ -212,9 +218,9 @@ function caught()
 end
 
 function escaped()
-  say("You push the cell door open and tiptoe down the dark corridor, past the empty stool, out into the cool night air.")
-  say("You escaped. Well done!")
-  finish()
+  say("You push the cell door open and tiptoe out, past the empty stool.")
+  left = true
+  room.go("corridor")
 end
 
 function finish()

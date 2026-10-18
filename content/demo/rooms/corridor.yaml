@@ -1,0 +1,17 @@
+id: corridor
+title: A dark corridor
+description: >-
+  A long, low corridor lit by one smoking torch. Behind you is your open
+  cell. To the left, stairs lead down towards the sound of splashing water.
+  Ahead, a heavy door is marked GUARDS. One of the floor stones has an X
+  scratched into it.
+script: corridor.lua
+items:
+  - id: stone
+    label: stone with an X
+  - id: door
+    label: door marked GUARDS
+  - id: stairs
+    label: stairs down
+  - id: cell
+    label: your cell
