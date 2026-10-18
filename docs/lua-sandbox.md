@@ -12,6 +12,7 @@ Room scripts and, later, rule packs run in [gopher-lua](https://github.com/yuin/
 | `math` | All of it |
 | `say(text [, {speak = true, show = false}])` | Sends a line to the player (at most 4000 bytes). `speak = true` reads it aloud even when the player has not turned read aloud on; `show = false` (needs `speak`) only reads it aloud, for listening exercises, and shows it when the device has no local voice. The text still reaches the player's browser (speech runs there), so `show = false` is not for secrets such as the answer to a graded question |
 | `room.describe()` | Sends the current room's title, description and clickable items |
+| `room.go(id)` | Moves the player to room `id` of the pack once the hook ends: the clickable items become the new room's, and its `on_enter` runs (a room without a script is described). The last `room.go` that succeeds wins, and `room.go` to the current room runs its `on_enter` again. An unknown id is a script error, and so is waiting in `ui.dialog`, `ui.select` or `ui.ask` after `room.go` in the same hook. No one moves when the hook fails, when the new room's script cannot start (the world or the player's network is full), or when the player's address has used up its Lua time before the new room's `on_enter`; the player stays and gets an error. The player keeps their instances of the last 4 rooms they entered, so coming back to one finds its globals as they were left; an older room starts over, so progress that must last goes in `state.player` (T-0023, next). One player message moves through at most 4 rooms |
 | `ui.dialog(title, options)` | Shows 1 to 9 options and waits for the player; returns the option's number and its label |
 | `ui.select(title, options [, {min = 1, max = #options}])` | Multiple choice: the player picks `min` to `max` of 1 to 9 options; returns two lists, the numbers picked (ascending) and their labels |
 | `ui.ask(question [, {strict = true, speak = true, show = false}])` | Waits for a typed answer and returns it: one line of at most 500 bytes, trimmed, control characters turned into spaces. `strict = true` gives no typing help (no autocorrect, autocomplete or suggestions, clickable items hidden), for spelling practice and riddles. `speak` and `show` as in `say`, for the question |
@@ -33,7 +34,7 @@ A room script defines global functions the engine calls:
 
 | Hook | When | Argument |
 | --- | --- | --- |
-| `on_enter(player)` | A player enters the room | `player.name` |
+| `on_enter(player)` | A player enters the room | `player.name`, and in every hook `player.room`, the current room's id |
 | `on_input(player, text)` | The player typed a line (outside a question) | the line, cleaned as for `ui.ask` |
 | `on_click(player, id)` | The player clicked an item they were shown | the item's id |
 
@@ -87,7 +88,7 @@ The name `__concat` is reserved: every `..` in a script is compiled into a call 
 | Memory all instances of a world keep together | 256 MiB | The call fails, and new players and rooms are refused ("This world is full right now") until others leave |
 | Call depth | 200 | Script error (stack overflow) |
 | Values on the Lua stack | 65536 | Script error (registry overflow) |
-| Output per call | 100 calls of `say`, `room.describe`, `ui.items` and `ui.image` (questions do not count) | Script error |
+| Output per call | 100 calls of `say`, `room.describe`, `room.go`, `ui.items` and `ui.image` (questions do not count) | Script error |
 | Script size | 256 KiB | The pack does not load |
 
 Time per call and the memory limits can be changed by the admin ([admin-limits.md](admin-limits.md)); the others are part of the pack format.

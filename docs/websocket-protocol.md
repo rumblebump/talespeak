@@ -28,7 +28,7 @@ Per-client limits count IPv6 clients by their /64 network; the Lua time budget c
 | server → client | `welcome` | `version` | Sent once after connecting; a new session starts in the pack's start room |
 | client → server | `ping` | | Keep-alive |
 | server → client | `pong` | | Answer to `ping` |
-| server → client | `room` | `id`, `title`, `text`, `items` | The room the player is in, with the things they can click |
+| server → client | `room` | `id`, `title`, `text`, `items` | The room the player is in, with the things they can click. When a script moves the player (`room.go`), an `items` message with the new room's items comes first, then the new room's own output, which may or may not include `room` |
 | server → client | `text` | `text`, `speak`, `hide` | A line of story text. `speak`: read it aloud even when read aloud is off. `hide`: only read it aloud (a listening exercise); show it when the device has no local voice |
 | server → client | `items` | `items` | Replaces the things the player can click; none clears them |
 | server → client | `image` | `url`, `text` | Shows one of the pack's images as a popup; `text` is its caption and alt text |

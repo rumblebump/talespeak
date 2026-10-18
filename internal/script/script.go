@@ -102,6 +102,11 @@ type Host interface {
 	// Image shows one of the pack's images; it reports false when the pack
 	// has no image of that name.
 	Image(name, caption string) bool
+	// Go moves the player to room once the hook ends; it reports false
+	// when the pack has no such room.
+	Go(room string) bool
+	// Room is the id of the player's current room.
+	Room() string
 }
 
 // Voice says how a line reaches the player, set by say(text, {speak =
@@ -188,6 +193,7 @@ type Thread struct {
 	resume   chan *answer // the player's answer; nil ends the hook
 	events   chan result  // the end of each call: a dialog, or the hook's end
 	canceled bool         // set on the hook's goroutine once resume sent nil
+	moved    bool         // room.go was called: the hook may not wait again
 }
 
 type result struct {
@@ -361,6 +367,9 @@ func (r *Runtime) Run(host Host, env *Env, hook, player string, args ...string) 
 	}
 	p := r.L.NewTable()
 	p.RawSetString("name", lua.LString(player))
+	if host != nil {
+		p.RawSetString("room", lua.LString(host.Room()))
+	}
 	values := []lua.LValue{p}
 	for _, a := range args {
 		values = append(values, lua.LString(a))
@@ -507,6 +516,9 @@ func (r *Runtime) pause(L *lua.LState, d *Dialog) *answer {
 	th := r.cur.thread
 	if th.canceled {
 		L.RaiseError(errLeft)
+	}
+	if th.moved {
+		L.RaiseError("the player is leaving this room (room.go was called): a hook cannot wait for an answer after it")
 	}
 	th.events <- result{dialog: d}
 	a := <-th.resume // the caller has called begin
