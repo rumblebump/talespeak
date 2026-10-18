@@ -4,16 +4,25 @@
 const PING_EVERY_MS = 30000;
 const MAX_RETRY_MS = 30000;
 
+// The engine closes with this code when the player connected again
+// elsewhere; reconnecting would take the game back from there.
+const REPLACED = 4001;
+
 /**
- * Connects to /ws on this page's origin and keeps reconnecting.
- * @param {{ onOpen: () => void, onMessage: (msg: object) => void, onClose: (retryMs: number) => void }} handlers
- * @returns {{ send: (msg: object) => boolean }}
+ * Connects to /ws on this page's origin and keeps reconnecting until
+ * stopped. Before each retry, canRetry is asked: false stops (the player
+ * was signed out, or may no longer play).
+ * @param {{ onOpen: () => void, onMessage: (msg: object) => void, onClose: (retryMs: number) => void,
+ *           onReplaced: () => void, canRetry: () => Promise<boolean> }} handlers
+ * @returns {{ send: (msg: object) => boolean, stop: () => void }}
  */
 export function connect(handlers) {
   let socket = null;
   let retryMs = 1000;
+  let stopped = false;
 
   function open() {
+    if (stopped) return;
     const scheme = location.protocol === "https:" ? "wss://" : "ws://";
     const ws = new WebSocket(scheme + location.host + "/ws");
     socket = ws;
@@ -38,12 +47,28 @@ export function connect(handlers) {
       }
     });
 
-    ws.addEventListener("close", () => {
+    ws.addEventListener("close", (event) => {
       clearInterval(pinger);
       if (socket === ws) socket = null;
-      handlers.onClose(retryMs);
-      setTimeout(open, retryMs);
+      if (stopped) return;
+      if (event.code === REPLACED) {
+        stopped = true;
+        handlers.onReplaced();
+        return;
+      }
+      const wait = retryMs;
+      handlers.onClose(wait);
       retryMs = Math.min(retryMs * 2, MAX_RETRY_MS);
+      setTimeout(async () => {
+        let ok = true;
+        try {
+          ok = await handlers.canRetry();
+        } catch {
+          ok = true; // the server is not reachable yet: keep trying
+        }
+        if (ok) open();
+        else stopped = true;
+      }, wait);
     });
   }
 
@@ -53,6 +78,11 @@ export function connect(handlers) {
     return true;
   }
 
+  function stop() {
+    stopped = true;
+    if (socket) socket.close(1000, "signed out");
+  }
+
   open();
-  return { send };
+  return { send, stop };
 }

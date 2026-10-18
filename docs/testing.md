@@ -38,7 +38,7 @@ npx playwright test --ui             # watch and debug locally
 ```
 
 - Two projects, both Chromium: `chromium` (desktop) and `phone` (Pixel 7 size and touch).
-- Tests on one server share its world, and run side by side: they must not depend on being alone (names can be `traveler 2`). Tests where players meet (`party.spec.js`) get a demo server of their own, run one at a time and only on `chromium`, so no other test takes the horn they want.
+- Tests on one server share its world, and run side by side: they must not depend on being alone. `open()` in `fixtures.js` signs every test up with an account of its own (`traveler_` and a random suffix). Tests where players meet (`party.spec.js`) get a demo server of their own, run one at a time and only on `chromium`, so no other test takes the horn they want.
 - Import `test` and `expect` from `e2e/tests/fixtures.js`: its automatic `guard` fixture is the offline and CSP guard below.
 
 - The server starts from a fresh data directory with `content/test-pack` (`TALESPEAK_PACK`), a tiny pack with every renderer once; T-0015 adds a second room, a timer and a soundboard. The connect burst is raised for the tests, since every test connects from 127.0.0.1.

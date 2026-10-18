@@ -15,7 +15,7 @@ import (
 // makes Pending report that the session fell behind.
 type pushGame struct{}
 
-func (pushGame) NewSession(string) (Session, []Message) { return &pushSession{}, nil }
+func (pushGame) NewSession(string, Who) (Session, []Message) { return &pushSession{}, nil }
 
 type pushSession struct {
 	mu     sync.Mutex

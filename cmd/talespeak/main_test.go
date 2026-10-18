@@ -20,6 +20,24 @@ import (
 	"github.com/rumblebump/talespeak/internal/server"
 )
 
+// signUp registers an account on the server at addr and returns the
+// headers that carry its sign-in.
+func signUp(t *testing.T, addr, name string) http.Header {
+	t.Helper()
+	body := `{"name":"` + name + `","password":"correct horse"}`
+	resp, err := http.Post("http://"+addr+"/api/register", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || len(resp.Cookies()) != 1 {
+		t.Fatalf("register: %s, cookies %v", resp.Status, resp.Cookies())
+	}
+	h := http.Header{}
+	h.Set("Cookie", resp.Cookies()[0].String())
+	return h
+}
+
 // integration skips tests that start servers or open SQLite files under -short.
 func integration(t *testing.T) {
 	t.Helper()
@@ -268,7 +286,7 @@ func TestServeRunsAndShutsDownOnSignal(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	c, _, err := websocket.Dial(ctx, "ws://"+addr+"/ws", nil)
+	c, _, err := websocket.Dial(ctx, "ws://"+addr+"/ws", &websocket.DialOptions{HTTPHeader: signUp(t, addr, "mira")})
 	if err != nil {
 		t.Fatal(err)
 	}

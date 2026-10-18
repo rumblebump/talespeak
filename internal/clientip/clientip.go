@@ -76,3 +76,37 @@ func (r Resolver) IP(req *http.Request) string {
 	}
 	return client.Unmap().String()
 }
+
+// HTTPS reports whether the client reached the server over HTTPS: the
+// request came in over TLS, or a trusted proxy says so in
+// X-Forwarded-Proto. From any other peer the header is ignored.
+func (r Resolver) HTTPS(req *http.Request) bool {
+	if req.TLS != nil {
+		return true
+	}
+	host, _, err := net.SplitHostPort(req.RemoteAddr)
+	if err != nil {
+		host = req.RemoteAddr
+	}
+	peer, err := netip.ParseAddr(host)
+	if err != nil || !r.isTrusted(peer) {
+		return false
+	}
+	protos := strings.Split(strings.Join(req.Header.Values("X-Forwarded-Proto"), ","), ",")
+	return strings.EqualFold(strings.TrimSpace(protos[len(protos)-1]), "https")
+}
+
+// Key is what per-client limits count by: the address, or for IPv6 its
+// /64, which one home or school network usually gets as a whole. Counting
+// whole IPv6 addresses would give every client 2^64 fresh limits.
+func Key(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil || !a.Is6() || a.Is4In6() {
+		return ip
+	}
+	p, err := a.Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return p.String()
+}

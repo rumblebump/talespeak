@@ -22,12 +22,13 @@ An unset or empty variable keeps the default. A value that does not parse or is 
 | `TALESPEAK_MESSAGE_RATE` | `10` | 0.1 to 1000 per second | Messages per connection, after the burst |
 | `TALESPEAK_MESSAGE_BURST` | `20` | 1 to 10000 | Messages per connection at once |
 | `TALESPEAK_IDLE_TIMEOUT` | `2m` | `45s` to `24h` | Silence before a connection is closed (clients ping every 30 s) |
+| `TALESPEAK_SIGNIN_BURST` | `40` | 1 to 1000000 | Accounts one address may register, sign-ins it may try and invite codes it may enter at once; after that one registration every 30 s, one sign-in every 5 s and one code every 30 s. Each account name also gets 10 sign-in tries at once, then one a minute ([accounts.md](accounts.md)) |
 
 Durations are Go durations (`250ms`, `2s`, `5m`). Sizes are bytes or a number with `KiB`, `MiB` or `GiB` (`512KiB`, `2MiB`).
 
 **What to change when:**
 
-- A school behind one NAT address with many players: raise `TALESPEAK_MAX_CONNS_PER_CLIENT` and `TALESPEAK_CONNECT_BURST`, and with a heavy pack `TALESPEAK_LUA_CLIENT_RATE` (the whole class shares it).
+- A school behind one NAT address with many players: raise `TALESPEAK_MAX_CONNS_PER_CLIENT`, `TALESPEAK_CONNECT_BURST` and, for classes larger than 40, `TALESPEAK_SIGNIN_BURST`, and with a heavy pack `TALESPEAK_LUA_CLIENT_RATE` (the whole class shares it).
 - Packs with large pictures: raise `TALESPEAK_PACK_IMAGE_MAX`, and keep `TALESPEAK_PACK_IMAGES_TOTAL` within the server's memory.
 - Heavy rule packs that hit "script hit its limits": raise `TALESPEAK_LUA_TIME` a little (a slow hook delays the other players of its world), or `TALESPEAK_LUA_PLAYER_MEMORY` for packs with large word lists.
 - "This world is full right now": every player runs their own copy of each room script they visit, so a world keeps about players × rooms visited (at most the last 4 per player) × what a script keeps. Raise `TALESPEAK_LUA_STATE_MEMORY` within the server's memory. With a 10000-word list, one player keeps about 1.2 MiB per room, so the defaults allow about 55 players per address and 220 per world.

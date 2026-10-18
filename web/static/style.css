@@ -143,7 +143,7 @@ button.option:hover, button.option:focus-visible, label.option:hover { color: va
   min-height: 2.25rem;
 }
 
-.hint { color: var(--warn); margin: 0.5rem 0; }
+.hint, .form-error { color: var(--warn); margin: 0.5rem 0; }
 
 .prompt {
   position: sticky;
@@ -199,3 +199,26 @@ footer { padding: 0.75rem 1rem; text-align: center; color: var(--muted); font-si
   .bar { padding: 0.5rem 0.75rem; }
   .prompt { padding: 0.5rem 0.75rem; }
 }
+
+/* Sign-in, joining a world, and playing elsewhere. */
+.account { max-width: 30rem; margin: 1rem 0; }
+.account label { display: block; margin: 0 0 0.75rem; }
+.account input {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+.account .actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+.account button {
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 0.25rem 0.9rem;
+  min-height: 2.25rem;
+}
+.who { color: var(--fg); }
+.story .notice { color: var(--accent); }

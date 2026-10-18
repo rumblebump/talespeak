@@ -81,7 +81,7 @@ function on_input(player, text) room.go(text) end`
 
 func TestRoomGoMovesAfterTheHook(t *testing.T) {
 	w := roomsWorld(t, roomA, roomB)
-	s, first := w.NewSession("")
+	s, first := w.NewSession("", ws.Who{})
 	defer s.Close()
 	if got := texts(first); got != "A 1 a" {
 		t.Fatalf("first = %q", got)
@@ -112,7 +112,7 @@ func TestRoomGoMovesAfterTheHook(t *testing.T) {
 
 func TestRoomGoRules(t *testing.T) {
 	w := roomsWorld(t, roomA, roomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	// The last room.go wins, and going to the current room runs on_enter again.
 	if got := texts(s.Handle(ws.Message{Type: "input", Text: "stay"})); got != "items:box | A 2 a" {
@@ -141,7 +141,7 @@ func TestRoomGoRules(t *testing.T) {
 func TestRoomGoLoopIsBounded(t *testing.T) {
 	w := roomsWorld(t, `function on_enter() say("A") room.go("b") end function on_input() say("A here") end`,
 		`function on_enter() say("B") room.go("a") end`)
-	s, first := w.NewSession("")
+	s, first := w.NewSession("", ws.Who{})
 	defer s.Close()
 	if n := strings.Count(texts(first), "A"); kinds(first[len(first)-1:]) != "error:" || n != MaxMoves/2+1 {
 		t.Fatalf("first = %q", texts(first))
@@ -156,7 +156,7 @@ func TestRoomGoLoopIsBounded(t *testing.T) {
 // them, and its room.go is an error that moves no one.
 func TestRoomGoAfterPlayerLeft(t *testing.T) {
 	w := roomsWorld(t, `function on_click() pcall(ui.dialog, "?", {"x"}) room.go("b") end`, roomB)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	if got := s.Handle(ws.Message{Type: "click", Item: "box"}); kinds(got) != "dialog:d1" {
 		t.Fatalf("click = %+v", got)
 	}

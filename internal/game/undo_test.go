@@ -41,7 +41,7 @@ func TestUndoneMovesKeepNoInstance(t *testing.T) {
 	now := time.Unix(0, 0)
 	w.now = func() time.Time { now = now.Add(300 * time.Millisecond); return now }
 	const key = "192.0.2.1"
-	s, _ := w.NewSession(key)
+	s, _ := w.NewSession(key, ws.Who{})
 	ss := s.(*session)
 	for i := range n {
 		b := w.budgets[key]

@@ -61,10 +61,10 @@ func say(t *testing.T, s ws.Session, text string) string {
 // overwrites, removals and Close, which is idempotent.
 func TestStatePlayerAccounting(t *testing.T) {
 	w := scriptWorld(t, stateScript, script.DefaultLimits, quiet, WithClientBudget(time.Second, time.Hour))
-	a1, _ := w.NewSession("192.0.2.1/32")
-	a2, _ := w.NewSession("192.0.2.1/32")
-	b, _ := w.NewSession("198.51.100.1/32")
-	local, _ := w.NewSession("")
+	a1, _ := w.NewSession("192.0.2.1/32", ws.Who{})
+	a2, _ := w.NewSession("192.0.2.1/32", ws.Who{})
+	b, _ := w.NewSession("198.51.100.1/32", ws.Who{})
+	local, _ := w.NewSession("", ws.Who{})
 	all := []ws.Session{a1, a2, b, local}
 	defer func() {
 		for _, s := range all {
@@ -152,7 +152,7 @@ end`)}
 // gone, but state.player still has every visit.
 func TestStatePlayerSurvivesEviction(t *testing.T) {
 	w := stateChain(t, 6, script.DefaultLimits)
-	s, first := w.NewSession("192.0.2.1/32")
+	s, first := w.NewSession("192.0.2.1/32", ws.Who{})
 	defer s.Close()
 	if texts(first) != "r1 1 1" {
 		t.Fatalf("first = %q", texts(first))
@@ -183,7 +183,7 @@ func TestStatePlayerSurvivesEviction(t *testing.T) {
 func TestStatePlayerSurvivesInstanceReset(t *testing.T) {
 	limits := script.Limits{Time: time.Second, CallMemory: 64 << 20, PlayerMemory: 2 << 20, StateMemory: 64 << 20}
 	w := stateChain(t, 2, limits)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	got := s.Handle(ws.Message{Type: "input", Text: "grow"})
 	if len(got) == 0 || got[len(got)-1].Type != "error" || !strings.Contains(got[len(got)-1].Message, "limits") {
@@ -211,7 +211,7 @@ func TestStatePlayerAddressShare(t *testing.T) {
 	limits.PlayerMemory = 256 << 10
 	w := scriptWorld(t, stateScript, limits, quiet, WithClientBudget(time.Second, time.Hour))
 	const addr = "192.0.2.1/32"
-	a, _ := w.NewSession(addr)
+	a, _ := w.NewSession(addr, ws.Who{})
 	defer a.Close()
 	for i := range 10 {
 		if got := say(t, a, fmt.Sprintf("big k%d", i)); got != "true nil" {
@@ -225,7 +225,7 @@ func TestStatePlayerAddressShare(t *testing.T) {
 	if state < 10*16000 {
 		t.Fatalf("share = %d", state)
 	}
-	b, first := w.NewSession(addr)
+	b, first := w.NewSession(addr, ws.Who{})
 	defer b.Close()
 	if kinds(first) != "error:" || !strings.Contains(first[0].Message, "your network") {
 		t.Errorf("second player of the full address = %+v", first)
@@ -233,7 +233,7 @@ func TestStatePlayerAddressShare(t *testing.T) {
 	if got := say(t, a, "big more"); !strings.Contains(got, "too many players from this network") {
 		t.Errorf("a write past the share = %q", got)
 	}
-	o, first := w.NewSession("198.51.100.1/32")
+	o, first := w.NewSession("198.51.100.1/32", ws.Who{})
 	defer o.Close()
 	if kinds(first) != "text:" {
 		t.Errorf("another address = %+v", first)
@@ -241,7 +241,7 @@ func TestStatePlayerAddressShare(t *testing.T) {
 	for i := range 10 {
 		say(t, a, fmt.Sprintf("del k%d", i))
 	}
-	c, first := w.NewSession(addr)
+	c, first := w.NewSession(addr, ws.Who{})
 	defer c.Close()
 	if kinds(first) != "text:" {
 		t.Errorf("after the state was removed = %+v", first)
@@ -274,7 +274,7 @@ end`, limits, quiet, WithClientBudget(time.Second, time.Hour))
 	}()
 	refused := false
 	for i := range 6 {
-		s, first := w.NewSession("")
+		s, first := w.NewSession("", ws.Who{})
 		open = append(open, s)
 		if kinds(first) != "text:" {
 			refused = true
@@ -306,7 +306,7 @@ end`, limits, quiet, WithClientBudget(time.Second, time.Hour))
 		s.Close()
 	}
 	open = nil
-	s, first := w.NewSession("")
+	s, first := w.NewSession("", ws.Who{})
 	open = append(open, s)
 	if kinds(first) != "text:" || say(t, s, "fill") != "kept" {
 		t.Errorf("after everyone left: %+v", first)
@@ -322,7 +322,7 @@ func TestStatePlayerClose(t *testing.T) {
   pcall(state.player.set, "after", 1)
 end
 function on_input(p, text) say(tostring(state.player.set(text, 1))) end`, script.DefaultLimits, quiet)
-	s, first := w.NewSession("192.0.2.1/32")
+	s, first := w.NewSession("192.0.2.1/32", ws.Who{})
 	if kinds(first) != "dialog:d1" {
 		t.Fatalf("first = %+v", first)
 	}
@@ -334,7 +334,7 @@ function on_input(p, text) say(tostring(state.player.set(text, 1))) end`, script
 		t.Errorf("after Close in a dialog: total = %d, clients = %v", total, clients)
 	}
 
-	s, _ = w.NewSession("192.0.2.1/32")
+	s, _ = w.NewSession("192.0.2.1/32", ws.Who{})
 	s.Handle(ws.Message{Type: "choose", ID: "d1", Option: 1})
 	w.Close()
 	if got := s.Handle(ws.Message{Type: "input", Text: "x"}); kinds(got) != "error:" {
@@ -388,7 +388,7 @@ func TestStatePlayerConcurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for round := range 3 {
-				s, _ := w.NewSession(addrs[g%len(addrs)])
+				s, _ := w.NewSession(addrs[g%len(addrs)], ws.Who{})
 				if got := say(t, s, "get me"); got != "nil" {
 					errs <- fmt.Errorf("player %d round %d starts with %q", g, round, got)
 				}

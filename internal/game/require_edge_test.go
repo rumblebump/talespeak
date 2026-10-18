@@ -70,13 +70,13 @@ function on_input() say("again " .. require("ask") .. " " .. asks) end`,
 		"b": `function on_enter() say("in b") end`,
 	}, askLib)
 	for range 3 {
-		s, first := w.NewSession("192.0.2.1")
+		s, first := w.NewSession("192.0.2.1", ws.Who{})
 		if kinds(first) != "dialog:d1" {
 			t.Fatalf("first = %s", kinds(first))
 		}
 		s.Close()
 	}
-	s, _ := w.NewSession("192.0.2.1")
+	s, _ := w.NewSession("192.0.2.1", ws.Who{})
 	defer s.Close()
 	if got := texts(s.Handle(ws.Message{Type: "choose", ID: "d1", Option: 1})); got != "chose stay 1" {
 		t.Errorf("answer = %q", got)
@@ -94,7 +94,7 @@ func TestRequireDialogThenMove(t *testing.T) {
 		"a": `function on_enter() say("chose " .. require("ask")) end`,
 		"b": `function on_enter() say("in b") end`,
 	}, askLib)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	got := s.Handle(ws.Message{Type: "choose", ID: "d1", Option: 2})
 	if texts(got) != "chose go | items: | in b" || roomOf(s) != "b" {
@@ -111,7 +111,7 @@ func TestRequireDialogThenWorldClose(t *testing.T) {
 	}, askLib)
 	var ss []ws.Session
 	for range 5 {
-		s, _ := w.NewSession("")
+		s, _ := w.NewSession("", ws.Who{})
 		ss = append(ss, s)
 	}
 	w.Close()
@@ -133,7 +133,7 @@ func TestRequireEvictedRoomRunsModuleAgain(t *testing.T) {
 function on_input(p, text) room.go(text) end`
 	}
 	w := mustLibWorld(t, rooms, map[string]string{"visits": `return {n = 0}`})
-	s, first := w.NewSession("192.0.2.1")
+	s, first := w.NewSession("192.0.2.1", ws.Who{})
 	defer s.Close()
 	if texts(first) != "r1 1" {
 		t.Fatalf("first = %q", texts(first))
@@ -166,7 +166,7 @@ func TestRequireModuleTopLevelAtWorldStart(t *testing.T) {
 			continue
 		}
 		w := mustLibWorld(t, map[string]string{"a": `function on_enter() require("m") say("ok") end`}, map[string]string{"m": lib})
-		s, first := w.NewSession("")
+		s, first := w.NewSession("", ws.Who{})
 		if isError(first) {
 			t.Errorf("%s in a hook: %v", lib, first)
 		}
@@ -182,7 +182,7 @@ func TestRequireUnusedModules(t *testing.T) {
 		t.Errorf("syntax error in an unused module: err = %v", err)
 	}
 	w := mustLibWorld(t, map[string]string{"a": `function on_enter() say("in a") end function on_input() require("boom") end`}, map[string]string{"boom": `error("boom")`})
-	s, first := w.NewSession("")
+	s, first := w.NewSession("", ws.Who{})
 	defer s.Close()
 	if texts(first) != "in a" {
 		t.Errorf("first = %v", first)
@@ -205,7 +205,7 @@ function M.bump()
   return n
 end
 return M`})
-	s1, first := w.NewSession("192.0.2.1")
+	s1, first := w.NewSession("192.0.2.1", ws.Who{})
 	defer s1.Close()
 	if texts(first) != "a 1" {
 		t.Fatalf("first = %q", texts(first))
@@ -215,7 +215,7 @@ return M`})
 			t.Errorf("%s = %q, want %q", step.room, got, step.want)
 		}
 	}
-	s2, first := w.NewSession("192.0.2.2")
+	s2, first := w.NewSession("192.0.2.2", ws.Who{})
 	defer s2.Close()
 	if texts(first) != "a 1" {
 		t.Errorf("second player = %q", texts(first))
@@ -242,7 +242,7 @@ function on_input(p, text) room.go(text) end`,
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s, first := w.NewSession(fmt.Sprintf("192.0.2.%d", i+1))
+			s, first := w.NewSession(fmt.Sprintf("192.0.2.%d", i+1), ws.Who{})
 			defer s.Close()
 			if kinds(first) != "dialog:d1" {
 				errs <- fmt.Errorf("player %d first = %s", i, kinds(first))
@@ -281,7 +281,7 @@ func TestConcurrentRequireAndClose(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s, _ := w.NewSession(fmt.Sprintf("192.0.2.%d", i+1))
+			s, _ := w.NewSession(fmt.Sprintf("192.0.2.%d", i+1), ws.Who{})
 			defer s.Close()
 			for range 20 {
 				s.Handle(ws.Message{Type: "input", Text: "go"})

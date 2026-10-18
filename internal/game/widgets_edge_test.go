@@ -49,7 +49,7 @@ func itemWorld(t *testing.T, items, src string) *World {
 // does nothing.
 func TestItemsWithoutScript(t *testing.T) {
 	w := itemWorld(t, "  - {id: rock, label: a rock}\n", "")
-	s, first := w.NewSession("")
+	s, first := w.NewSession("", ws.Who{})
 	defer s.Close()
 	if kinds(first) != "room:r" || len(first[0].Items) != 1 || first[0].Items[0] != (ws.Item{ID: "rock", Label: "a rock"}) {
 		t.Fatalf("first = %+v", first)
@@ -66,7 +66,7 @@ func TestItemsWithoutScript(t *testing.T) {
 // clears the items of the room before. This pins that wire format.
 func TestEmptyItemsWireFormat(t *testing.T) {
 	w := itemWorld(t, "", `function on_enter() room.describe() ui.items({}) end`)
-	_, first := w.NewSession("")
+	_, first := w.NewSession("", ws.Who{})
 	expect(t, "empty items", jsonLines(t, first), []string{
 		`{"type":"room","id":"r","title":"R","text":"A room."}`,
 		`{"type":"items"}`,
@@ -85,7 +85,7 @@ function on_click(player, id)
     error("stuck")
   end
 end`)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	for _, item := range []string{"", "BOX", "box ", "door", "../box"} {
 		if got := s.Handle(ws.Message{Type: "click", Item: item}); kinds(got) != "error:" || got[0].Message != "no such item" {
@@ -126,9 +126,9 @@ func TestItemsArePerSession(t *testing.T) {
 	w := itemWorld(t, "  - {id: key, label: a key}\n", `function on_click(player, id)
   if id == "key" then ui.items({{id = "door", label = "a door"}}) else say(id) end
 end`)
-	a, _ := w.NewSession("")
+	a, _ := w.NewSession("", ws.Who{})
 	defer a.Close()
-	b, _ := w.NewSession("")
+	b, _ := w.NewSession("", ws.Who{})
 	defer b.Close()
 	if got := a.Handle(ws.Message{Type: "click", Item: "key"}); kinds(got) != "items:" {
 		t.Fatalf("a click key = %+v", got)
@@ -151,7 +151,7 @@ func TestInputOpensQuestion(t *testing.T) {
     say("typed " .. text)
   end
 end`, script.DefaultLimits, quiet)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	got := s.Handle(ws.Message{Type: "input", Text: "riddle"})
 	if kinds(got) != "ask:d1" || got[0].Strict || got[0].Speak || got[0].Hide {
@@ -171,7 +171,7 @@ end`, script.DefaultLimits, quiet)
 // The answer is cleaned like typed input, and 500 bytes are accepted.
 func TestAnswerCleaning(t *testing.T) {
 	w := scriptWorld(t, `function on_enter() while true do local a = ui.ask("?") say("[" .. a .. "]") end end`, script.DefaultLimits, quiet)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	tests := []struct{ in, want string }{
 		{"  Cell  ", "[Cell]"},
@@ -200,7 +200,7 @@ func TestAnswerCleaning(t *testing.T) {
 // session must not drop a paused hook it can no longer answer or cancel.
 func TestAnswerGrownByCleaningKeepsQuestion(t *testing.T) {
 	w := scriptWorld(t, `function on_enter() local a = ui.ask("?") say("got " .. #a) end`, script.DefaultLimits, quiet)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	in := strings.Repeat("\xffa", MaxInputBytes/2)
 	if len(cleanInput(in)) <= script.MaxAnswerBytes {
 		t.Fatalf("cleaned length %d: the test needs a longer result", len(cleanInput(in)))
@@ -227,7 +227,7 @@ func TestChooseSelectEdgeCases(t *testing.T) {
     say(table.concat(n, ","))
   end
 end`, script.DefaultLimits, quiet)
-	s, first := w.NewSession("")
+	s, first := w.NewSession("", ws.Who{})
 	defer s.Close()
 	if kinds(first) != "select:d1" {
 		t.Fatalf("first = %+v", first)
@@ -263,7 +263,7 @@ end`, script.DefaultLimits, quiet)
 // For ui.dialog only option counts; choices are ignored.
 func TestChooseDialogIgnoresChoices(t *testing.T) {
 	w := scriptWorld(t, `function on_enter() local n = ui.dialog("?", {"a", "b"}) say("n" .. n) end`, script.DefaultLimits, quiet)
-	s, _ := w.NewSession("")
+	s, _ := w.NewSession("", ws.Who{})
 	defer s.Close()
 	if got := s.Handle(ws.Message{Type: "choose", ID: "d1", Choices: []int{1}}); kinds(got) != "error:d1" {
 		t.Errorf("choices without option = %+v", got)
@@ -280,13 +280,13 @@ func TestLeaveDuringSelectAndAsk(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			w := scriptWorld(t, `function on_enter() `+call+` say("not reached") end`, script.DefaultLimits, quiet)
 			for range 3 {
-				s, _ := w.NewSession("")
+				s, _ := w.NewSession("", ws.Who{})
 				s.Close()
 			}
 			if n := w.rt.Paused(); n != 0 {
 				t.Errorf("Paused = %d after Close", n)
 			}
-			s, _ := w.NewSession("")
+			s, _ := w.NewSession("", ws.Who{})
 			w.Close()
 			for _, m := range []ws.Message{{Type: "choose", ID: "d1", Choices: []int{1}}, {Type: "answer", ID: "d1", Text: "a"}} {
 				got := s.Handle(m)
@@ -304,7 +304,7 @@ func TestLeaveDuringSelectAndAsk(t *testing.T) {
 // ui.image of a name the pack lacks fails the hook without details.
 func TestImageUnknownName(t *testing.T) {
 	w := itemWorld(t, "", `function on_enter() ui.image("pic.png", "ok") ui.image("../pack.yaml") end`)
-	_, first := w.NewSession("")
+	_, first := w.NewSession("", ws.Who{})
 	if kinds(first) != "image: error:" || first[0].URL != "/packs/t/assets/pic.png" || first[0].Text != "ok" || strings.Contains(first[1].Message, "pack.yaml") {
 		t.Errorf("first = %+v", first)
 	}
@@ -313,7 +313,7 @@ func TestImageUnknownName(t *testing.T) {
 // say's voice reaches the message as speak and hide.
 func TestSayVoiceMessages(t *testing.T) {
 	w := scriptWorld(t, `function on_enter() say("a") say("b", {speak = true}) say("c", {speak = true, show = false}) end`, script.DefaultLimits, quiet)
-	_, first := w.NewSession("")
+	_, first := w.NewSession("", ws.Who{})
 	expect(t, "voices", jsonLines(t, first), []string{
 		`{"type":"text","text":"a"}`,
 		`{"type":"text","text":"b","speak":true}`,
@@ -381,7 +381,7 @@ end`)},
 	opens := []ws.Message{{}, {Type: "click", Item: "box"}, {Type: "click", Item: "sel"}, {Type: "input", Text: "ask"}}
 	f.Fuzz(func(t *testing.T, typ, id, item string, option int, choices []byte, text string) {
 		for _, open := range opens {
-			s, _ := w.NewSession("")
+			s, _ := w.NewSession("", ws.Who{})
 			if open.Type != "" {
 				s.Handle(open)
 			}

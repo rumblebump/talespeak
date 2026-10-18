@@ -145,7 +145,7 @@ type fuzzPlayer struct {
 }
 
 func newFuzzPlayer(t *testing.T, w *World) *fuzzPlayer {
-	s, first := w.NewSession("")
+	s, first := w.NewSession("", ws.Who{})
 	p := &fuzzPlayer{s: s, shown: map[string]bool{}}
 	p.see(t, first)
 	return p
