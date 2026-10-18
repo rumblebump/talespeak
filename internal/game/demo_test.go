@@ -1,6 +1,7 @@
 package game
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -173,17 +174,33 @@ func TestDemoCorridorStairs(t *testing.T) {
 	ended(t, s, text, got)
 }
 
-// In the corridor the guard is back after GUARD_MOVES actions and warns
-// one action before.
+// leftAfterCell is how many actions the guard's countdown has left when
+// escapeCell is done: AWAY_MOVES (10) minus one question while he is
+// away, opening the lock and walking out.
+const leftAfterCell = 7
+
+// backToCell sends m, which asks to go back into the solved cell, and says
+// yes to Whisp's question.
+func backToCell(t *testing.T, s ws.Session, m ws.Message) (string, []ws.Message) {
+	t.Helper()
+	_, got := play(t, s, m)
+	if len(got) != 1 || got[0].Type != "dialog" || got[0].Title != "Whisp: Do you really want to get locked in again?" {
+		t.Fatalf("%+v: %+v", m, got)
+	}
+	return play(t, s, ws.Message{Type: "choose", ID: got[0].ID, Option: 1})
+}
+
+// In the corridor the guard is back when the cell's countdown runs out,
+// and warns one action before.
 func TestDemoGuardCatchesInCorridor(t *testing.T) {
 	w := shippedDemo(t)
 	s, _ := w.NewSession("")
 	defer s.Close()
 	escapeCell(t, s)
 	look := ws.Message{Type: "input", Text: "hmm"}
-	for i := 1; i <= 5; i++ {
+	for i := 1; i <= leftAfterCell; i++ {
 		text, _ := play(t, s, look)
-		if warned := strings.Contains(text, "Footsteps on the stairs"); warned != (i == 4) {
+		if warned := strings.Contains(text, "Footsteps on the stairs"); warned != (i == leftAfterCell-1) {
 			t.Fatalf("action %d: %q", i, text)
 		}
 	}
@@ -192,16 +209,17 @@ func TestDemoGuardCatchesInCorridor(t *testing.T) {
 	ended(t, s, text, got)
 }
 
-// A wrong code gets a hint on the second try; rooms keep what the player
-// did when they come back; the guard comes into the guard room too.
+// A wrong code gets a hint on the second try; the corridor keeps what the
+// player did; Whisp asks before the solved cell, and no keeps the player
+// out; the guard's one countdown goes on in every room.
 func TestDemoGuardRoom(t *testing.T) {
 	w := shippedDemo(t)
 	s, _ := w.NewSession("")
 	defer s.Close()
-	escapeCell(t, s)
-	play(t, s, ws.Message{Type: "click", Item: "stone"})
-	play(t, s, ws.Message{Type: "input", Text: "open the door"})
-	for i := 1; i <= 2; i++ {
+	escapeCell(t, s)                                             // 7 left
+	play(t, s, ws.Message{Type: "click", Item: "stone"})         // 6
+	play(t, s, ws.Message{Type: "input", Text: "open the door"}) // 5
+	for i := 1; i <= 2; i++ {                                    // 4, 3
 		_, got := play(t, s, ws.Message{Type: "input", Text: "open the box"})
 		text, _ := play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "123"})
 		wantText(t, "wrong code", text, "The box stays shut.")
@@ -209,32 +227,70 @@ func TestDemoGuardRoom(t *testing.T) {
 			t.Fatalf("try %d: %q", i, text)
 		}
 	}
-	_, got := play(t, s, ws.Message{Type: "click", Item: "corridor"})
+	_, got := play(t, s, ws.Message{Type: "click", Item: "corridor"}) // 2
 	if items := lastItems(t, got); items["stone"] != "lifted stone" {
 		t.Fatalf("corridor items on coming back: %v", items)
 	}
-	text, got := play(t, s, ws.Message{Type: "click", Item: "cell"})
-	wantText(t, "cell", text, "Your old cell.")
-	if items := lastItems(t, got); items["lock"] != "open cell door" {
-		t.Fatalf("cell items on coming back: %v", items)
+	text, got := play(t, s, ws.Message{Type: "click", Item: "cell"}) // 1
+	wantText(t, "warning", text, "Footsteps on the stairs")
+	if len(got) != 2 || got[1].Type != "dialog" || got[1].Title != "Whisp: Do you really want to get locked in again?" {
+		t.Fatalf("cell: %+v", got)
 	}
-	play(t, s, ws.Message{Type: "click", Item: "lock"})
-	text, _ = play(t, s, ws.Message{Type: "click", Item: "door"})
-	if strings.Contains(text, "Nobody is here.") {
-		t.Fatalf("guard room greets twice: %q", text)
+	text, _ = play(t, s, ws.Message{Type: "choose", ID: got[1].ID, Option: 2})
+	if text != "Whisp: Good. Onwards!" || roomOf(s) != "corridor" {
+		t.Fatalf("no to the cell: %q, in %q", text, roomOf(s))
 	}
-	// The guard room counts its own actions: 2 codes and the way out so
-	// far, so 3 more before the guard comes in, warning on the second.
-	look := ws.Message{Type: "input", Text: "hmm"}
-	for i := 1; i <= 3; i++ {
-		text, _ := play(t, s, look)
-		if warned := strings.Contains(text, "The guard is back up the stairs!"); warned != (i == 2) {
-			t.Fatalf("action %d: %q", i, text)
-		}
+	text, _ = play(t, s, ws.Message{Type: "click", Item: "door"}) // 0
+	if roomOf(s) != "guardroom" || strings.Contains(text, "Nobody is here.") {
+		t.Fatalf("guard room again: %q, in %q", text, roomOf(s))
 	}
-	text, got = play(t, s, look)
+	text, got = play(t, s, ws.Message{Type: "input", Text: "hmm"})
 	wantText(t, "caught", text, "The door bangs open.")
 	ended(t, s, text, got)
+}
+
+// Back in the cell after saying yes to Whisp, the cell is as the player
+// left it.
+func TestDemoBackInCell(t *testing.T) {
+	for _, m := range []ws.Message{{Type: "click", Item: "cell"}, {Type: "input", Text: "go back to the cell"}, {Type: "input", Text: "open the cell door"}} {
+		w := shippedDemo(t)
+		s, _ := w.NewSession("")
+		escapeCell(t, s)
+		text, got := backToCell(t, s, m)
+		wantText(t, "cell", text, "Your old cell.")
+		if roomOf(s) != "cell" {
+			t.Fatalf("%+v: in %q", m, roomOf(s))
+		}
+		if items := lastItems(t, got); items["lock"] != "open cell door" || items["guard"] != "empty stool" {
+			t.Fatalf("cell items on coming back: %v", items)
+		}
+		s.Close()
+	}
+}
+
+// With the key, the corridor is solved and locked: its door is gone, and
+// typing it gets Whisp's answer instead of a move.
+func TestDemoCorridorLockedWithKey(t *testing.T) {
+	w := shippedDemo(t)
+	s := inGuardRoom(t, w)
+	defer s.Close()
+	_, got := play(t, s, ws.Message{Type: "click", Item: "box"})
+	_, got = play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "417"})
+	items := lastItems(t, got)
+	if _, ok := items["corridor"]; ok || items["box"] != "open iron box" {
+		t.Fatalf("items with the key: %v", items)
+	}
+	for _, say := range []string{"go back to the corridor", "corridor"} {
+		text, got := play(t, s, ws.Message{Type: "input", Text: say})
+		if text != "Whisp: You have everything you need from the corridor. The way out is the back door." || roomOf(s) != "guardroom" {
+			t.Fatalf("%q: %q, in %q", say, text, roomOf(s))
+		}
+		for _, m := range got {
+			if m.Type == "dialog" {
+				t.Fatalf("%q: locked room asks: %+v", say, got)
+			}
+		}
+	}
 }
 
 func TestDemoCaughtAtTheDoor(t *testing.T) {
@@ -262,9 +318,9 @@ func TestDemoGuardComesBack(t *testing.T) {
 	defer s.Close()
 	sendAway(t, s)
 	look := ws.Message{Type: "input", Text: "hmm"}
-	for i := 1; i <= 6; i++ {
+	for i := 1; i <= 10; i++ {
 		text, _ := play(t, s, look)
-		if warned := strings.Contains(text, "footsteps are coming closer"); warned != (i == 5) {
+		if warned := strings.Contains(text, "footsteps are coming closer"); warned != (i == 9) {
 			t.Fatalf("action %d: %q", i, text)
 		}
 	}
@@ -284,7 +340,7 @@ func TestDemoGuardSeesOpenLock(t *testing.T) {
 	sendAway(t, s)
 	openLock(t, s)
 	look := ws.Message{Type: "input", Text: "hmm"}
-	for range 5 {
+	for range 9 {
 		play(t, s, look)
 	}
 	text, got := play(t, s, ws.Message{Type: "click", Item: "lock"})
@@ -343,7 +399,7 @@ func TestDemoCorridorWords(t *testing.T) {
 	cases := []struct {
 		say  string
 		room string // where the player is afterwards
-		want string // text, or "dialog"
+		want string // text, "dialog" for the stairs, or "whisp" for Whisp's question
 	}{
 		{"lift the stone", "corridor", "BOX 4 1 7"},
 		{"look at the floor", "corridor", "BOX 4 1 7"},
@@ -354,8 +410,8 @@ func TestDemoCorridorWords(t *testing.T) {
 		{"go ahead", "guardroom", "Nobody is here."},
 		{"go down the stairs", "corridor", "dialog"},
 		{"follow the sound of water", "corridor", "dialog"},
-		{"go back to the cell", "cell", "Your old cell."},
-		{"back", "cell", "Your old cell."},
+		{"go back to the cell", "corridor", "whisp"},
+		{"back", "corridor", "whisp"},
 		{"help", "corridor", "Try: look at the stone, open the door"},
 		{"dance", "corridor", "You think about \"dance\", but the footsteps below make you hurry."},
 	}
@@ -366,11 +422,16 @@ func TestDemoCorridorWords(t *testing.T) {
 			defer s.Close()
 			escapeCell(t, s)
 			text, got := play(t, s, ws.Message{Type: "input", Text: c.say})
-			if c.want == "dialog" {
+			switch c.want {
+			case "dialog":
 				if len(got) != 1 || got[0].Type != "dialog" || !strings.Contains(got[0].Title, "Go down the stairs?") {
 					t.Fatalf("%+v", got)
 				}
-			} else {
+			case "whisp":
+				if len(got) != 1 || got[0].Type != "dialog" || !strings.Contains(got[0].Title, "locked in again?") {
+					t.Fatalf("%+v", got)
+				}
+			default:
 				wantText(t, c.say, text, c.want)
 			}
 			if roomOf(s) != c.room {
@@ -483,7 +544,7 @@ func TestDemoRepeats(t *testing.T) {
 		}
 	}
 	play(t, s, ws.Message{Type: "click", Item: "door"})
-	for i := 1; i <= 3; i++ {
+	for i := 1; i <= 2; i++ {
 		_, got := play(t, s, ws.Message{Type: "click", Item: "box"})
 		text, _ := play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "999"})
 		if hinted := strings.Contains(text, "Hint:"); hinted != (i >= 2) {
@@ -513,9 +574,9 @@ func TestDemoCorridorStayUp(t *testing.T) {
 		t.Fatalf("stay: %q %+v", text, got)
 	}
 	look := ws.Message{Type: "input", Text: "hmm"}
-	for i := 2; i <= 5; i++ {
+	for i := 2; i <= leftAfterCell; i++ {
 		text, _ := play(t, s, look)
-		if warned := strings.Contains(text, "Footsteps on the stairs"); warned != (i == 4) {
+		if warned := strings.Contains(text, "Footsteps on the stairs"); warned != (i == leftAfterCell-1) {
 			t.Fatalf("action %d: %q", i, text)
 		}
 	}
@@ -524,21 +585,18 @@ func TestDemoCorridorStayUp(t *testing.T) {
 	ended(t, s, text, got)
 }
 
-// Back in the cell, the cell's own countdown goes on from where the player
-// left it, and the guard finds the open lock.
+// Back in the cell, the countdown goes on from where it was, and the guard
+// finds the open lock.
 func TestDemoCaughtBackInCell(t *testing.T) {
 	w := shippedDemo(t)
 	s, _ := w.NewSession("")
 	defer s.Close()
-	escapeCell(t, s) // the cell counted 3 of its 6 actions
-	_, got := play(t, s, ws.Message{Type: "click", Item: "cell"})
-	if items := lastItems(t, got); items["guard"] != "empty stool" || items["lock"] != "open cell door" {
-		t.Fatalf("cell items on coming back: %v", items)
-	}
+	escapeCell(t, s)
+	backToCell(t, s, ws.Message{Type: "click", Item: "cell"}) // asking costs one action
 	look := ws.Message{Type: "input", Text: "hmm"}
-	for i := 1; i <= 3; i++ {
+	for i := 1; i <= leftAfterCell-1; i++ {
 		text, _ := play(t, s, look)
-		if warned := strings.Contains(text, "footsteps are coming closer"); warned != (i == 2) {
+		if warned := strings.Contains(text, "footsteps are coming closer"); warned != (i == leftAfterCell-2) {
 			t.Fatalf("action %d: %q", i, text)
 		}
 	}
@@ -547,27 +605,23 @@ func TestDemoCaughtBackInCell(t *testing.T) {
 	ended(t, s, text, got)
 }
 
-// Leaving the corridor on its last action does not save the player: the
-// guard is there when they come back.
-func TestDemoCorridorGuardWaitsOnReturn(t *testing.T) {
+// The guard's countdown is one for all rooms: leaving the corridor on its
+// last action, the player meets him in the guard room.
+func TestDemoGuardCountsInEveryRoom(t *testing.T) {
 	w := shippedDemo(t)
 	s, _ := w.NewSession("")
 	defer s.Close()
 	escapeCell(t, s)
-	for range 4 {
+	for range leftAfterCell - 1 {
 		play(t, s, ws.Message{Type: "input", Text: "hmm"})
 	}
-	play(t, s, ws.Message{Type: "click", Item: "door"}) // the corridor's 5th and last action
+	play(t, s, ws.Message{Type: "click", Item: "door"}) // the last action
 	if roomOf(s) != "guardroom" {
 		t.Fatalf("in %q", roomOf(s))
 	}
-	play(t, s, ws.Message{Type: "click", Item: "corridor"})
-	if roomOf(s) != "corridor" {
-		t.Fatalf("in %q", roomOf(s))
-	}
-	text, got := play(t, s, ws.Message{Type: "click", Item: "door"})
-	wantText(t, "caught", text, "sees you standing in the corridor")
-	if roomOf(s) != "corridor" {
+	text, got := play(t, s, ws.Message{Type: "click", Item: "corridor"})
+	wantText(t, "caught", text, "The door bangs open.")
+	if roomOf(s) != "guardroom" {
 		t.Fatalf("caught, then moved to %q", roomOf(s))
 	}
 	ended(t, s, text, got)
@@ -588,15 +642,19 @@ func TestDemoPlayersApart(t *testing.T) {
 	escapeCell(t, b)
 	text, _ := play(t, b, ws.Message{Type: "click", Item: "stone"})
 	wantText(t, "b's stone", text, "You lift the stone with the X.")
-	for i := 2; i <= 5; i++ {
+	for i := 2; i <= leftAfterCell-1; i++ {
 		text, _ := play(t, b, ws.Message{Type: "input", Text: "hmm"})
-		if warned := strings.Contains(text, "Footsteps on the stairs"); warned != (i == 4) {
+		if warned := strings.Contains(text, "Footsteps on the stairs"); warned != (i == leftAfterCell-1) {
 			t.Fatalf("b action %d: %q", i, text)
 		}
 	}
-	// a has used 3 actions: the 4th warns.
-	text, _ = play(t, a, ws.Message{Type: "input", Text: "hmm"})
-	wantText(t, "a warned", text, "Footsteps on the stairs")
+	// a has used 3 actions of the corridor's: the 6th warns.
+	for i := 4; i <= leftAfterCell-1; i++ {
+		text, _ = play(t, a, ws.Message{Type: "input", Text: "hmm"})
+		if warned := strings.Contains(text, "Footsteps on the stairs"); warned != (i == leftAfterCell-1) {
+			t.Fatalf("a action %d: %q", i, text)
+		}
+	}
 }
 
 // Typed lines go to the room they name, the most specific word first.
@@ -621,9 +679,14 @@ func TestDemoWordsGoWhereMeant(t *testing.T) {
 			case "guardroom":
 				play(t, s, ws.Message{Type: "click", Item: "door"})
 			case "cell":
-				play(t, s, ws.Message{Type: "click", Item: "cell"})
+				backToCell(t, s, ws.Message{Type: "click", Item: "cell"})
 			}
-			text, _ := play(t, s, ws.Message{Type: "input", Text: c.say})
+			var text string
+			if c.want == "cell" {
+				text, _ = backToCell(t, s, ws.Message{Type: "input", Text: c.say})
+			} else {
+				text, _ = play(t, s, ws.Message{Type: "input", Text: c.say})
+			}
 			if roomOf(s) != c.want {
 				t.Errorf("in %q, want %q: %q", roomOf(s), c.want, text)
 			}
@@ -654,4 +717,258 @@ func TestDemoWordsInRooms(t *testing.T) {
 			wantText(t, c.say, text, c.want)
 		})
 	}
+}
+
+// whispAsks checks got is Whisp's question before the solved cell, with
+// its two options, and returns its id.
+func whispAsks(t *testing.T, step string, got []ws.Message) string {
+	t.Helper()
+	for _, m := range got {
+		if m.Type != "dialog" {
+			continue
+		}
+		if m.Title != "Whisp: Do you really want to get locked in again?" ||
+			len(m.Options) != 2 || m.Options[0] != "Yes, go back" || m.Options[1] != "No, stay here" {
+			t.Fatalf("%s: Whisp's question: %+v", step, m)
+		}
+		return m.ID
+	}
+	t.Fatalf("%s: no question from Whisp in %+v", step, got)
+	return ""
+}
+
+// The cell is solved with ask, not once: Whisp asks every time the player
+// turns back, and every no keeps the player in the corridor.
+func TestDemoWhispAsksEveryTime(t *testing.T) {
+	w := shippedDemo(t)
+	s, _ := w.NewSession("")
+	defer s.Close()
+	escapeCell(t, s)
+	for i, m := range []ws.Message{{Type: "click", Item: "cell"}, {Type: "input", Text: "back"}, {Type: "click", Item: "cell"}} {
+		_, got := play(t, s, m)
+		id := whispAsks(t, "turn back", got)
+		text, got := play(t, s, ws.Message{Type: "choose", ID: id, Option: 2})
+		if text != "Whisp: Good. Onwards!" || roomOf(s) != "corridor" {
+			t.Fatalf("no %d: %q, in %q", i+1, text, roomOf(s))
+		}
+		for _, g := range got {
+			if g.Type == "room" || g.Type == "items" {
+				t.Fatalf("no %d moved or changed items: %+v", i+1, got)
+			}
+		}
+	}
+	// Three refusals cost three actions: 4 left, the third from now warns.
+	for i := 1; i <= leftAfterCell-3; i++ {
+		text, _ := play(t, s, ws.Message{Type: "input", Text: "hmm"})
+		if warned := strings.Contains(text, "Footsteps on the stairs"); warned != (i == leftAfterCell-4) {
+			t.Fatalf("action %d: %q", i, text)
+		}
+	}
+	text, got := play(t, s, ws.Message{Type: "input", Text: "hmm"})
+	wantText(t, "caught", text, "sees you standing in the corridor")
+	ended(t, s, text, got)
+}
+
+// Back in the cell, its open door leads out again, into the corridor as
+// the player left it; the cell stays solved.
+func TestDemoOutOfCellAgain(t *testing.T) {
+	w := shippedDemo(t)
+	s, _ := w.NewSession("")
+	defer s.Close()
+	escapeCell(t, s)                                                 // 7 left
+	play(t, s, ws.Message{Type: "click", Item: "stone"})             // 6
+	backToCell(t, s, ws.Message{Type: "click", Item: "cell"})        // 5
+	text, got := play(t, s, ws.Message{Type: "click", Item: "lock"}) // 4
+	wantText(t, "out again", text, "You push the cell door open")
+	wantText(t, "corridor again", text, "The torch still smokes. Down the stairs, water is still splashing.")
+	if strings.Contains(text, "You are out!") || roomOf(s) != "corridor" {
+		t.Fatalf("out again: %q, in %q", text, roomOf(s))
+	}
+	if items := lastItems(t, got); items["stone"] != "lifted stone" {
+		t.Fatalf("corridor items: %v", items)
+	}
+	_, got = play(t, s, ws.Message{Type: "click", Item: "cell"}) // 3
+	whispAsks(t, "cell again", got)
+}
+
+// The guard's countdown at 0 still means away (0 is true in Lua): the
+// player can slip out on the very last action, and is caught on the next.
+func TestDemoEscapeOnLastAction(t *testing.T) {
+	w := shippedDemo(t)
+	s, _ := w.NewSession("")
+	defer s.Close()
+	sendAway(t, s)            // 10 left
+	openLock(t, s)            // 9
+	for i := 1; i <= 8; i++ { // 1
+		text, _ := play(t, s, ws.Message{Type: "input", Text: "hmm"})
+		if warned := strings.Contains(text, "footsteps are coming closer"); warned != (i == 8) {
+			t.Fatalf("action %d: %q", i, text)
+		}
+	}
+	text, got := play(t, s, ws.Message{Type: "click", Item: "lock"}) // 0
+	wantText(t, "out", text, "You are out!")
+	if roomOf(s) != "corridor" {
+		t.Fatalf("in %q", roomOf(s))
+	}
+	if items := lastItems(t, got); items["stone"] != "stone with an X" {
+		t.Fatalf("corridor items: %v", items)
+	}
+	text, got = play(t, s, ws.Message{Type: "click", Item: "stone"})
+	wantText(t, "caught", text, "sees you standing in the corridor")
+	if strings.Contains(text, "BOX 4 1 7") {
+		t.Fatalf("the stone was lifted while caught: %q", text)
+	}
+	ended(t, s, text, got)
+}
+
+// Turning back to the cell on the countdown's last action: Whisp's
+// question costs no action of its own, and the guard is there on the next
+// one, in whichever room the answer left the player.
+func TestDemoWhispOnLastAction(t *testing.T) {
+	cases := []struct {
+		option     int
+		room, want string
+	}{
+		{1, "cell", "He sees the open lock."},
+		{2, "corridor", "sees you standing in the corridor"},
+	}
+	for _, c := range cases {
+		t.Run(c.room, func(t *testing.T) {
+			w := shippedDemo(t)
+			s, _ := w.NewSession("")
+			defer s.Close()
+			escapeCell(t, s)
+			for range leftAfterCell - 1 {
+				play(t, s, ws.Message{Type: "input", Text: "hmm"})
+			}
+			_, got := play(t, s, ws.Message{Type: "click", Item: "cell"}) // 0
+			text, got := play(t, s, ws.Message{Type: "choose", ID: whispAsks(t, "last", got), Option: c.option})
+			if strings.Contains(text, "SLAP!") || roomOf(s) != c.room {
+				t.Fatalf("answer: %q, in %q", text, roomOf(s))
+			}
+			if c.room == "cell" {
+				wantText(t, "cell", text, "Your old cell. Outside, the guard's stool is still empty.")
+				if items := lastItems(t, got); items["guard"] != "empty stool" {
+					t.Fatalf("cell items: %v", items)
+				}
+			}
+			text, got = play(t, s, ws.Message{Type: "input", Text: "hmm"})
+			wantText(t, "caught", text, c.want)
+			if roomOf(s) != c.room {
+				t.Fatalf("caught, then in %q", roomOf(s))
+			}
+			ended(t, s, text, got)
+		})
+	}
+}
+
+// Coming back into the corridor, it says how close the guard is from the
+// shared countdown.
+func TestDemoCorridorAgainSaysHowClose(t *testing.T) {
+	cases := []struct {
+		waits int // actions in the corridor before the guard room
+		want  string
+	}{
+		{0, "Down the stairs, water is still splashing."}, // back with 5 left
+		{3, "Down the stairs, water is still splashing."}, // 2
+		{4, "Footsteps are coming up the stairs!"},        // 1
+		{5, "Footsteps are coming up the stairs!"},        // 0
+	}
+	for _, c := range cases {
+		t.Run(strconv.Itoa(c.waits), func(t *testing.T) {
+			w := shippedDemo(t)
+			s, _ := w.NewSession("")
+			defer s.Close()
+			escapeCell(t, s) // 7
+			for range c.waits {
+				play(t, s, ws.Message{Type: "input", Text: "hmm"})
+			}
+			play(t, s, ws.Message{Type: "click", Item: "door"})
+			text, _ := play(t, s, ws.Message{Type: "click", Item: "corridor"})
+			wantText(t, "corridor again", text, c.want)
+			if roomOf(s) != "corridor" {
+				t.Fatalf("in %q", roomOf(s))
+			}
+		})
+	}
+}
+
+// The locked corridor: its door is gone from the items, so clicking it is
+// refused by the engine; every typed way back gets Whisp, costs an action
+// and moves no one; the back door still works.
+func TestDemoLockedCorridorEveryWay(t *testing.T) {
+	w := shippedDemo(t)
+	s := inGuardRoom(t, w) // 5 left
+	defer s.Close()
+	_, got := play(t, s, ws.Message{Type: "click", Item: "box"})
+	play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "417"}) // 4
+	got = s.Handle(ws.Message{Type: "click", Item: "corridor"})
+	if len(got) != 1 || got[0].Type != "error" || got[0].Message != "no such item" {
+		t.Fatalf("click the hidden door: %+v", got)
+	}
+	for _, say := range []string{"back", "go back"} { // 3, 2
+		text, _ := play(t, s, ws.Message{Type: "input", Text: say})
+		if !strings.HasPrefix(text, "Whisp: You have everything you need from the corridor.") || roomOf(s) != "guardroom" {
+			t.Fatalf("%q: %q, in %q", say, text, roomOf(s))
+		}
+	}
+	text, got := play(t, s, ws.Message{Type: "input", Text: "leave"}) // 1
+	wantText(t, "escape", text, "You escaped. Well done!")
+	ended(t, s, text, got)
+}
+
+// The demo keeps progress in room globals (left, opened, entered, key):
+// that holds only while the player keeps every room's instance.
+func TestDemoRoomsFitInstances(t *testing.T) {
+	w := shippedDemo(t)
+	n := 0
+	for _, r := range w.pack.Rooms {
+		if r.Source != "" {
+			n++
+		}
+	}
+	if n > MaxRoomInstances {
+		t.Fatalf("%d scripted rooms, but a player keeps only %d instances: move room globals into state.player", n, MaxRoomInstances)
+	}
+}
+
+// Each room script carries the same copy of the shared helpers (whisp,
+// the countdown, solved rooms) until packs can share a module.
+func TestDemoSharedHelpersSame(t *testing.T) {
+	w := shippedDemo(t)
+	const mark = "-- Shared by the demo's rooms:"
+	var first, firstRoom string
+	for _, id := range []string{"cell", "corridor", "guardroom"} {
+		src := w.pack.Rooms[id].Source
+		i := strings.Index(src, mark)
+		if i < 0 {
+			t.Fatalf("%s: no shared helpers", id)
+		}
+		block := src[i:]
+		for _, fn := range []string{"function whisp(", "function guard_away(", "function set_guard_away(", "function solve(", "function solved(", "function go("} {
+			if !strings.Contains(block, fn) {
+				t.Errorf("%s: shared helpers lack %q", id, fn)
+			}
+		}
+		if first == "" {
+			first, firstRoom = block, id
+		} else if block != first {
+			t.Errorf("%s: shared helpers differ from %s's", id, firstRoom)
+		}
+	}
+}
+
+// With the key, a plain "door" in the guard room is the back door: the
+// corridor's door is gone.
+func TestDemoDoorWithKey(t *testing.T) {
+	w := shippedDemo(t)
+	s := inGuardRoom(t, w)
+	defer s.Close()
+	text, _ := play(t, s, ws.Message{Type: "input", Text: "open the door"})
+	wantText(t, "which door", text, "Which door")
+	_, got := play(t, s, ws.Message{Type: "click", Item: "box"})
+	play(t, s, ws.Message{Type: "answer", ID: question(t, got), Text: "417"})
+	text, got = play(t, s, ws.Message{Type: "input", Text: "open the door"})
+	wantText(t, "escape", text, "You escaped. Well done!")
+	ended(t, s, text, got)
 }
