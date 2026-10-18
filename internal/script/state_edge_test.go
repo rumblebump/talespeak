@@ -31,7 +31,7 @@ type stateRunner struct {
 
 func newStateRunner(t *testing.T, src string) *stateRunner {
 	t.Helper()
-	sr := &stateRunner{t: t, r: New(DefaultLimits), h: &recorder{}}
+	sr := &stateRunner{t: t, r: New(stateLimits), h: &recorder{}}
 	t.Cleanup(sr.r.Close)
 	sr.env = load(t, sr.r, src)
 	sr.h.state.Reserve = func(d int64) error {

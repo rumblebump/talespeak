@@ -4,13 +4,19 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
+
+// stateLimits are the default limits with a long time limit: the state
+// tests build tables of thousands of entries, which under -race can take
+// longer than the default 100 ms on a busy runner.
+var stateLimits = func() Limits { l := DefaultLimits; l.Time = 10 * time.Second; return l }()
 
 // runState runs on_enter(src body) with a fresh recorder and returns what
 // it said and the error.
 func runState(t *testing.T, h *recorder, body string) (string, error) {
 	t.Helper()
-	r := New(DefaultLimits)
+	r := New(stateLimits)
 	defer r.Close()
 	env := load(t, r, "function on_enter(player)\n"+body+"\nend")
 	h.out = nil
