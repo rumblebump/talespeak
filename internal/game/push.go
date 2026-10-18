@@ -88,7 +88,7 @@ func (s *session) runPushed(h script.Hook) bool {
 		s.push(s.flush())
 		return true
 	}
-	h.Player, h.NoWait = s.name, s.pending != nil || h.ReadOnlyWorld
+	h.Player, h.PlayerID, h.NoWait = s.name, s.id, s.pending != nil || h.ReadOnlyWorld
 	th, err := s.run1(func() (*script.Thread, error) { return s.w.rt.RunHook(s, env, h) })
 	if errors.Is(err, ErrBusy) {
 		return false

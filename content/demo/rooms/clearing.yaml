@@ -1,0 +1,24 @@
+id: clearing
+title: A forest clearing
+description: >-
+  Beyond the castle wall, a path leads to a clearing with a crackling
+  campfire, where runaways rest. By the fire lie a guard's purse, a basket
+  of apples, an old hunting horn, a bundle of torches and a pair of dice.
+  A little stone shrine stands under an oak. The path goes on, towards
+  home.
+script: clearing.lua
+items:
+  - id: purse
+    label: guard's purse with twelve silver coins
+  - id: apples
+    label: basket of apples
+  - id: horn
+    label: old hunting horn
+  - id: torches
+    label: bundle of three torches
+  - id: shrine
+    label: little stone shrine
+  - id: dice
+    label: dice by the fire
+  - id: path
+    label: path home

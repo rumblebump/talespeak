@@ -1,5 +1,6 @@
 -- The guard room. The key box opens with the code from under the stone in
--- the corridor; the key in it opens the back door, which is the way out.
+-- the corridor; the key in it opens the back door, which is the way out,
+-- to the forest clearing.
 -- The player has to remember the code: what the player read is the link
 -- between the rooms. With the key, the corridor is solved and locked:
 -- there is nothing left to do there.
@@ -186,7 +187,8 @@ function back_door()
   say("The big key turns with a screech. Cool night air rushes in.")
   say("You run across the yard, over the low wall and into the forest.")
   say("You escaped. Well done!")
-  finish()
+  ended = true
+  room.go("clearing")
 end
 
 function caught()

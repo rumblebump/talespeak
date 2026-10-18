@@ -15,7 +15,7 @@ import { createSpeaker } from "/speech.js";
 const MAX_LINES = 500; // older story lines are dropped
 const MAX_INPUT = 500; // bytes the engine accepts in one typed line
 const MAX_HISTORY = 50; // typed lines kept for arrow up and down
-const MAX_TIMERS = 10; // shown timers per player
+const MAX_TIMERS = 20; // shown timers: 10 of the player and 10 of the room
 const MAX_MS = 24 * 60 * 60 * 1000; // the longest timer or question timeout
 
 /** Reads a setting saved in this browser; private windows may refuse. */

@@ -83,6 +83,11 @@ test("demo: guard, straw, wall map, riddle, corridor and escape", async ({ page 
   await expect(page.getByRole("button", { name: "door to the corridor" })).toBeHidden();
   await page.getByRole("button", { name: "narrow back door" }).click();
   await expect(story).toContainText("You escaped. Well done!");
+
+  // The forest clearing, where escaped players meet; the path leads home.
+  await expect(story.locator(".room-title").last()).toHaveText("A forest clearing");
+  await page.getByRole("button", { name: "path home" }).click();
+  await expect(story).toContainText("lights of home");
   await expect(story).toContainText("THE END.");
   await expect(page.getByRole("navigation")).toBeHidden();
 });

@@ -124,6 +124,28 @@ type Host interface {
 	TimerLeft(name string) (time.Duration, bool)
 }
 
+// Party is what a Host shares with the other players in its room: who is
+// there, and the room's timers. A Host without it plays alone, and
+// room.players and room timers raise an error.
+type Party interface {
+	// Players lists the players in the room, the caller included, in the
+	// order they came in.
+	Players() []Player
+	// StartRoomTimer, StopRoomTimer and RoomTimerLeft are StartTimer,
+	// StopTimer and TimerLeft for a timer of the room, shared by the
+	// players in it: once it runs out, the engine calls on_timer(player,
+	// name, "room") for one of them.
+	StartRoomTimer(name string, d time.Duration, show string) error
+	StopRoomTimer(name string) bool
+	RoomTimerLeft(name string) (time.Duration, bool)
+}
+
+// Player is a player as room.players lists them.
+type Player struct {
+	ID   string
+	Name string
+}
+
 // Voice says how a line reaches the player, set by say(text, {speak =
 // true, show = false}): Speak reads it aloud even when the player has not
 // turned read aloud on, Hide shows it only when it cannot be spoken.
@@ -392,7 +414,9 @@ func (r *Runtime) Run(host Host, env *Env, hook, player string, args ...string) 
 type Hook struct {
 	Name   string
 	Player string
-	Args   []string
+	// PlayerID, when not "", is the player's id in the world, player.id.
+	PlayerID string
+	Args     []string
 	// NoWait refuses ui.dialog, ui.select and ui.ask in the hook: the
 	// engine runs it while the player has a question open already, for a
 	// timer or another player's change.
@@ -423,6 +447,9 @@ func (r *Runtime) RunHook(host Host, env *Env, h Hook) (*Thread, error) {
 	}
 	p := r.L.NewTable()
 	p.RawSetString("name", lua.LString(player))
+	if h.PlayerID != "" {
+		p.RawSetString("id", lua.LString(h.PlayerID))
+	}
 	if host != nil {
 		p.RawSetString("room", lua.LString(host.Room()))
 	}
