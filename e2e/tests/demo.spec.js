@@ -45,6 +45,8 @@ test("demo: guard, straw, wall map, riddle, corridor and escape", async ({ page 
   await expect(story.locator(".you").last()).toHaveText("A piano.");
   await expect(story).toContainText("the answer is one word of four letters.");
   await page.getByRole("button", { name: "lock with letter wheels" }).click();
+  // Wait for the question, or "door" is typed as a command.
+  await expect(page.getByRole("group", { name: /I have bars/ })).toBeVisible();
   await input.fill("door");
   await input.press("Enter");
   await expect(story).toContainText("You turn the wheels to DOOR. Nothing happens.");
