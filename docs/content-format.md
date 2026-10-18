@@ -49,8 +49,17 @@ Images a script shows with `ui.image`. The engine serves them itself at `/packs/
 | Names | 1 to 64 of a-z, 0-9, `_` and `-`, then `.png`, `.jpg`, `.jpeg`, `.gif` or `.webp`; no folders |
 | Content | Must match the extension (checked from the file's bytes) |
 | Size | At most 2 MiB each and 64 MiB per pack by default; admins can change both ([admin-limits.md](admin-limits.md)) |
-| SVG | Not yet: an SVG file can carry scripts and links, so it waits for pack lint (T-0014) |
+| SVG | Not yet: an SVG file can carry scripts and links, so it needs its own checks first |
 
 Small pixel art (up to 256 pixels wide) is scaled up sharp; larger pictures are scaled smoothly.
+
+## Offline: no external references
+
+A pack must work without the internet, so it carries every file it uses and points nowhere else. Loading refuses:
+
+- a URL with a scheme (`https://`, `http://`, `ws://`, `ftp://` and the like), a `//host` reference (also inside `url(...)`) or a bare `www.` host in any YAML value or key, or in any Lua string literal, reported with file and line;
+- `.css`, `.svg`, `.html`, `.htm`, `.xhtml`, `.js`, `.mjs` and `.wasm` files anywhere in the pack: they are not part of the format, and a browser could run them or load more from them.
+
+YAML and Lua comments are not checked, and the engine never reads other files (a `README.md` or `LICENSE`), so credits and links for authors go there. A string built at runtime (`"https:" .. "//x"`) is caught only when one literal holds the reference; the browser's Content-Security-Policy still blocks every load from another origin, and the client shows script text only as text.
 
 Loading is strict: unknown fields, more than one YAML document per file, files over 64 KiB, or scripts over 256 KiB are errors. Every problem is reported with its file, and a pack with errors does not start.
