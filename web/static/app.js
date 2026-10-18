@@ -237,9 +237,12 @@ function game() {
       this.hint = "";
     },
 
-    // answered closes the question after its answer was sent; receive
-    // reopens it if the engine refuses the answer.
-    answered() {
+    // answered writes the question and its answer into the story, so the
+    // story reads on after the question box closes, and closes the
+    // question; receive reopens it if the engine refuses the answer.
+    answered(answer) {
+      this.addLine(this.dialogTitle, "asked", true);
+      this.addLine(answer, "you", true);
       this.sent = this.dialog;
       this.closeDialog();
     },
@@ -289,8 +292,7 @@ function game() {
       if (!this.isSingle || n < 1 || n > this.dialog.options.length) return;
       const d = this.dialog;
       if (conn.send({ type: "choose", id: d.id, option: n })) {
-        this.addLine(d.options[n - 1], "you", true);
-        this.answered();
+        this.answered(d.options[n - 1]);
       }
     },
 
@@ -316,8 +318,7 @@ function game() {
       const d = this.dialog;
       if (conn.send({ type: "choose", id: d.id, choices: this.picked })) {
         const labels = this.picked.map((n) => d.options[n - 1]);
-        this.addLine(labels.length ? labels.join(", ") : "(nothing)", "you", true);
-        this.answered();
+        this.answered(labels.length ? labels.join(", ") : "(nothing)");
       }
     },
 
@@ -336,8 +337,7 @@ function game() {
       if (this.isAsk) {
         const d = this.dialog;
         if (conn.send({ type: "answer", id: d.id, text: line })) {
-          this.addLine(line, "you", true);
-          this.answered();
+          this.answered(line);
           this.draft = "";
         }
         return;

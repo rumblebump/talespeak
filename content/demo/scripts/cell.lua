@@ -88,15 +88,28 @@ function search()
   })
 end
 
--- The lock opens with a word: typed, spelled right, no typing help.
+-- The lock opens with a word: typed, spelled right, no typing help. A
+-- wrong answer gets a hint, a little stronger each time.
+wrong = 0
+
 function riddle()
   say("Four letter wheels. Someone scratched a riddle next to them:")
   local answer = ui.ask("I have bars but no drinks, and you are standing in me. What am I?", { strict = true })
   if words.same(answer, "cell") then
     say("The wheels click into place: C, E, L, L. The lock opens!")
-  else
-    say("You turn the wheels to \"" .. answer .. "\". Nothing happens.")
+    return
   end
+  wrong = wrong + 1
+  local word = words.normalize(answer)
+  if #word ~= 4 or string.find(word, " ", 1, true) then
+    say("The lock has four letter wheels: the answer is one word of four letters.")
+  else
+    say("You turn the wheels to " .. string.upper(word) .. ". Nothing happens.")
+  end
+  if wrong >= 2 then
+    say("Hint: look around you. What kind of room has bars?")
+  end
+  say("Click the lock or type \"open the lock\" to try again.")
 end
 
 function look_at_wall()

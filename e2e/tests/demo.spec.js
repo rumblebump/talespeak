@@ -24,9 +24,17 @@ test("demo: guard, straw and the wall map", async ({ page }) => {
 
   await page.getByRole("button", { name: "lock with letter wheels" }).click();
   await expect(page.getByRole("navigation")).toBeHidden();
-  await input.fill("cel");
+  await input.fill("A piano.");
   await input.press("Enter");
-  await expect(story).toContainText('You turn the wheels to "cel". Nothing happens.');
+  // The question stays in the story after the box closes, then the answer.
+  await expect(story.locator(".asked").last()).toHaveText("I have bars but no drinks, and you are standing in me. What am I?");
+  await expect(story.locator(".you").last()).toHaveText("A piano.");
+  await expect(story).toContainText("the answer is one word of four letters.");
+  await page.getByRole("button", { name: "lock with letter wheels" }).click();
+  await input.fill("door");
+  await input.press("Enter");
+  await expect(story).toContainText("You turn the wheels to DOOR. Nothing happens.");
+  await expect(story).toContainText("Hint: look around you.");
   await input.fill("open the lock");
   await input.press("Enter");
   await input.fill("CELL");

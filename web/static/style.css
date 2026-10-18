@@ -83,6 +83,7 @@ main { flex: 1; padding: 1rem; max-width: 60rem; margin: 0 auto; width: 100%; }
 .story .room-title { color: var(--accent); font-weight: bold; margin-bottom: 0.25rem; }
 .story .error { color: var(--warn); }
 .story .you { color: var(--you); }
+.story .asked { font-style: italic; }
 .story .you::before { content: "> "; }
 .story .picture-note { color: var(--muted); font-style: italic; }
 .story .spoken { color: var(--muted); }
