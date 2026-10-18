@@ -23,14 +23,16 @@ import (
 //   - a URL with a scheme (https://, ws://, git+ssh://), or a web scheme
 //     without slashes (https:evil.example), which browsers also follow;
 //   - javascript: and vbscript: links;
-//   - a //host reference (a protocol-relative URL, also inside CSS url()),
-//     where host has a dot, a port, an IPv6 address or is localhost, so
-//     story text like "//INCOMING TRANSMISSION//" is not one;
+//   - a //host reference (a protocol-relative URL, also inside CSS url(),
+//     and with more slashes, which browsers skip), where host has a dot
+//     and a letter top-level domain, a port, an IPv4 or IPv6 address or
+//     is localhost, so story text like "//INCOMING TRANSMISSION//" is not
+//     one;
 //   - a bare www. host.
 var externalRef = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://` +
 	`|\b(?:https?|wss?|ftp):/?[a-z0-9\[]` +
 	`|\b(?:javascript|vbscript):` +
-	`|(^|[^:/a-z0-9])//(?:\[|localhost\b|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}|[a-z0-9.-]+:\d)` +
+	`|(^|[^:/a-z0-9])//+(?:\[|localhost\b|\d{1,3}(?:\.\d{1,3}){3}\b|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}|[a-z0-9.-]+:\d)` +
 	`|\bwww\.[a-z0-9-]+\.[a-z]`)
 
 // URL text is read twice: the way a browser's URL parser reads it (a
@@ -47,7 +49,9 @@ func findRef(s string) (string, bool) {
 	for _, r := range []*strings.Replacer{spacedText, browserURL} {
 		clean := r.Replace(s)
 		if loc := externalRef.FindStringIndex(clean); loc != nil {
-			start := max(0, loc[0]-10)
+			// A window around the match's end: a scheme match starts at
+			// the first letter of its word, which can be a whole string.
+			start := max(0, loc[0]-10, loc[1]-60)
 			end := min(len(clean), loc[1]+30)
 			return strings.ToValidUTF8(clean[start:end], "?"), true
 		}

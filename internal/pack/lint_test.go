@@ -27,6 +27,9 @@ func TestExternalRef(t *testing.T) {
 		"javascript:alert(1)",
 		"//localhost/x",
 		"//intranet:8080/x",
+		"//192.168.1.1/x.png",
+		"src=//10.0.0.1/a.png",
+		"///evil.example/x",
 	}
 	for _, s := range refs {
 		if !externalRef.MatchString(s) {
@@ -136,6 +139,17 @@ func TestRefErrorSnippet(t *testing.T) {
 	msg := err.Error()
 	if len(msg) > 250 || !strings.Contains(msg, "f:3:") || !strings.Contains(msg, "https://evil.example") {
 		t.Errorf("message = %q", msg)
+	}
+}
+
+// A scheme match starts at the first letter of its word, so a long word
+// before :// must not make a long message.
+func TestRefErrorSnippetIsBounded(t *testing.T) {
+	for _, s := range []string{strings.Repeat("a", 200000) + "https://e.example", strings.Repeat("a", 60000) + "://x",
+		strings.Repeat("a\n", 30000) + "https:/\n/e.example"} {
+		if msg := refError("f", 1, s).Error(); len(msg) > 250 {
+			t.Errorf("message of %d bytes for %d bytes of text", len(msg), len(s))
+		}
 	}
 }
 
