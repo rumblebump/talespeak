@@ -16,12 +16,18 @@ Room scripts and, later, rule packs run in [gopher-lua](https://github.com/yuin/
 | `room.go(id)` | Moves the player to room `id` of the pack once the hook ends: the clickable items become the new room's, and its `on_enter` runs (a room without a script is described). The last `room.go` that succeeds wins, and `room.go` to the current room runs its `on_enter` again. An unknown id is a script error, and so is waiting in `ui.dialog`, `ui.select` or `ui.ask` after `room.go` in the same hook. No one moves when the hook fails, when the new room's script cannot start (the world or the player's network is full), or when the player's address has used up its Lua time before the new room's `on_enter`; the player stays and gets an error. The player keeps their instances of the last 4 rooms they entered, so coming back to one finds its globals as they were left; an older room starts over, so progress that must last goes in `state.player`. One player message moves through at most 4 rooms |
 | `state.player.get(key)` | A copy of the value the player's scripts set for `key` (1 to 64 bytes), or nil. Every room the player visits sees the same values; other players never do. Both calls work in hooks only: a room's top level runs for no player, so calling them there fails the script at load. Metatables are not kept |
 | `state.player.set(key, value)` | Keeps a copy of `value` for `key`; nil removes it. Values are nil, booleans, finite numbers, strings and tables of them with string or number keys, nested at most 8 deep. Returns true, or nil and the reason when a limit refuses the write (see below); a value that can never be kept, like a function, is a script error. Changing a table after `set` changes nothing until the next `set`. A value set before the hook fails stays set, like a global. For now the values last for the session; T-0018 keeps them in the database with the same calls and the same encoded sizes |
-| `ui.dialog(title, options [, {from = "Whisp"}])` | Shows 1 to 9 options and waits for the player; returns the option's number and its label. `from` works as in `say` |
-| `ui.select(title, options [, {min = 1, max = #options, from = "Whisp"}])` | Multiple choice: the player picks `min` to `max` of 1 to 9 options; returns two lists, the numbers picked (ascending) and their labels. `from` works as in `say` |
-| `ui.ask(question [, {strict = true, speak = true, show = false, from = "Whisp"}])` | Waits for a typed answer and returns it: one line of at most 500 bytes, trimmed, control characters turned into spaces. `strict = true` gives no typing help (no autocorrect, autocomplete or suggestions, clickable items hidden), for spelling practice and riddles. `speak` and `show` as in `say`, for the question. `from` works as in `say` |
+| `state.world.get(key)`, `state.world.set(key, value)` | Like `state.player`, but shared by every player of the world: a door one player opens is open for everyone. The other players' current rooms get `on_change` (see Hooks). It lasts as long as the world runs; T-0018 keeps it in the database |
+| `state.world.update(key, fn)` | Sets `key` to `fn(value)`, where `value` is a copy of what `key` holds now: no other hook runs in between, and `fn` cannot ask a question or call `update` again, so two players taking the last potion never both get it. Returns what `set` returns. An error in `fn` is an error of the hook, and `key` keeps its value |
+| `timer.start(name, seconds [, {show = "Guards arrive"}])` | Starts the player's timer `name` (like an item id), which runs out after 1 to 86400 seconds (fractions allowed) and then calls `on_timer` in the room the player is in by then; starting it again replaces it. With `show`, the player sees the label with a countdown (one line of 1 to 100 bytes); without it, the timer is secret. At most 10 timers per player; an 11th returns nil and the reason. Timers last for the session for now; T-0012 keeps them through restarts |
+| `timer.cancel(name)`, `timer.left(name)` | `cancel` stops the timer and returns whether it was running; `left` returns the seconds until it runs out, or nil |
+| `ui.dialog(title, options [, {from = "Whisp", timeout = 30}])` | Shows 1 to 9 options and waits for the player; returns the option's number and its label. `from` works as in `say`. With `timeout` (1 to 86400 seconds) the player sees a countdown; once it passes the question closes and returns nil, and the script decides what happens: `local n = ui.dialog("Fight or flee?", {"Fight", "Flee"}, {timeout = 30}) or 2` |
+| `ui.select(title, options [, {min = 1, max = #options, from = "Whisp", timeout = 30}])` | Multiple choice: the player picks `min` to `max` of 1 to 9 options; returns two lists, the numbers picked (ascending) and their labels, or nil after the `timeout`. `from` works as in `say` |
+| `ui.ask(question [, {strict = true, speak = true, show = false, from = "Whisp", timeout = 30}])` | Waits for a typed answer and returns it: one line of at most 500 bytes, trimmed, control characters turned into spaces; nil after the `timeout`. `strict = true` gives no typing help (no autocorrect, autocomplete or suggestions, clickable items hidden), for spelling practice and riddles. `speak` and `show` as in `say`, for the question. `from` works as in `say` |
 | `ui.items({{id = "straw", label = "heap of straw"}, ...})` | Replaces what the player can click (at most 20; ids like room ids, labels 1 to 100 bytes); `{}` clears them. A click runs `on_click` |
 | `ui.image(name [, caption])` | Shows an image from the pack's `assets/` folder as a popup, with a caption of at most 200 bytes; an unknown name is an error |
 | `words.normalize(s)`, `words.same(a, b)` | Lowercase, trim and collapse spaces; `same` compares two answers that way, the exact check for spelling |
+
+A list keeps at most 262143 entries (2^18 - 1) in its array part: `table.insert` refuses more, and an integer key past that goes to the table's hash part, where `#` does not count it. Without this, `t[6e7] = true` would fill 60 million empty slots in one step no limit can stop.
 
 No string is ever longer than 1 MiB: `..`, `string.rep`, `string.format` and `table.concat` refuse to build one. Numbers passed as counts or positions must be within ±2^31. Varargs (`...`) are not available.
 
@@ -40,6 +46,8 @@ A room script defines global functions the engine calls:
 | `on_enter(player)` | A player enters the room | `player.name`, and in every hook `player.room`, the current room's id |
 | `on_input(player, text)` | The player typed a line (outside a question) | the line, cleaned as for `ui.ask` |
 | `on_click(player, id)` | The player clicked an item they were shown | the item's id |
+| `on_timer(player, name)` | One of the player's timers ran out; runs in the room the player is in then | the timer's name |
+| `on_change(player, keys)` | Another player's hook (or timer) changed `state.world`; runs in the room the player is in | a list of the changed keys, at most 50, the latest when more changed while the player waited |
 
 ```lua
 function on_enter(player)
@@ -53,6 +61,19 @@ end
 ```
 
 While a hook waits in `ui.dialog`, `ui.select` or `ui.ask`, the player's typed lines and clicks are refused until they answer.
+
+`on_timer` and `on_change` are not started by the player, so their output arrives on its own, between the player's actions. They count toward the player's script time like any hook; when it is used up they run a little later (and `on_change` then gets every key that changed meanwhile). When the player has a question open, they still run, but cannot ask another one; `room.go` from them closes the open question. `on_change` never asks a question, and it cannot change `state.world` (`set` and `update` return nil and the reason); neither can the `on_enter` of a room it moves the player to, or the `on_timer` of a timer it starts. So a change cannot bounce between players by itself. Writing the value a key already holds is not a change. A world delivers `on_change` at most every 250 ms: what changed meanwhile arrives in one call.
+
+`state.world` can carry what one player typed to the other players (a pack that stores `on_input` text and says it in `on_change`). That is chat; the edu-mode chat filter and the GM transcript will cover it (T-0018, T-0011). A room that wants to show other players' changes reads `state.world` in `on_change`:
+
+```lua
+function on_change(player, keys)
+  if state.world.get("gate") == "open" then
+    say("Somewhere, a gate creaks open.")
+    ui.items({{id = "gate", label = "open gate"}})
+  end
+end
+```
 
 ```lua
 function on_click(player, item)
@@ -84,7 +105,7 @@ end
 
 The tables of one value may have at most 65536 slots in all, empty ones included, so a very sparse table (one with a few entries at large indexes, or many removed keys) is refused.
 
-**Script state is per player and lasts a session.** Every player runs their own instance of each room script: the top level runs when the player first enters the room, and globals and top-level locals belong to that player alone. Nothing a player types or does reaches another player through script variables. They are gone when the player disconnects. Progress the player's rooms share goes in `state.player`, which lasts the session for now; storing it in the database, and `state.world` for state a party shares on purpose, come with T-0018.
+**Script state is per player and lasts a session.** Every player runs their own instance of each room script: the top level runs when the player first enters the room, and globals and top-level locals belong to that player alone. Nothing a player types or does reaches another player through script variables. They are gone when the player disconnects. Progress the player's rooms share goes in `state.player`, which lasts the session for now; state the world's players share on purpose goes in `state.world`. Storing both in the database comes with T-0018.
 
 **Checking answers:** `words.same` ignores only case and extra spaces. A check that forgives small typos comes with Whisp (T-0005).
 
@@ -106,6 +127,8 @@ The name `__concat` is reserved: every `..` in a script is compiled into a call 
 | Output per call | 100 calls of `say`, `room.describe`, `room.go`, `ui.items` and `ui.image` (questions do not count) | Script error |
 | Script size | 256 KiB, for a room script and for a module | The pack does not load |
 | `state.player` | 64-byte keys, 16 KiB per value, 256 KiB and 500 keys per player (key plus encoded value, see below), 50 `set` calls per hook, its dialogs included; it counts toward the memory of the player's address and the world, together with the room instances | `set` returns nil and the reason |
+| `state.world` | As `state.player`, with 4 MiB and 5000 keys per world; its `set` and `update` calls count toward the same 50 writes per hook; it counts toward the world's memory | `set` and `update` return nil and the reason |
+| Timers | 10 per player, 1 second to 1 day; question timeouts 1 second to 1 day | `timer.start` returns nil and the reason; a bad duration is a script error |
 
 Time per call and the memory limits can be changed by the admin ([admin-limits.md](admin-limits.md)); the others are part of the pack format.
 
@@ -116,6 +139,7 @@ How they are enforced:
 - **Time:** each call runs with a deadline that gopher-lua checks before every instruction. `pcall` cannot swallow it for long: the next instruction outside the `pcall` fails again. Go functions are not interrupted, so every library function a script gets finishes quickly whatever its arguments; that is why patterns are off and why sizes are checked before work starts.
 - **Memory per call:** Go has no per-goroutine allocation counter, so a watcher samples the process's allocated bytes every millisecond while a call runs. Allocations by other goroutines count too. A story hook usually runs well under a millisecond, so for it to fail, other goroutines would have to allocate 32 MiB within that time; a hook that runs for tens of milliseconds is more exposed on a busy server, and then fails cleanly.
 - **Memory kept:** every player's instance is measured on its own. After an instance's calls allocated an eighth of its limit since the last check, the engine walks everything reachable from its globals and from the locals and temporaries of its hooks waiting in `ui.dialog` (not the shared libraries), and adds up sizes estimated on the high side. The world's total is the sum of the last measurements plus what was allocated since, so it is never too low; only when that sum passes the world's limit are the instances that ran measured again. `string.sub` copies its result, so a short slice never keeps a long string alive unseen. Varargs are off because gopher-lua keeps them where the walk cannot see them.
+- **What a table keeps:** the walk counts every slot of a table's array part, empty ones included, and every key gopher-lua remembers, removed ones included, with what those keys hold: gopher-lua never shrinks a table, so `t[k] = nil` frees nothing until the table itself is gone. Filling an array and clearing it, or adding and removing long string keys, therefore counts toward the limit as long as the table lives.
 - **Sorting:** `table.sort` without a comparator runs in Go, so it takes at most 20000 entries (a few milliseconds).
 - **No single Go call builds a huge result:** `..`, `string.rep`, `string.format`, `table.concat`, `unpack` and `string.byte` check sizes before they run.
 

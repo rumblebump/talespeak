@@ -111,4 +111,4 @@ function act()
 end
 ```
 
-In the room where the countdown starts, nil means the guard is still at his post, so the cell checks for nil before it counts and clears the value (`keep("guard_away", nil)`) when he is back. The count is in actions, not time; real deadlines come with timers (T-0012).
+In the room where the countdown starts, nil means the guard is still at his post, so the cell checks for nil before it counts and clears the value (`keep("guard_away", nil)`) when he is back. The count is in actions, not time; for a deadline in real time, use `timer.start` and `on_timer` ([lua-sandbox.md](lua-sandbox.md)).

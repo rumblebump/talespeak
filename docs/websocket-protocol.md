@@ -32,14 +32,18 @@ Per-client limits count IPv6 clients by their /64 network; the Lua time budget c
 | server → client | `text` | `text`, `speak`, `hide`, `from` | A line of story text. `speak`: read it aloud even when read aloud is off. `hide`: only read it aloud (a listening exercise); show it when the device has no local voice. `from`: who says it, such as the guide (1 to 40 bytes, one line); the client shows the name with the line and reads it in another voice |
 | server → client | `items` | `items` | Replaces the things the player can click; none clears them |
 | server → client | `image` | `url`, `text` | Shows one of the pack's images as a popup; `text` is its caption and alt text |
-| server → client | `dialog` | `id`, `title`, `options` (1 to 9 strings), `speak`, `hide`, `from` | A question with one answer; the script waits for it |
-| server → client | `select` | `id`, `title`, `options` (1 to 9 strings), `min`, `max`, `speak`, `hide`, `from` | A question where the player picks `min` (0 when absent) to `max` options |
-| server → client | `ask` | `id`, `title`, `strict`, `speak`, `hide`, `from` | A question the player answers by typing. `strict`: no typing help (no autocorrect, autocomplete or suggestions, clickable items hidden), for spelling practice and riddles |
+| server → client | `dialog` | `id`, `title`, `options` (1 to 9 strings), `speak`, `hide`, `from`, `ms` | A question with one answer; the script waits for it. `ms`, when set, is the time left to answer in milliseconds |
+| server → client | `select` | `id`, `title`, `options` (1 to 9 strings), `min`, `max`, `speak`, `hide`, `from`, `ms` | A question where the player picks `min` (0 when absent) to `max` options |
+| server → client | `ask` | `id`, `title`, `strict`, `speak`, `hide`, `from`, `ms` | A question the player answers by typing. `strict`: no typing help (no autocorrect, autocomplete or suggestions, clickable items hidden), for spelling practice and riddles |
+| server → client | `close` | `id` | The question with this `id` is gone without an answer: its time ran out, or a timer moved the player. Answers to it get an `error` |
+| server → client | `timer` | `id`, `title`, `ms` | A countdown to show: `title` is its label (1 to 100 bytes), `ms` the time left in milliseconds (at most a day). The same `id` replaces it; without `ms` it is removed. Only timers a script shows are sent; secret ones are not |
 | client → server | `choose` | `id`, `option` (1-based) for `dialog`; `id`, `choices` (list of option numbers) for `select` | The answer to the open dialog or select |
 | client → server | `answer` | `id`, `text` | The typed answer to the open `ask` |
 | client → server | `input` | `text` | A line the player typed, outside a question; runs the room's `on_input` |
 | client → server | `click` | `item` | The player clicked one of the items they were shown; runs the room's `on_click` |
 | server → client | `error` | `message`, `id` | The client sent something the server does not understand or cannot take now, or a room script failed; the connection stays open. `id` is set only when an answer to the open question was not taken: the question with that `id` is still open and can be answered again |
+
+**Pushed messages.** Most server messages answer a client message, but some come on their own: what a room's `on_timer` or `on_change` says when a timer runs out or another player changes the world, `timer` and `close`. They arrive in order with the replies, never in the middle of a reply's messages. A client that does not read them (500 messages or about 256 KiB waiting) is disconnected (1008, too far behind). Clients count down from `ms` on their own clock, so a wrong clock on the device does not matter.
 
 An item is `{"id": "straw", "label": "heap of straw"}`. `speak`, `hide` and `from` on a question work as on `text`, for its title.
 

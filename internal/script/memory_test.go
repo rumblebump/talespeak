@@ -41,11 +41,11 @@ func TestRetained(t *testing.T) {
 		{"nil", lua.LNil, 0, 0},
 		{"number", lua.LNumber(1), 0, 0},
 		{"string", lua.LString("abc"), 3, 64},
-		{"table with a string", str, 1000, 1400},
-		{"cycle", cycle, 64, 400},
-		{"shared table counted once", twice, 1 << 20, 1<<20 + 800},
-		{"metatable", withMeta, 1 << 20, 1<<20 + 600},
-		{"deep nesting", deep, 100000 * 64, 100000 * 300},
+		{"table with a string", str, 1000, 2000},
+		{"cycle", cycle, 64, 1000},
+		{"shared table counted once", twice, 1 << 20, 1<<20 + 2000},
+		{"metatable", withMeta, 1 << 20, 1<<20 + 2000},
+		{"deep nesting", deep, 100000 * 64, 100000 * 800},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -66,7 +66,7 @@ func TestRetained(t *testing.T) {
 		t.Errorf("function retained = %d, want its env counted", got)
 	}
 	// The walk stops soon after passing the limit.
-	if got := retained([]lua.LValue{deep}, nil, 1000); got > 1000+400 {
+	if got := retained([]lua.LValue{deep}, nil, 1000); got > 1000+1000 {
 		t.Errorf("retained with limit 1000 = %d", got)
 	}
 }

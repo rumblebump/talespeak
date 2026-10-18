@@ -64,6 +64,7 @@ type Message struct {
 	Speak   bool     `json:"speak,omitempty"`
 	Hide    bool     `json:"hide,omitempty"`
 	From    string   `json:"from,omitempty"`
+	Ms      int64    `json:"ms,omitempty"`
 }
 
 // Item is something the player can click.
@@ -87,6 +88,18 @@ type Session interface {
 	Handle(Message) []Message
 	// Close ends the session when the connection ends.
 	Close()
+}
+
+// Pusher is a Session that also sends messages the player did not ask
+// for: a timer ran out, or another player changed something. The server
+// calls SetNotify once, before reading the first message; the session
+// calls notify (from any goroutine, without blocking) when it has messages
+// waiting, and the server then calls Pending and sends them.
+type Pusher interface {
+	SetNotify(notify func())
+	// Pending returns the messages waiting, oldest first. ok is false when
+	// the session fell too far behind and the connection should close.
+	Pending() (ms []Message, ok bool)
 }
 
 // Option changes a Server's limits.
@@ -230,12 +243,26 @@ func (s *Server) handle(ctx context.Context, c *websocket.Conn, client string) {
 		return
 	}
 	var session Session
+	var wmu sync.Mutex // held while making and writing replies, so pushed messages never overtake them
 	if s.game != nil {
 		var first []Message
 		session, first = s.game.NewSession(client)
 		defer session.Close()
 		if err := writeAll(c, first); err != nil {
 			return
+		}
+		if p, ok := session.(Pusher); ok {
+			done := make(chan struct{})
+			finished := make(chan struct{})
+			defer func() { close(done); <-finished }()
+			kick := make(chan struct{}, 1)
+			p.SetNotify(func() {
+				select {
+				case kick <- struct{}{}:
+				default: // a send is due already
+				}
+			})
+			go s.push(c, p, &wmu, kick, done, finished)
 		}
 	}
 	for {
@@ -255,6 +282,7 @@ func (s *Server) handle(ctx context.Context, c *websocket.Conn, client string) {
 			return
 		}
 
+		wmu.Lock()
 		var replies []Message
 		switch {
 		case m.Type == "ping":
@@ -264,7 +292,34 @@ func (s *Server) handle(ctx context.Context, c *websocket.Conn, client string) {
 		default:
 			replies = []Message{{Type: "error", Message: "unknown message type"}}
 		}
-		if err := writeAll(c, replies); err != nil {
+		err = writeAll(c, replies)
+		wmu.Unlock()
+		if err != nil {
+			return
+		}
+	}
+}
+
+// push sends what p has waiting each time it notifies on kick, until
+// done. A session too far behind closes the connection.
+func (s *Server) push(c *websocket.Conn, p Pusher, wmu *sync.Mutex, kick <-chan struct{}, done <-chan struct{}, finished chan<- struct{}) {
+	defer close(finished)
+	for {
+		select {
+		case <-done:
+			return
+		case <-kick:
+		}
+		wmu.Lock()
+		ms, ok := p.Pending()
+		err := writeAll(c, ms)
+		wmu.Unlock()
+		if !ok {
+			c.Close(websocket.StatusPolicyViolation, "too far behind")
+			return
+		}
+		if err != nil {
+			c.CloseNow()
 			return
 		}
 	}

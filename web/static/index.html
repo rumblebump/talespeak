@@ -41,9 +41,16 @@
       </template>
     </nav>
 
+    <ul class="timers" x-cloak x-show="timers.length" aria-label="Timers">
+      <template x-for="t in timerList" :key="t.id">
+        <li x-text="t.text"></li>
+      </template>
+    </ul>
+
     <div class="dialog" x-ref="dialog" x-cloak x-show="dialog" role="group" :aria-label="dialogLabel">
       <p class="dialog-title"><template x-if="dialogFrom"><span class="from" x-text="dialogFrom"></span></template><span x-text="dialogTitle"></span><template x-if="canReplayQuestion"><button type="button" class="replay" @click="replayQuestion">listen again</button></template></p>
       <p class="muted" x-show="isAsk">Type your answer below.</p>
+      <p class="countdown" x-show="dialogCountdown" x-text="dialogCountdown"></p>
       <ol class="dialog-options" x-ref="singleList" x-show="isSingle">
         <template x-for="(label, i) in dialogOptions" :key="i">
           <li><button type="button" class="option" x-text="label" @click="choose(i + 1)"></button></li>

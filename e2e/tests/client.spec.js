@@ -212,3 +212,19 @@ test("a guide speaks apart from the story", async ({ page }) => {
   // The story's own lines carry no speaker.
   await expect(story(page).locator("p", { hasText: "Welcome, traveler." }).locator(".from")).toHaveCount(0);
 });
+
+test("timer countdown and a question with a timeout", async ({ page }) => {
+  await open(page);
+  const input = page.locator("#command");
+  await input.fill("hourglass");
+  await input.press("Enter");
+  const timers = page.getByRole("list", { name: "Timers" });
+  await expect(timers).toHaveText(/Sand 0:0[12]/);
+  const dialog = page.getByRole("group", { name: "Quick: left or right?" });
+  await expect(dialog).toContainText(/time left: 0:0[01]/);
+  // The engine closes the question when its second is up, then the timer runs out.
+  await expect(dialog).toBeHidden();
+  await expect(story(page)).toContainText("Too slow.");
+  await expect(story(page)).toContainText("The sand ran out.");
+  await expect(timers).toBeHidden();
+});

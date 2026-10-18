@@ -20,6 +20,9 @@ func FuzzLoad(f *testing.F) {
 		`function on_enter() local a = ui.ask("?", {strict = true}) say(words.normalize(a)) end`,
 		`function on_enter() local n, l = ui.select("?", {"a", "b", "c"}, {min = 2}) say(table.concat(l, ",")) end`,
 		`function on_enter() ui.items({{id = "a", label = "b"}}) ui.image("map.png", "c") say("x", {speak = true, show = false}) end`,
+		`function on_enter() timer.start("g", 1.5, {show = "Go"}) say(tostring(timer.left("g"))) timer.cancel("g") local n = ui.dialog("?", {"a"}, {timeout = 2}) end`,
+		`function on_enter() state.world.update("k", function(v) state.world.set("j", v) return {n = (v and v.n or 0) + 1} end) say(state.world.get("k").n) end`,
+		`local t = {} t[2^18] = 1 table.insert(t, 1) function on_enter() pcall(state.world.update, "k", function() ui.ask("?") end) end`,
 	} {
 		f.Add(src)
 	}
