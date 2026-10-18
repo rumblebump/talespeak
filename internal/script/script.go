@@ -191,12 +191,13 @@ type Thread struct {
 	Dialog Dialog
 
 	co       *lua.LState
-	env      *lua.LTable  // the globals of the Instance it runs in
-	resume   chan *answer // the player's answer; nil ends the hook
-	events   chan result  // the end of each call: a dialog, or the hook's end
-	canceled bool         // set on the hook's goroutine once resume sent nil
-	moved    bool         // room.go was called: the hook may not wait again
-	writes   int          // state.player.set calls, across its dialogs
+	env      *lua.LTable     // the globals of the Instance it runs in
+	resume   chan *answer    // the player's answer; nil ends the hook
+	events   chan result     // the end of each call: a dialog, or the hook's end
+	canceled bool            // set on the hook's goroutine once resume sent nil
+	moved    bool            // room.go was called: the hook may not wait again
+	writes   int             // state.player.set calls, across its dialogs
+	loading  map[string]bool // modules this hook is running now, for require's cycle check
 }
 
 type result struct {
@@ -218,9 +219,8 @@ type Runtime struct {
 	total int64 // the sum of kept and sinceWalk over envs: at least what they keep
 	extra int64 // what Reserve holds for the world, outside any Instance
 
-	modules map[string]*Script              // require's modules by name
-	loaded  map[*lua.LTable]*lua.LTable     // each Instance's required modules, by its globals
-	loading map[*lua.LTable]map[string]bool // modules each Instance is running now
+	modules map[string]*Script          // require's modules by name
+	loaded  map[*lua.LTable]*lua.LTable // each Instance's required modules, by its globals
 	closed  bool
 }
 
@@ -255,7 +255,7 @@ func New(limits Limits) *Runtime {
 		limits.PlayerMemory = limits.StateMemory
 	}
 	r := &Runtime{L: L, limits: limits, locked: map[*lua.LTable]bool{}, paused: map[*Thread]struct{}{}, envs: map[*lua.LTable]*envState{},
-		loaded: map[*lua.LTable]*lua.LTable{}, loading: map[*lua.LTable]map[string]bool{}}
+		loaded: map[*lua.LTable]*lua.LTable{}}
 	r.lib = r.openSandbox()
 	r.shared = map[lua.LValue]struct{}{r.lib: {}, L.G.Global: {}, L.G.Registry: {}}
 	return r
@@ -341,7 +341,6 @@ func (r *Runtime) Release(e *Env) {
 		delete(r.envs, e.table)
 	}
 	delete(r.loaded, e.table)
-	delete(r.loading, e.table)
 }
 
 // Load compiles a script and runs its top level in a new Env.

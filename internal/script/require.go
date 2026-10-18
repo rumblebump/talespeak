@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -33,7 +34,8 @@ func (r *Runtime) AddModule(name string, s *Script) error {
 
 // require(name) returns what lib/<name>.lua returned (true when it
 // returned nothing), running it the first time this Instance asks. A
-// module that requires itself, directly or through others, is an error.
+// module that requires itself, directly or through others, in the same
+// hook is an error.
 func (r *Runtime) require(L *lua.LState) int {
 	name := L.CheckString(1)
 	if r.cur == nil || r.cur.thread == nil {
@@ -48,23 +50,26 @@ func (r *Runtime) require(L *lua.LState) int {
 	}
 	s := r.modules[name]
 	if s == nil {
+		// A name that is no module name is never formatted in full: the
+		// message would otherwise grow with it, in Go, past every limit.
+		if !moduleName.MatchString(name) {
+			L.ArgError(1, "module names are 1 to 64 of a-z, 0-9, _ and -, got "+strconv.Quote(truncate(name, 64)))
+		}
 		L.ArgError(1, fmt.Sprintf("no module %q in this pack (lib/%s.lua)", name, name))
 	}
-	if r.loading[env][name] {
+	th := r.cur.thread
+	if th.loading[name] {
 		L.RaiseError("require cycle: module %q requires itself", name)
 	}
-	if r.loading[env] == nil {
-		r.loading[env] = map[string]bool{}
+	if th.loading == nil {
+		th.loading = map[string]bool{}
 	}
-	r.loading[env][name] = true
+	th.loading[name] = true
 	fn := L.NewFunctionFromProto(s.proto)
 	fn.Env = env
 	L.Push(fn)
 	err := L.PCall(0, 1, nil)
-	delete(r.loading[env], name)
-	if len(r.loading[env]) == 0 {
-		delete(r.loading, env)
-	}
+	delete(th.loading, name)
 	if err != nil {
 		var apiErr *lua.ApiError
 		if errors.As(err, &apiErr) {

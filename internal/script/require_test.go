@@ -2,6 +2,7 @@ package script
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -44,8 +45,8 @@ end`
 		}
 		r.Release(env)
 	}
-	if len(r.loaded) != 0 || len(r.loading) != 0 {
-		t.Errorf("released Instances left %d caches, %d loading", len(r.loaded), len(r.loading))
+	if len(r.loaded) != 0 {
+		t.Errorf("released Instances left %d caches", len(r.loaded))
 	}
 }
 
@@ -62,6 +63,7 @@ func TestRequireErrors(t *testing.T) {
 		{`require("self")`, `require cycle: module "self" requires itself`},
 		{`require("broken")`, `lib/broken.lua:1: boom`},
 		{`require({})`, `string expected`},
+		{`require("Rooms")`, `module names are 1 to 64 of a-z, 0-9, _ and -, got "Rooms"`},
 	} {
 		env := load(t, r, "function on_enter() "+tt.body+" end")
 		if _, err := r.Run(&recorder{}, env, "on_enter", "p"); !errors.Is(err, ErrScript) || !strings.Contains(err.Error(), tt.want) {
@@ -72,8 +74,44 @@ func TestRequireErrors(t *testing.T) {
 			t.Errorf("%s again: err = %v", tt.body, err)
 		}
 	}
-	if len(r.loading) != 0 {
-		t.Errorf("loading = %v after failed requires", r.loading)
+}
+
+// A bad name is never formatted in full (security review): feeding the
+// error back into require cannot grow it.
+func TestRequireErrorStaysSmall(t *testing.T) {
+	r := newModules(t, nil)
+	env := load(t, r, `function on_enter()
+  local s = string.rep(string.char(0), 1024 * 1024)
+  for i = 1, 5 do local ok, e = pcall(require, s) s = e end
+  say(#s)
+end`)
+	h := &recorder{}
+	if _, err := r.Run(h, env, "on_enter", "p"); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := strconv.Atoi(strings.TrimPrefix(h.out[0], "say:")); n == 0 || n > 1000 {
+		t.Errorf("error message is %s bytes", h.out[0])
+	}
+}
+
+// Two hooks of one Instance (the script package allows it; the game does
+// not) each track their own requires, so a module waiting in a dialog is
+// no cycle for the other.
+func TestRequireCyclesArePerHook(t *testing.T) {
+	r := newModules(t, map[string]string{"ask": `return ui.dialog("Pick", {"a", "b"})`})
+	env := load(t, r, `function on_enter() say("got " .. require("ask")) end`)
+	h := &recorder{}
+	first, err := r.Run(h, env, "on_enter", "p")
+	if err != nil || first == nil {
+		t.Fatalf("first: %v %v", first, err)
+	}
+	second, err := r.Run(h, env, "on_enter", "p")
+	if err != nil || second == nil {
+		t.Fatalf("second hook: %v %v, want it waiting too", second, err)
+	}
+	r.Cancel(first)
+	if _, err := r.Resume(h, second, 1); err != nil || h.out[len(h.out)-1] != "say:got 1" {
+		t.Errorf("out = %q, err = %v", h.out, err)
 	}
 }
 
@@ -91,9 +129,6 @@ func TestRequireUsesTheCallsBudgets(t *testing.T) {
 	env := load(t, r, `function on_enter() require("loop") end`)
 	if _, err := r.Run(&recorder{}, env, "on_enter", "p"); !errors.Is(err, ErrTimeout) {
 		t.Errorf("err = %v, want ErrTimeout", err)
-	}
-	if len(r.loading) != 0 {
-		t.Errorf("loading = %v after a timeout", r.loading)
 	}
 }
 

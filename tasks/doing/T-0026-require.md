@@ -15,7 +15,7 @@ A pack writes a helper once and every room script uses it. The content thread as
 
 - [ ] `require("name")` loads `lib/<name>.lua` from the pack. Names are like room ids: no folders and no `.lua`
 - [ ] The module runs at most once per script instance, with that instance's globals, and what it returns is cached (true when it returns nothing)
-- [ ] A missing module, an error in a module, and a cycle are script errors. A failed require leaves nothing half loaded
+- [ ] A missing module, an error in a module, and a cycle are script errors. A failed require caches nothing, so the next one runs the module again (globals it set before the error stay, as documented)
 - [ ] Modules have the same size and lint rules as scripts, at most 100 per pack, and nothing but modules goes in `lib/`
 - [ ] What a module returns counts toward the instance's memory
 - [ ] The test pack uses a module, so the Playwright tests run it

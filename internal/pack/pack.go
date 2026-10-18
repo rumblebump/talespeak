@@ -230,7 +230,7 @@ func loadModules(fsys fs.FS, p *Pack) []error {
 		case len(p.Modules) >= MaxModules:
 			return append(errs, fmt.Errorf("lib: more than %d modules", MaxModules))
 		}
-		data, err := readLimited(fsys, file, MaxScriptBytes)
+		data, err := readRegular(fsys, file, MaxScriptBytes)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", file, err))
 			continue
@@ -247,11 +247,24 @@ func readScript(fsys fs.FS, name string) (string, error) {
 	if path.Base(name) != name || !strings.HasSuffix(name, ".lua") || !fs.ValidPath(name) || strings.HasPrefix(name, ".") {
 		return "", fmt.Errorf("%q must be a file name ending in .lua, in the scripts folder", name)
 	}
-	data, err := readLimited(fsys, "scripts/"+name, MaxScriptBytes)
+	data, err := readRegular(fsys, "scripts/"+name, MaxScriptBytes)
 	if err != nil {
 		return "", err
 	}
 	return string(data), nil
+}
+
+// readRegular is readLimited for a regular file only: a link could reach
+// a file outside the pack, and a device or pipe could block the load.
+func readRegular(fsys fs.FS, file string, limit int64) ([]byte, error) {
+	fi, err := fs.Lstat(fsys, file)
+	if err != nil {
+		return nil, errors.New("not found")
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, errors.New("must be a plain file, not a link or folder")
+	}
+	return readLimited(fsys, file, limit)
 }
 
 func readLimited(fsys fs.FS, file string, limit int64) ([]byte, error) {

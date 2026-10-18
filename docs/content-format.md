@@ -47,7 +47,7 @@ Lua modules the room scripts share, so a helper is written once instead of copie
 
 | Rule | |
 | --- | --- |
-| Names | 1 to 64 of a-z, 0-9, `_` and `-`, then `.lua`; no folders, and nothing else in `lib/` |
+| Names | 1 to 64 of a-z, 0-9, `_` and `-`, then `.lua`; plain files only (no links or folders), and nothing else in `lib/` |
 | Size | At most 256 KiB each, and at most 100 modules |
 | Checks | The same as for room scripts, including the offline check below |
 
