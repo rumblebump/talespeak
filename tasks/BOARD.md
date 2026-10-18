@@ -19,12 +19,12 @@ Nothing here.
 | [T-0011](open/T-0011-roles-and-modes.md) | Roles, permissions and edu/public server modes | feature | high |
 | [T-0012](open/T-0012-timers.md) | Timers and decision deadlines | feature | high |
 | [T-0013](open/T-0013-auth-registration-email.md) | Sign-in, registration settings and email | feature | high |
-| [T-0014](open/T-0014-offline-csp-enforcement.md) | Offline first and strict CSP enforcement | feature | high |
 | [T-0015](open/T-0015-test-harness.md) | Test harness for Go and Playwright | chore | high |
 | [T-0016](open/T-0016-world-visibility.md) | Public, invite-only and secret worlds with player limits | feature | medium |
 | [T-0017](open/T-0017-speech-to-text.md) | Speech to text, private by default | feature | medium |
 | [T-0018](open/T-0018-persistent-state.md) | Player, world and game state stored in SQLite | feature | high |
 | [T-0019](open/T-0019-turn-order.md) | Free and turn-based rounds in a room | feature | high |
+| [T-0020](open/T-0020-item-take-rules.md) | Room items that players share, split or use up | feature | medium |
 
 ## Done
 
@@ -34,4 +34,5 @@ Nothing here.
 | [T-0002](done/T-0002-engine-skeleton.md) | Engine skeleton: HTTP, WebSocket, storage interface | feature | high |
 | [T-0003](done/T-0003-lua-runtime-spike.md) | Lua runtime, YAML room and dialog coroutine | feature | high |
 | [T-0004](done/T-0004-terminal-web-client.md) | Terminal-style web client renderer | feature | high |
+| [T-0014](done/T-0014-offline-csp-enforcement.md) | Offline first and strict CSP enforcement | feature | high |
 | [T-0022](done/T-0022-room-go.md) | Scripts move players between rooms | feature | high |

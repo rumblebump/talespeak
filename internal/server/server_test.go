@@ -155,6 +155,9 @@ func checkSecurityHeaders(t *testing.T, what string, h http.Header) {
 		"X-Content-Type-Options":       "nosniff",
 		"Referrer-Policy":              "same-origin",
 		"Cross-Origin-Resource-Policy": "same-origin",
+		"Cross-Origin-Opener-Policy":   "same-origin",
+		"Cross-Origin-Embedder-Policy": "require-corp",
+		"Permissions-Policy":           PermissionsPolicy,
 		"Access-Control-Allow-Origin":  "",
 	}
 	for name, v := range want {

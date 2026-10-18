@@ -43,6 +43,8 @@ type Options struct {
 	WebSocket http.Handler
 	// Assets serves pack images under /packs/; nil leaves it unrouted.
 	Assets http.Handler
+	// Hosts are the host names served (see checkHost); empty serves all.
+	Hosts []string
 }
 
 // New returns the engine's HTTP handler.
@@ -75,7 +77,7 @@ func New(opts Options) http.Handler {
 	}
 	mux.Handle("GET /", http.FileServerFS(static))
 
-	return securityHeaders(mux)
+	return securityHeaders(checkHost(opts.Hosts, mux))
 }
 
 func securityHeaders(next http.Handler) http.Handler {
