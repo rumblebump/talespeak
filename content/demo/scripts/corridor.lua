@@ -1,10 +1,11 @@
 -- The corridor outside the cell. The player is here only while the guard
 -- is away refilling his bottle; he comes back when the countdown the cell
 -- started runs out. Under the stone with the X (from the wall map in the
--- cell) is the code for the key box in the guard room; the stairs lead
--- straight to the guard. Going back into the solved cell, Whisp asks first.
+-- cell) is the code for the key box in the guard room, a new one in every
+-- world (box_code in lib/rooms.lua); the stairs lead straight to the
+-- guard. Going back into the solved cell, Whisp asks first.
 
-require("rooms") -- whisp, the guard's countdown, solved rooms: lib/rooms.lua
+require("rooms") -- whisp, the guard's countdown, solved rooms, the box code: lib/rooms.lua
 
 lifted = false     -- the player lifted the stone and read the note
 ended = false      -- the story is over
@@ -137,13 +138,17 @@ function show_items()
 end
 
 function lift_stone()
+  local code = box_code()
+  if not code then
+    return
+  end
   if lifted then
-    say("Under the stone there is only dust now. The note said: BOX 4 1 7.")
+    say("Under the stone there is only dust now. The note said: BOX " .. spelled(code) .. ".")
     return
   end
   lifted = true
   say("You lift the stone with the X. Under it lies a scrap of paper:")
-  say("BOX 4 1 7")
+  say("BOX " .. spelled(code))
   show_items()
 end
 

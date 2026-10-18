@@ -1,15 +1,14 @@
 -- The guard room. The key box opens with the code from under the stone in
--- the corridor; the key in it opens the back door, which is the way out,
--- to the forest clearing.
+-- the corridor, which every world picks anew (box_code in lib/rooms.lua);
+-- the key in it opens the back door, which is the way out, to the forest
+-- clearing.
 -- The player has to remember the code: what the player read is the link
 -- between the rooms. With the key, the corridor is solved and locked:
 -- there is nothing left to do there.
 --
 -- The guard comes back here too, when the cell's countdown runs out.
 
-require("rooms") -- whisp, the guard's countdown, solved rooms: lib/rooms.lua
-
-CODE = "417"
+require("rooms") -- whisp, the guard's countdown, solved rooms, the box code: lib/rooms.lua
 
 key = false        -- the player took the key from the box
 wrong = 0          -- wrong codes tried
@@ -141,7 +140,7 @@ function show_items()
   ui.items(items)
 end
 
--- digits keeps only the digits of s, so "4 1 7" and "4-1-7" count too.
+-- digits keeps only the digits of s, so "4 1 7" and "4-1-7" count as "417".
 function digits(s)
   local out = {}
   for i = 1, #s do
@@ -158,8 +157,12 @@ function open_box()
     say("The box is empty. The big key is in your hand.")
     return
   end
+  local code = box_code()
+  if not code then
+    return
+  end
   local answer = ui.ask("Three number wheels. Which numbers do you turn them to?", { strict = true })
-  if digits(answer) == CODE then
+  if digits(answer) == code then
     if not solve("corridor", "locked", "You have everything you need from the corridor. The way out is the back door.") then
       return
     end

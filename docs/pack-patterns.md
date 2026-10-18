@@ -113,6 +113,30 @@ end
 
 In the room where the countdown starts, nil means the guard is still at his post, so the cell checks for nil before it counts and clears the value (`keep("guard_away", nil)`) when he is back. The count is in actions, not time; for a deadline in real time, use `timer.start` and `on_timer` ([lua-sandbox.md](lua-sandbox.md)).
 
+## A secret every world picks
+
+A code, a password or a hiding place that should differ from one game to the next is picked with `math.random` the first time a player needs it, and kept in `state.world`, so every player of the world (and every room) finds the same one. The demo's key box code is `box_code()` in `lib/rooms.lua`:
+
+```lua
+function box_code()
+  local code = state.world.get("box_code")
+  if code then
+    return code
+  end
+  local new = string.format("%03d", math.random(0, 999))
+  local ok = state.world.update("box_code", function(v)
+    return v or new -- two players at once: the first code stays
+  end)
+  if not ok then
+    say("(The game cannot remember that right now. Try again in a moment.)")
+    return nil
+  end
+  return state.world.get("box_code")
+end
+```
+
+Both the clue (the note under the corridor's stone) and the check (the box in the guard room) call it, so it does not matter which one a player reaches first. Pick it inside a hook, not at a script's top level: the top level also runs at world start, where there is no player. `math.random` is not for secrets that protect anything real: it only keeps a puzzle from being the same every time. For a code that should change per player instead, keep it in `state.player`.
+
 ## Rounds in turns
 
 A room runs free (everyone acts at once) until a script starts turns: a set order, and only the player whose turn it is acts until they are done. `lib/round.lua` in the demo does it in Lua, on `state.world`, `room.players()`, room timers and `on_leave` ([lua-sandbox.md](lua-sandbox.md)); copy it into your pack's `lib/`. The demo's forest clearing (`scripts/clearing.lua`) plays dice with it.
