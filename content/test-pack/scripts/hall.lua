@@ -34,5 +34,12 @@ function on_click(player, item)
 end
 
 function on_input(player, text)
+  if text == "guide" then
+    -- A guide speaks apart from the story (T-0027).
+    say("I am your guide.", { from = "Whisp" })
+    local n, label = ui.dialog("Ready?", { "Yes", "No" }, { from = "Whisp" })
+    say("Guide answer: " .. label)
+    return
+  end
   say("You typed: " .. text)
 end

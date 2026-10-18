@@ -67,7 +67,7 @@ test("demo: guard, straw, wall map, riddle, corridor and escape", async ({ page 
   await page.getByRole("button", { name: "your cell" }).click();
   await expect(page.getByRole("group", { name: /locked in again/ })).toBeVisible();
   await page.getByRole("button", { name: "No, stay here" }).click();
-  await expect(story).toContainText("Whisp: Good. Onwards!");
+  await expect(story.locator("p.guide", { hasText: "Good. Onwards!" }).locator(".from")).toHaveText("Whisp");
   await page.getByRole("button", { name: "door marked GUARDS" }).click();
 
   // The guard room: the code opens the box, its key the back door.

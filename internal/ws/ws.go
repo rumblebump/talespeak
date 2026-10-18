@@ -63,6 +63,7 @@ type Message struct {
 	Strict  bool     `json:"strict,omitempty"`
 	Speak   bool     `json:"speak,omitempty"`
 	Hide    bool     `json:"hide,omitempty"`
+	From    string   `json:"from,omitempty"`
 }
 
 // Item is something the player can click.

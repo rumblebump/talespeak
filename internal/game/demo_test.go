@@ -18,6 +18,9 @@ func play(t *testing.T, s ws.Session, m ws.Message) (string, []ws.Message) {
 			t.Fatalf("%+v: error %q", m, g.Text)
 		}
 		if g.Type == "text" {
+			if g.From != "" { // as the client shows it: the speaker, then the line
+				g.Text = g.From + ": " + g.Text
+			}
 			texts = append(texts, g.Text)
 		}
 	}
@@ -184,7 +187,7 @@ const leftAfterCell = 7
 func backToCell(t *testing.T, s ws.Session, m ws.Message) (string, []ws.Message) {
 	t.Helper()
 	_, got := play(t, s, m)
-	if len(got) != 1 || got[0].Type != "dialog" || got[0].Title != "Whisp: Do you really want to get locked in again?" {
+	if len(got) != 1 || got[0].Type != "dialog" || got[0].Title != "Do you really want to get locked in again?" || got[0].From != "Whisp" {
 		t.Fatalf("%+v: %+v", m, got)
 	}
 	return play(t, s, ws.Message{Type: "choose", ID: got[0].ID, Option: 1})
@@ -233,7 +236,7 @@ func TestDemoGuardRoom(t *testing.T) {
 	}
 	text, got := play(t, s, ws.Message{Type: "click", Item: "cell"}) // 1
 	wantText(t, "warning", text, "Footsteps on the stairs")
-	if len(got) != 2 || got[1].Type != "dialog" || got[1].Title != "Whisp: Do you really want to get locked in again?" {
+	if len(got) != 2 || got[1].Type != "dialog" || got[1].Title != "Do you really want to get locked in again?" || got[1].From != "Whisp" {
 		t.Fatalf("cell: %+v", got)
 	}
 	text, _ = play(t, s, ws.Message{Type: "choose", ID: got[1].ID, Option: 2})
@@ -727,7 +730,7 @@ func whispAsks(t *testing.T, step string, got []ws.Message) string {
 		if m.Type != "dialog" {
 			continue
 		}
-		if m.Title != "Whisp: Do you really want to get locked in again?" ||
+		if m.Title != "Do you really want to get locked in again?" || m.From != "Whisp" ||
 			len(m.Options) != 2 || m.Options[0] != "Yes, go back" || m.Options[1] != "No, stay here" {
 			t.Fatalf("%s: Whisp's question: %+v", step, m)
 		}

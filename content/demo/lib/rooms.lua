@@ -11,11 +11,11 @@
 -- whisp says a line as Whisp, the guide; whisp_ask asks Whisp's question
 -- and returns the number of the answer.
 function whisp(text)
-  say("Whisp: " .. text)
+  say(text, { from = "Whisp" })
 end
 
 function whisp_ask(question, options)
-  return ui.dialog("Whisp: " .. question, options)
+  return ui.dialog(question, options, { from = "Whisp" })
 end
 
 -- keep stores value for key in state.player. The server can refuse a write
