@@ -57,8 +57,9 @@ Small pixel art (up to 256 pixels wide) is scaled up sharp; larger pictures are 
 
 A pack must work without the internet, so it carries every file it uses and points nowhere else. Loading refuses:
 
-- a URL with a scheme (`https://`, `http://`, `ws://`, `ftp://` and the like), a `//host` reference (also inside `url(...)`) or a bare `www.` host in any YAML value or key, or in any Lua string literal, reported with file and line;
-- `.css`, `.svg`, `.html`, `.htm`, `.xhtml`, `.js`, `.mjs` and `.wasm` files anywhere in the pack: they are not part of the format, and a browser could run them or load more from them.
+- a URL with a scheme (`https://`, `http://`, `ws://`, `ftp://` and the like, also `https:host` without slashes), a `javascript:` or `vbscript:` link, a `//host` reference (also inside `url(...)`) or a bare `www.` host in any YAML value or key, or in any Lua string literal, reported with file and line. Text is read the way a browser reads a URL, so `\\host`, `https:\\host` and references broken by a tab or line break count too. A `//` only counts when a host follows it (a name with a dot, a port, an IP address or `localhost`), so story text like `//INCOMING TRANSMISSION//` is fine;
+- YAML tags (`!!binary`, `!!str`, `!custom`): the format needs none, and `!!binary` would hide text from the check;
+- `.css`, `.svg`, `.svgz`, `.html`, `.htm`, `.shtml`, `.xhtml`, `.xht`, `.xml`, `.xsl`, `.js`, `.mjs`, `.cjs` and `.wasm` files anywhere in the pack: they are not part of the format, and a browser could run them or load more from them. Hidden folders (`.git`) are skipped, because the engine never reads them.
 
 YAML and Lua comments are not checked, and the engine never reads other files (a `README.md` or `LICENSE`), so credits and links for authors go there. A string built at runtime (`"https:" .. "//x"`) is caught only when one literal holds the reference; the browser's Content-Security-Policy still blocks every load from another origin, and the client shows script text only as text.
 

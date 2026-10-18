@@ -22,6 +22,11 @@ func TestExternalRef(t *testing.T) {
 		"//[::1]:80/",
 		"visit www.example.com today",
 		"at WWW.Example.org",
+		"https:evil.example/a.png",
+		"https:/evil.example",
+		"javascript:alert(1)",
+		"//localhost/x",
+		"//intranet:8080/x",
 	}
 	for _, s := range refs {
 		if !externalRef.MatchString(s) {
@@ -56,7 +61,7 @@ func TestLintYAML(t *testing.T) {
 		t.Fatal("pack with external references loaded")
 	}
 	msg := err.Error()
-	for _, want := range []string{"rooms/r.yaml:4:", "evil.example", "rooms/r.yaml:9:", "cdn.example"} {
+	for _, want := range []string{"rooms/r.yaml:6:", "evil.example", "rooms/r.yaml:9:", "cdn.example"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("error lacks %q:\n%s", want, msg)
 		}
@@ -95,7 +100,7 @@ end
 		t.Fatal("script with external references loaded")
 	}
 	msg := err.Error()
-	for _, want := range []string{"scripts/r.lua:5:", "evil.example/one", "scripts/r.lua:6:", "cdn.example", "scripts/r.lua:8:", "evil.example/two", "scripts/r.lua:9:", "evil.example/three"} {
+	for _, want := range []string{"scripts/r.lua:5:", "evil.example/one", "scripts/r.lua:7:", "cdn.example", "scripts/r.lua:8:", "evil.example/two", "scripts/r.lua:9:", "evil.example/three"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("error lacks %q:\n%s", want, msg)
 		}
@@ -160,5 +165,64 @@ func TestPackFileWalkIsBounded(t *testing.T) {
 	_, err := Load(fsWith(files))
 	if err == nil || !strings.Contains(err.Error(), "more than") {
 		t.Errorf("err = %v, want the file limit", err)
+	}
+}
+
+// Decode turns a !!binary scalar into its base64-decoded bytes, so the
+// text a player sees could hold any reference while lint sees base64:
+// tags are refused.
+func TestLintRefusesTags(t *testing.T) {
+	// aHR0cHM6Ly9ldmlsLmV4YW1wbGUvYS5wbmc= is "https://evil.example/a.png".
+	room := "id: r\ntitle: R\ndescription: !!binary aHR0cHM6Ly9ldmlsLmV4YW1wbGUvYS5wbmc=\n" +
+		"items:\n  - id: a\n    label: !!binary aHR0cHM6Ly9ldmlsLmV4YW1wbGU=\n"
+	p, err := Load(fsWith(map[string]*string{"rooms/r.yaml": &room}))
+	if err == nil {
+		t.Fatalf("pack loaded with description %q and label %q", p.Rooms["r"].Description, p.Rooms["r"].Items[0].Label)
+	}
+	if !strings.Contains(err.Error(), "rooms/r.yaml:3:") || !strings.Contains(err.Error(), "rooms/r.yaml:6:") {
+		t.Errorf("err = %v, want both references with their lines", err)
+	}
+}
+
+// A reference inside a multi-line YAML block scalar or Lua long string is
+// reported on the line that holds it, not where the text starts.
+func TestLintLineInsideMultiLineText(t *testing.T) {
+	yamlDoc := "id: r\ntitle: R\ndescription: |\n  One.\n  Two.\n  Three https://evil.example\n"
+	if got := errLines(t, "f.yaml", lintYAML("f.yaml", []byte(yamlDoc))); len(got) != 1 || got[0] != 6 {
+		t.Errorf("YAML block scalar: lines = %v, want [6]", got)
+	}
+	lua := "say([[\nOne.\nTwo.\nThree https://evil.example]])"
+	if got := errLines(t, "s.lua", lintLua("s.lua", lua)); len(got) != 1 || got[0] != 4 {
+		t.Errorf("Lua long string: lines = %v, want [4]", got)
+	}
+}
+
+// Browsers parse these as references to another host: the WHATWG URL
+// parser treats \ as / for http(s), and drops tabs and newlines.
+func TestLintBrowserURLForms(t *testing.T) {
+	for _, s := range []string{
+		`\\evil.example\a.png`,       // protocol-relative with backslashes
+		`/\evil.example/a.png`,       // mixed
+		`https:\\evil.example/a.png`, // scheme with backslashes
+		"/\t/evil.example/a.png",     // tab dropped by the URL parser
+		"https:/\n/evil.example",     // newline dropped by the URL parser
+	} {
+		if _, ok := findRef(s); !ok {
+			t.Errorf("%q: not found", s)
+		}
+	}
+}
+
+// Stories use "//" before a word for transmissions and asides. None of
+// these has a host with a dot, a port or an IPv6 address.
+func TestLintStoryTextWithSlashes(t *testing.T) {
+	for _, s := range []string{
+		"//INCOMING TRANSMISSION//",
+		"The radio crackles. ...//static//...",
+		"Left or right? left //right",
+	} {
+		if ref, ok := findRef(s); ok {
+			t.Errorf("%q: found %q", s, ref)
+		}
 	}
 }
