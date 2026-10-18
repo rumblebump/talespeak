@@ -13,17 +13,20 @@ A pack decides what happens when several players in a world take the same item: 
 
 ## Acceptance
 
-- [ ] Take rule per item in the room YAML, readable and changeable from Lua:
-  - `split`: an amount (gold) shared among the players present when it is taken; the script decides what happens to a remainder, by default it stays in the room
-  - `each`: every character can take one, once
-  - `once`: only the first player who takes it gets it; for the others it is gone
-  - `count: N`: anyone can take one until the N are gone
-- [ ] Temporary items and effects (a blessing): they last for a time (real or in-game, T-0012 timers) or a number of moves, then dissolve, and the script gets a hook when they do
-- [ ] Lua: `items.take(player, id)` applies the rule and returns what the player got (or nil and why), plus hooks for the pack to say it in its own words
-- [ ] Taking is atomic for the whole world: two players clicking a `once` item at the same moment, only one gets it; a `count` never goes below zero
-- [ ] What is left in a room and who took what is world state (T-0018), so it survives a restart; taken items go into the character's inventory (T-0018)
-- [ ] The clickable items each player sees follow the rule (an item gone for everyone disappears for everyone; an `each` item disappears only for the player who took it)
-- [ ] Tests: Go (every rule, simultaneous takes, expiry by time with a fake clock and by moves, restart) and Playwright (two players, one `once` item)
+The take rules are a game mechanic written in Lua, not engine code (Carl 2026-10-18: the core is only the glue between assets, web and UI; mechanics go in Lua, and the core only gains primitives such as timers and persistence). So this task is a Lua library plus the few core primitives it needs.
+
+Core primitives (Go), only what Lua cannot do itself:
+- [ ] Shared Lua modules for a pack or ruleset (for example `lib/items.lua`, loaded with `require`), so every room uses the same library
+- [ ] An atomic update of world state (T-0018), for example `state.world.update(key, function(old) return new end)`, so two players taking a `once` item at the same moment cannot both get it and a count never goes below zero
+- [ ] A way for a script to refresh what other players in the room see (their clickable items, a line of text) when one player changes shared state
+- [ ] Move counting and expiry come from T-0012 timers and the hooks the engine already calls; nothing item-specific in Go
+
+Lua mechanic (a library in the demo pack or a starter ruleset, documented for pack authors):
+- [ ] Take rules per item: `split` (gold shared among the players present, remainder stays by default), `each` (every character once), `once` (first taker only), `count = N` (until none are left)
+- [ ] Temporary items and effects (a blessing) that dissolve after a time (timer) or a number of moves, with a hook when they do
+- [ ] `items.take(player, id)` returns what the player got or why not; the pack says it in its own words
+- [ ] Each player's clickable items follow the rule: gone for everyone, or gone only for the player who took it
+- [ ] Tests: Go for the primitives (atomic update under concurrent takes, require, refresh); Lua library tests through the game package; Playwright with two players and one `once` item
 
 ## Notes
 
