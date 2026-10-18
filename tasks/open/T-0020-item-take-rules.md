@@ -16,7 +16,7 @@ A pack decides what happens when several players in a world take the same item: 
 The take rules are a game mechanic written in Lua, not engine code (Carl 2026-10-18: the core is only the glue between assets, web and UI; mechanics go in Lua, and the core only gains primitives such as timers and persistence). So this task is a Lua library plus the few core primitives it needs.
 
 Core primitives (Go), only what Lua cannot do itself:
-- [ ] Shared Lua modules for a pack or ruleset (for example `lib/items.lua`, loaded with `require`), so every room uses the same library
+- [ ] Shared Lua modules for a pack or ruleset (for example `lib/items.lua`, loaded with `require`), so every room uses the same library: T-0026 for packs; a ruleset shared by several packs comes later
 - [ ] An atomic update of world state (T-0018), for example `state.world.update(key, function(old) return new end)`, so two players taking a `once` item at the same moment cannot both get it and a count never goes below zero
 - [ ] A way for a script to refresh what other players in the room see (their clickable items, a line of text) when one player changes shared state
 - [ ] Move counting and expiry come from T-0012 timers and the hooks the engine already calls; nothing item-specific in Go

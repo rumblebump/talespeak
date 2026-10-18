@@ -214,10 +214,14 @@ type Runtime struct {
 	paused map[*Thread]struct{}      // hooks waiting in ui.dialog
 	shared map[lua.LValue]struct{}   // what every Instance reaches but none keeps: the libraries
 
-	cur    *call // the call in progress, nil between calls
-	total  int64 // the sum of kept and sinceWalk over envs: at least what they keep
-	extra  int64 // what Reserve holds for the world, outside any Instance
-	closed bool
+	cur   *call // the call in progress, nil between calls
+	total int64 // the sum of kept and sinceWalk over envs: at least what they keep
+	extra int64 // what Reserve holds for the world, outside any Instance
+
+	modules map[string]*Script              // require's modules by name
+	loaded  map[*lua.LTable]*lua.LTable     // each Instance's required modules, by its globals
+	loading map[*lua.LTable]map[string]bool // modules each Instance is running now
+	closed  bool
 }
 
 // envState is what one Instance keeps, as last measured, plus what its
@@ -250,7 +254,8 @@ func New(limits Limits) *Runtime {
 	if limits.PlayerMemory <= 0 || limits.PlayerMemory > limits.StateMemory {
 		limits.PlayerMemory = limits.StateMemory
 	}
-	r := &Runtime{L: L, limits: limits, locked: map[*lua.LTable]bool{}, paused: map[*Thread]struct{}{}, envs: map[*lua.LTable]*envState{}}
+	r := &Runtime{L: L, limits: limits, locked: map[*lua.LTable]bool{}, paused: map[*Thread]struct{}{}, envs: map[*lua.LTable]*envState{},
+		loaded: map[*lua.LTable]*lua.LTable{}, loading: map[*lua.LTable]map[string]bool{}}
 	r.lib = r.openSandbox()
 	r.shared = map[lua.LValue]struct{}{r.lib: {}, L.G.Global: {}, L.G.Registry: {}}
 	return r
@@ -335,6 +340,8 @@ func (r *Runtime) Release(e *Env) {
 		r.total -= st.kept + st.sinceWalk
 		delete(r.envs, e.table)
 	}
+	delete(r.loaded, e.table)
+	delete(r.loading, e.table)
 }
 
 // Load compiles a script and runs its top level in a new Env.
@@ -608,6 +615,9 @@ func (r *Runtime) Reserve(delta int64) error {
 // hooks, without the shared libraries.
 func (r *Runtime) measure(env *lua.LTable, st *envState, paused []*Thread) {
 	roots := []lua.LValue{env}
+	if mods := r.loaded[env]; mods != nil {
+		roots = append(roots, mods)
+	}
 	for _, th := range paused {
 		roots = append(roots, stackValues(th.co)...)
 	}

@@ -6,6 +6,7 @@ A story pack is a folder of YAML and Lua files. The engine ships one, `content/d
 pack.yaml
 rooms/<any name>.yaml
 scripts/<name>.lua
+lib/<name>.lua          # optional modules every room script can require
 assets/<name>.png       # optional images: .png, .jpg, .jpeg, .gif, .webp
 ```
 
@@ -39,6 +40,18 @@ items:                # optional, what the player can click on entering
 | `description` | 1 to 4000 bytes |
 | `script` | A file name ending in `.lua`, read from `scripts/`; no folders. What it can do: [lua-sandbox.md](lua-sandbox.md) |
 | `items` | At most 20; each with an `id` like a room id, unique in the room, and a one-line `label` of 1 to 100 bytes. A click runs the script's `on_click`; the script can change them with `ui.items` |
+
+## lib/
+
+Lua modules the room scripts share, so a helper is written once instead of copied into every room. `require("rooms")` in any script returns what `lib/rooms.lua` returns.
+
+| Rule | |
+| --- | --- |
+| Names | 1 to 64 of a-z, 0-9, `_` and `-`, then `.lua`; no folders, and nothing else in `lib/` |
+| Size | At most 256 KiB each, and at most 100 modules |
+| Checks | The same as for room scripts, including the offline check below |
+
+How `require` behaves: [lua-sandbox.md](lua-sandbox.md).
 
 ## assets/
 

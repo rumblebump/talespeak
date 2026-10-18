@@ -25,7 +25,10 @@ const (
 	// MaxTitleRunes and MaxDescriptionBytes bound a room's text.
 	MaxTitleRunes       = 120
 	MaxDescriptionBytes = 4000
-	// MaxScriptBytes is the largest Lua script a room may use.
+	// MaxModules bounds the shared Lua modules in a pack's lib folder.
+	MaxModules = 100
+	// MaxScriptBytes is the largest Lua script a room may use, and the
+	// largest module.
 	MaxScriptBytes = 256 << 10
 	// MaxItems and MaxLabelBytes bound a room's clickable items, as
 	// ui.items does.
@@ -56,6 +59,9 @@ type Pack struct {
 	Rooms map[string]*Room `yaml:"-"`
 	// Assets are the pack's images by file name, from assets/.
 	Assets map[string]*Asset `yaml:"-"`
+	// Modules are the sources of lib/<name>.lua by name, what a script's
+	// require(name) runs.
+	Modules map[string]string `yaml:"-"`
 }
 
 // Room is one place in the story.
@@ -93,7 +99,7 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 		errs = append(errs, fmt.Errorf("%s: %s", file, fmt.Sprintf(format, args...)))
 	}
 
-	p := &Pack{Rooms: map[string]*Room{}, Assets: map[string]*Asset{}}
+	p := &Pack{Rooms: map[string]*Room{}, Assets: map[string]*Asset{}, Modules: map[string]string{}}
 	lint, err := decode(fsys, "pack.yaml", p)
 	if err != nil {
 		return nil, err
@@ -155,6 +161,7 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 	} else if p.Rooms[p.Start] == nil {
 		fail("pack.yaml", "start room %q does not exist", p.Start)
 	}
+	errs = append(errs, loadModules(fsys, p)...)
 	errs = append(errs, loadAssets(fsys, p, limits)...)
 	errs = append(errs, lintFiles(fsys)...)
 	if len(errs) > 0 {
@@ -198,6 +205,40 @@ func decode(fsys fs.FS, file string, v any) ([]error, error) {
 		return nil, fmt.Errorf("%s: only one YAML document is allowed", file)
 	}
 	return lintYAML(file, data), nil
+}
+
+// loadModules reads lib/*.lua into p.Modules. Other files in lib are an
+// error, so a misspelled module is noticed.
+func loadModules(fsys fs.FS, p *Pack) []error {
+	entries, err := fs.ReadDir(fsys, "lib")
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return []error{fmt.Errorf("lib: %w", err)}
+	}
+	var errs []error
+	for _, e := range entries {
+		file := "lib/" + e.Name()
+		name, ok := strings.CutSuffix(e.Name(), ".lua")
+		switch {
+		case strings.HasPrefix(e.Name(), "."):
+			continue
+		case e.IsDir() || !ok || !idPattern.MatchString(name):
+			errs = append(errs, fmt.Errorf("%s: lib holds only modules named <name>.lua, with a name of 1 to 64 of a-z, 0-9, _ and -", file))
+			continue
+		case len(p.Modules) >= MaxModules:
+			return append(errs, fmt.Errorf("lib: more than %d modules", MaxModules))
+		}
+		data, err := readLimited(fsys, file, MaxScriptBytes)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", file, err))
+			continue
+		}
+		p.Modules[name] = string(data)
+		errs = append(errs, lintLua(file, string(data))...)
+	}
+	return errs
 }
 
 // readScript reads scripts/<name>. name is a plain file name ending in .lua,

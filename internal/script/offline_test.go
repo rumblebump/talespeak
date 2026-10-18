@@ -49,7 +49,7 @@ func TestSandboxSurfaceIsExactly(t *testing.T) {
 		"math.huge", "math.ldexp", "math.log", "math.log10", "math.max", "math.min", "math.mod",
 		"math.modf", "math.pi", "math.pow", "math.rad", "math.random", "math.randomseed",
 		"math.sin", "math.sinh", "math.sqrt", "math.tan", "math.tanh",
-		"next", "pairs", "pcall", "rawequal", "rawget", "rawset",
+		"next", "pairs", "pcall", "rawequal", "rawget", "rawset", "require",
 		"room", "room.describe", "room.go", "say", "select", "setmetatable", "state", "state.player", "state.player.get", "state.player.set",
 		"string", "string.byte", "string.char", "string.find", "string.format", "string.gfind",
 		"string.gmatch", "string.gsub", "string.len", "string.lower", "string.match", "string.rep",
@@ -74,7 +74,7 @@ func TestSandboxSurfaceIsExactly(t *testing.T) {
 	for _, name := range got {
 		root, _, _ := strings.Cut(name, ".")
 		switch root {
-		case "io", "os", "net", "http", "socket", "require", "package", "debug", "load", "loadstring", "dofile", "loadfile", "channel":
+		case "io", "os", "net", "http", "socket", "package", "debug", "load", "loadstring", "dofile", "loadfile", "channel":
 			t.Errorf("scripts can reach %s", name)
 		}
 	}

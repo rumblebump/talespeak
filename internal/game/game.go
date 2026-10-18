@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"net/netip"
 	"slices"
@@ -120,6 +121,16 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Opti
 	WithClientBudget(DefaultClientRate, DefaultClientBurst)(w)
 	for _, o := range opts {
 		o(w)
+	}
+	for _, name := range slices.Sorted(maps.Keys(p.Modules)) {
+		sc, err := w.rt.Compile("lib/"+name+".lua", p.Modules[name])
+		if err == nil {
+			err = w.rt.AddModule(name, sc)
+		}
+		if err != nil {
+			w.rt.Close()
+			return nil, fmt.Errorf("lib/%s.lua: %w", name, err)
+		}
 	}
 	for id, room := range p.Rooms {
 		if room.Source == "" {

@@ -10,6 +10,7 @@ Room scripts and, later, rule packs run in [gopher-lua](https://github.com/yuin/
 | `string` | `byte` (at most 8000 values), `char`, `find` (with `plain = true` only), `format`, `len`, `lower`, `rep`, `reverse`, `sub`, `upper`. `match`, `gmatch`, `gfind` and `gsub` raise an error. `format` takes Lua 5.1's conversions only (`%c %d %i %o %u %x %X %e %E %f %g %G %q %s %%`, widths and precisions of at most two digits); `%s` takes strings and numbers |
 | `table` | `concat`, `getn`, `insert`, `maxn`, `remove`, `sort` (at most 20000 entries) |
 | `math` | All of it |
+| `require(name)` | Returns what the pack's `lib/<name>.lua` returns (true when it returns nothing). The module runs the first time a room script's instance asks for it, with that instance's globals and within the running call's time and memory; later calls return the same value. Every room's instance, and every player, runs it separately, so a module keeps no state between rooms (that is `state.player`). Usually called at the top of a script: `local rooms = require("rooms")`. A missing module, an error in the module, or a module that requires itself (directly or through others) is a script error, and a failed `require` runs the module again next time |
 | `say(text [, {speak = true, show = false}])` | Sends a line to the player (at most 4000 bytes). `speak = true` reads it aloud even when the player has not turned read aloud on; `show = false` (needs `speak`) only reads it aloud, for listening exercises, and shows it when the device has no local voice. The text still reaches the player's browser (speech runs there), so `show = false` is not for secrets such as the answer to a graded question |
 | `room.describe()` | Sends the current room's title, description and clickable items |
 | `room.go(id)` | Moves the player to room `id` of the pack once the hook ends: the clickable items become the new room's, and its `on_enter` runs (a room without a script is described). The last `room.go` that succeeds wins, and `room.go` to the current room runs its `on_enter` again. An unknown id is a script error, and so is waiting in `ui.dialog`, `ui.select` or `ui.ask` after `room.go` in the same hook. No one moves when the hook fails, when the new room's script cannot start (the world or the player's network is full), or when the player's address has used up its Lua time before the new room's `on_enter`; the player stays and gets an error. The player keeps their instances of the last 4 rooms they entered, so coming back to one finds its globals as they were left; an older room starts over, so progress that must last goes in `state.player`. One player message moves through at most 4 rooms |
@@ -24,7 +25,7 @@ Room scripts and, later, rule packs run in [gopher-lua](https://github.com/yuin/
 
 No string is ever longer than 1 MiB: `..`, `string.rep`, `string.format` and `table.concat` refuse to build one. Numbers passed as counts or positions must be within ±2^31. Varargs (`...`) are not available.
 
-Not available: `io`, `os`, `debug`, `package`/`require`, `coroutine`, `channel`, `load`, `loadstring`, `dofile`, `loadfile`, `getfenv`, `setfenv`, `collectgarbage`, `newproxy`, `print`. A script cannot read files, open connections, run programs or load other code.
+Not available: `io`, `os`, `debug`, `package` (the sandbox's `require` loads only the pack's own modules), `coroutine`, `channel`, `load`, `loadstring`, `dofile`, `loadfile`, `getfenv`, `setfenv`, `collectgarbage`, `newproxy`, `print`. A script cannot read files, open connections, run programs or load other code.
 
 **Why no patterns:** gopher-lua matches Lua patterns with a backtracking matcher written in Go. The time limit only interrupts Lua code, not Go functions, and a crafted pattern takes exponential time. Patterns come back once there is a matcher with a step limit.
 
@@ -97,13 +98,13 @@ The name `__concat` is reserved: every `..` in a script is compiled into a call 
 | --- | --- | --- |
 | Time per call | 100 ms | The call stops with "script ran too long" |
 | Memory allocated per call | 32 MiB | The call stops with "script used too much memory" |
-| Memory one player's instance of a script keeps | 4 MiB | The call fails; the player's state in that room starts over on their next action |
+| Memory one player's instance of a script keeps, with what its `require`d modules return | 4 MiB | The call fails; the player's state in that room starts over on their next action |
 | Memory the instances of one client address keep together | 64 MiB | New players and rooms from that address are refused ("Too many players from your network") until some leave |
 | Memory all instances of a world keep together | 256 MiB | The call fails, and new players and rooms are refused ("This world is full right now") until others leave |
 | Call depth | 200 | Script error (stack overflow) |
 | Values on the Lua stack | 65536 | Script error (registry overflow) |
 | Output per call | 100 calls of `say`, `room.describe`, `room.go`, `ui.items` and `ui.image` (questions do not count) | Script error |
-| Script size | 256 KiB | The pack does not load |
+| Script size | 256 KiB, for a room script and for a module | The pack does not load |
 | `state.player` | 64-byte keys, 16 KiB per value, 256 KiB and 500 keys per player (key plus encoded value, see below), 50 `set` calls per hook, its dialogs included; it counts toward the memory of the player's address and the world, together with the room instances | `set` returns nil and the reason |
 
 Time per call and the memory limits can be changed by the admin ([admin-limits.md](admin-limits.md)); the others are part of the pack format.
