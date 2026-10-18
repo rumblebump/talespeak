@@ -20,7 +20,8 @@ Scripts keep progress in the database, not in Lua variables: a player's progress
 - [ ] Inventory stored per character, ruleset version and world; on finishing, it can move to another world whose pack accepts that ruleset (the compatibility rules of T-0010)
 - [ ] No chat log: the engine keeps only the last 10 chat messages per world in memory, for players who join, and never writes chat to the database (edu GM transcript excepted, T-0011)
 - [ ] Stored through the Store interface (SQLite now, Postgres later), written after each hook, read before it; no SQL in game code
-- [ ] Limits per key, per player and per world, configurable like the other resource limits (docs/admin-limits.md)
+- [ ] Hard limits so no one can fill the database, configurable like the other resource limits (docs/admin-limits.md). Starting defaults, small on purpose: key 64 bytes, value 16 KiB encoded, table depth 8; per character 256 KiB and 500 keys; per world 4 MiB and 5000 keys; per game 1 MiB; at most 50 writes per hook call. A write past a limit fails in the script (`set` returns nil and an error), never in the engine, and the GM log shows it
+- [ ] Writes count toward the client's Lua budget (T-0004), and a world writes to the database at most once per hook call, batched, so many players cannot flood the disk
 - [ ] Edu mode: strings written into `state.world` or `state.game` pass the chat filter and appear in the GM transcript (typed text shared between players is chat)
 - [ ] Changing world state notifies the other players' sessions (for example a door opened by one player)
 - [ ] Tests: restart keeps state, two players see world state, player state stays private, limits, fuzzed values
