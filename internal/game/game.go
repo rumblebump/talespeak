@@ -153,7 +153,7 @@ type World struct {
 	lastDeliver time.Time    // when the last delivery started
 
 	players    int                              // players who joined, for player ids
-	arrivals   int64                            // rooms entered, for the order of room.players
+	arrivals   int64                            // rooms entered and joins, for the order of room.players and world.players
 	roomTimers map[string]map[string]*roomTimer // room id -> name -> its timer
 	timerNews  map[roomTimerKey]struct{}        // room timers the running hook changed
 	timerDue   map[roomTimerKey]*session        // room timers changed since the last delivery -> who changed them last
@@ -256,7 +256,7 @@ func (w *World) closeLocked() {
 // world without a store places a new player without an account in the
 // start room.
 func (w *World) NewSession(client string, who ws.Who) (ws.Session, []ws.Message) {
-	s := &session{w: w, client: budgetKey(client)}
+	s := &session{w: w, client: budgetKey(client), gm: who.GM}
 	s.state.Reserve = s.reserve
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -280,6 +280,8 @@ func (w *World) NewSession(client string, who ws.Who) (ws.Session, []ws.Message)
 		}
 	}
 	if !w.closed {
+		w.arrivals++
+		s.joined = w.arrivals
 		w.sessions[s] = struct{}{}
 		if s.char != 0 {
 			w.chars[s.char] = s
@@ -480,8 +482,10 @@ type session struct {
 	id      string // player.id: unique in the world while it runs, and for ever with a store
 	char    int64  // the character in the store; 0 without one
 	name    string
+	gm      bool // a game master of the world: player.gm
 	client  string
 	room    string
+	joined  int64 // when the player joined the world, for world.players
 	arrived int64 // when the player came into room, for room.players
 	closed  bool
 	leaving bool // on_leave runs: the player is no longer among room.players
@@ -764,9 +768,15 @@ func (s *session) enterLocked(room string, moved bool) []ws.Message {
 	return s.after(th, err)
 }
 
+// hook is h for the player: their name, id and GM role.
+func (s *session) hook(h script.Hook) script.Hook {
+	h.Player, h.PlayerID, h.GM = s.name, s.id, s.gm
+	return h
+}
+
 // onEnter is the on_enter call for the player.
 func (s *session) onEnter() script.Hook {
-	return script.Hook{Name: "on_enter", Player: s.name, PlayerID: s.id, ReadOnlyWorld: s.readOnlyWorld}
+	return s.hook(script.Hook{Name: "on_enter", ReadOnlyWorld: s.readOnlyWorld})
 }
 
 // place puts the player in room with its YAML items, and shows them the
@@ -924,7 +934,7 @@ func (s *session) run(hook, arg string) []ws.Message {
 	if env == nil || !env.HasHook(hook) {
 		return []ws.Message{{Type: "text", Text: "Nothing happens."}}
 	}
-	h := script.Hook{Name: hook, Player: s.name, PlayerID: s.id, Args: []string{arg}}
+	h := s.hook(script.Hook{Name: hook, Args: []string{arg}})
 	return s.after(s.run1(func() (*script.Thread, error) { return s.w.rt.RunHook(s, env, h) }))
 }
 

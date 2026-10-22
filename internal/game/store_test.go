@@ -56,7 +56,13 @@ func openStore(t *testing.T, path string) (*sqlite.Store, store.World, []ws.Who)
 
 func storeWorld(t *testing.T, st *sqlite.Store, world store.World) *World {
 	t.Helper()
-	p, err := pack.Load(roomsFS(storeRoomA, storeRoomB))
+	return storeWorldWith(t, st, world, storeRoomA, storeRoomB)
+}
+
+// storeWorldWith is storeWorld with the scripts of rooms a and b.
+func storeWorldWith(t *testing.T, st *sqlite.Store, world store.World, a, b string) *World {
+	t.Helper()
+	p, err := pack.Load(roomsFS(a, b))
 	if err != nil {
 		t.Fatal(err)
 	}
