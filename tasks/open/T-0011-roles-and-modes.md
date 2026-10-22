@@ -22,6 +22,7 @@ Accounts have a global role (admin, GM, player; new accounts are players), each 
 - [ ] Players see a notice that GMs can read chat
 - [ ] GM commands reach the room script as a hook, so a GM can skip a turn, change the order or switch a room to free mode through the Lua turn library (`round.next`, `round.turns`, `round.free` in the demo's `lib/round.lua`, T-0019); every change in the audit log
 - [ ] GM and system messages get a look that a pack's `from` cannot copy (from the T-0027 security review)
+- [ ] Changing or removing an account's role in a world ends its live sessions there, so `player.gm` and the `gm` of `room.players`/`world.players` (read at connect, T-0036) never stay true for a demoted GM (from the T-0036 security review)
 
 ## Notes
 
