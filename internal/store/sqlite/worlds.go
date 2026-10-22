@@ -9,33 +9,154 @@ import (
 	"github.com/rumblebump/talespeak/internal/store"
 )
 
-// OpenWorld returns the newest unfinished world of the pack, creating one
-// when there is none, and records the pack version it runs now.
+// OpenWorld returns the newest unfinished main world of the pack, creating
+// one when there is none, and records the pack version it runs now.
 func (s *Store) OpenWorld(ctx context.Context, packID, packVersion string) (store.World, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return store.World{}, err
 	}
 	defer tx.Rollback()
-	w := store.World{PackID: packID, PackVersion: packVersion}
-	err = tx.QueryRowContext(ctx, `SELECT id FROM worlds WHERE pack_id = ? AND finished_at IS NULL ORDER BY id DESC LIMIT 1`, packID).Scan(&w.ID)
+	var id int64
+	err = tx.QueryRowContext(ctx, `SELECT id FROM worlds WHERE pack_id = ? AND home = 1 AND finished_at IS NULL ORDER BY id DESC LIMIT 1`, packID).Scan(&id)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		res, err := tx.ExecContext(ctx, `INSERT INTO worlds (pack_id, pack_version) VALUES (?, ?)`, packID, packVersion)
+		res, err := tx.ExecContext(ctx, `INSERT INTO worlds (pack_id, pack_version, home) VALUES (?, ?, 1)`, packID, packVersion)
 		if err != nil {
 			return store.World{}, err
 		}
-		if w.ID, err = res.LastInsertId(); err != nil {
+		if id, err = res.LastInsertId(); err != nil {
 			return store.World{}, err
 		}
 	case err != nil:
 		return store.World{}, err
 	default:
-		if _, err := tx.ExecContext(ctx, `UPDATE worlds SET pack_version = ? WHERE id = ?`, packVersion, w.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE worlds SET pack_version = ? WHERE id = ?`, packVersion, id); err != nil {
 			return store.World{}, err
 		}
 	}
+	w, err := world(ctx, tx, id)
+	if err != nil {
+		return store.World{}, err
+	}
 	return w, tx.Commit()
+}
+
+// SetVisibility changes who may see and play the world.
+func (s *Store) SetVisibility(ctx context.Context, world int64, visibility string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE worlds SET visibility = ? WHERE id = ?`, visibility, world)
+	if err != nil {
+		return err
+	}
+	return oneRow(res)
+}
+
+// CreateWorld adds a world and makes its creator a game master of it, within
+// the limits of w.
+func (s *Store) CreateWorld(ctx context.Context, nw store.NewWorld) (store.World, error) {
+	tx, err := s.db.BeginTx(ctx, nil) // _txlock=immediate: the counts below cannot change before the insert
+	if err != nil {
+		return store.World{}, err
+	}
+	defer tx.Rollback()
+	var total, mine int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*), count(CASE WHEN created_by = ? THEN 1 END) FROM worlds WHERE finished_at IS NULL`,
+		nw.CreatedBy).Scan(&total, &mine); err != nil {
+		return store.World{}, err
+	}
+	switch {
+	case nw.Total > 0 && total >= nw.Total:
+		return store.World{}, store.ErrServerWorlds
+	case nw.PerAccount > 0 && mine >= nw.PerAccount:
+		return store.World{}, store.ErrAccountWorlds
+	}
+	res, err := tx.ExecContext(ctx, `INSERT INTO worlds (pack_id, pack_version, title, visibility, created_by) VALUES (?, ?, ?, ?, ?)`,
+		nw.PackID, nw.PackVersion, nw.Title, nw.Visibility, nw.CreatedBy)
+	if err != nil {
+		return store.World{}, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return store.World{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO world_members (world_id, account_id, role) VALUES (?, ?, ?)`, id, nw.CreatedBy, store.MemberGM); err != nil {
+		return store.World{}, err
+	}
+	w, err := world(ctx, tx, id)
+	if err != nil {
+		return store.World{}, err
+	}
+	return w, tx.Commit()
+}
+
+// World returns the world, finished or not, or store.ErrNotFound.
+func (s *Store) World(ctx context.Context, id int64) (store.World, error) {
+	return world(ctx, s.db, id)
+}
+
+// querier is a *sql.DB or a *sql.Tx.
+type querier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+const worldColumns = `w.id, w.pack_id, w.pack_version, w.title, w.visibility, coalesce(w.created_by, 0), w.home, w.created_at, w.finished_at IS NOT NULL`
+
+func world(ctx context.Context, q querier, id int64) (store.World, error) {
+	var w store.World
+	var created string
+	err := q.QueryRowContext(ctx, `SELECT `+worldColumns+` FROM worlds w WHERE w.id = ?`, id).
+		Scan(&w.ID, &w.PackID, &w.PackVersion, &w.Title, &w.Visibility, &w.CreatedBy, &w.Home, &created, &w.Finished)
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.World{}, store.ErrNotFound
+	}
+	w.Created = parseTime(created)
+	return w, err
+}
+
+// parseTime reads a time the database wrote with strftime; the zero time
+// when it cannot.
+func parseTime(s string) time.Time {
+	t, err := time.Parse("2006-01-02T15:04:05.999Z", s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// ListWorlds returns the unfinished worlds account may see, the newest
+// first: the public ones and its own, or with all every one.
+func (s *Store) ListWorlds(ctx context.Context, account int64, all bool, limit int) ([]store.WorldInfo, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+worldColumns+`, coalesce(a.name, ''), coalesce(m.role, ''),
+			(SELECT count(*) FROM characters c WHERE c.world_id = w.id)
+		FROM worlds w
+		LEFT JOIN world_members m ON m.world_id = w.id AND m.account_id = ?
+		LEFT JOIN accounts a ON a.id = w.created_by
+		WHERE w.finished_at IS NULL AND (? OR w.visibility = 'public' OR m.role IS NOT NULL)
+		ORDER BY w.id DESC LIMIT ?`, account, all, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []store.WorldInfo
+	for rows.Next() {
+		var wi store.WorldInfo
+		var created string
+		if err := rows.Scan(&wi.ID, &wi.PackID, &wi.PackVersion, &wi.Title, &wi.Visibility, &wi.CreatedBy, &wi.Home, &created, &wi.Finished,
+			&wi.Creator, &wi.Role, &wi.Players); err != nil {
+			return nil, err
+		}
+		wi.Created = parseTime(created)
+		list = append(list, wi)
+	}
+	return list, rows.Err()
+}
+
+// IsGM reports whether the account is a game master of an unfinished world.
+func (s *Store) IsGM(ctx context.Context, account int64) (bool, error) {
+	var ok bool
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM world_members m JOIN worlds w ON w.id = m.world_id
+		WHERE m.account_id = ? AND m.role = 'gm' AND w.finished_at IS NULL)`, account).Scan(&ok)
+	return ok, err
 }
 
 // FinishWorld ends the world and deletes its state and its players' state.
@@ -102,40 +223,42 @@ func (s *Store) CreateInvite(ctx context.Context, inv store.Invite, now time.Tim
 	return tx.Commit()
 }
 
-// RedeemInvite uses one use of the invite to world: the account becomes a
-// member. A member keeps a higher role (gm) than the invite's. An account
+// RedeemInvite uses one use of the invite: the account becomes a member of
+// its world. A member keeps a higher role (gm) than the invite's. An account
 // that is a member with that role already uses nothing.
-func (s *Store) RedeemInvite(ctx context.Context, codeHash []byte, world, account int64, now time.Time) error {
+func (s *Store) RedeemInvite(ctx context.Context, codeHash []byte, account int64, now time.Time) (int64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback()
 	var role string
-	err = tx.QueryRowContext(ctx, `SELECT role FROM invites WHERE code_hash = ? AND world_id = ? AND uses_left > 0 AND expires_at > ?`,
-		codeHash, world, now.Unix()).Scan(&role)
+	var world int64
+	err = tx.QueryRowContext(ctx, `SELECT i.role, i.world_id FROM invites i JOIN worlds w ON w.id = i.world_id
+		WHERE i.code_hash = ? AND i.uses_left > 0 AND i.expires_at > ? AND w.finished_at IS NULL`,
+		codeHash, now.Unix()).Scan(&role, &world)
 	if errors.Is(err, sql.ErrNoRows) {
-		return store.ErrNotFound
+		return 0, store.ErrNotFound
 	}
 	if err != nil {
-		return err
+		return 0, err
 	}
 	var had string
 	err = tx.QueryRowContext(ctx, `SELECT role FROM world_members WHERE world_id = ? AND account_id = ?`, world, account).Scan(&had)
 	switch {
 	case err == nil && (had == role || had == store.MemberGM):
-		return nil
+		return world, nil
 	case err != nil && !errors.Is(err, sql.ErrNoRows):
-		return err
+		return 0, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE invites SET uses_left = uses_left - 1 WHERE code_hash = ?`, codeHash); err != nil {
-		return err
+		return 0, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO world_members (world_id, account_id, role) VALUES (?, ?, ?)
 		ON CONFLICT (world_id, account_id) DO UPDATE SET role = excluded.role`, world, account, role); err != nil {
-		return err
+		return 0, err
 	}
-	return tx.Commit()
+	return world, tx.Commit()
 }
 
 // Character returns the account's character in the world, creating it with

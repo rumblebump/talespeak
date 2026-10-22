@@ -9,10 +9,10 @@ const MAX_RETRY_MS = 30000;
 const REPLACED = 4001;
 
 /**
- * Connects to /ws on this page's origin and keeps reconnecting until
- * stopped. Before each retry, canRetry is asked: false stops (the player
- * was signed out, or may no longer play).
- * @param {{ onOpen: () => void, onMessage: (msg: object) => void, onClose: (retryMs: number) => void,
+ * Connects to /ws on this page's origin for one world and keeps
+ * reconnecting until stopped. Before each retry, canRetry is asked: false
+ * stops (the player was signed out, or may no longer play).
+ * @param {{ world: number, onOpen: () => void, onMessage: (msg: object) => void, onClose: (retryMs: number) => void,
  *           onReplaced: () => void, canRetry: () => Promise<boolean> }} handlers
  * @returns {{ send: (msg: object) => boolean, stop: () => void }}
  */
@@ -24,7 +24,8 @@ export function connect(handlers) {
   function open() {
     if (stopped) return;
     const scheme = location.protocol === "https:" ? "wss://" : "ws://";
-    const ws = new WebSocket(scheme + location.host + "/ws");
+    const world = Number.isSafeInteger(handlers.world) && handlers.world > 0 ? handlers.world : 0;
+    const ws = new WebSocket(scheme + location.host + "/ws?world=" + world);
     socket = ws;
     let pinger;
 

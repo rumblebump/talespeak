@@ -6,7 +6,7 @@ const story = (page) => page.locator(".story");
 
 test("reconnects after the connection drops and starts a new session", async ({ page }) => {
   const sockets = [];
-  await page.routeWebSocket("/ws", (ws) => {
+  await page.routeWebSocket(/\/ws\?world=\d+$/, (ws) => {
     ws.connectToServer();
     sockets.push(ws);
   });

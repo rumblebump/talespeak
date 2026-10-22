@@ -47,10 +47,23 @@ export async function signUp(page, url = "/") {
   return name;
 }
 
-// open signs up, loads the client and waits until the engine has welcomed
-// it.
+// card is a world's card in the lobby, by its title; main: the server's
+// main world.
+export function card(page, title) {
+  return title === undefined ? page.locator('.card[data-main="true"]') : page.getByRole("article", { name: title, exact: true });
+}
+
+// play picks a world in the lobby (the main world by default) and waits
+// until the engine has welcomed the player.
+export async function play(page, title) {
+  await card(page, title).getByRole("button", { name: "play" }).click();
+  await expect(page.getByRole("status")).toContainText("connected · engine");
+}
+
+// open signs up, loads the client, picks the server's main world in the
+// lobby and waits until the engine has welcomed it.
 export async function open(page, url = "/") {
   await signUp(page, url);
   await page.goto(url);
-  await expect(page.getByRole("status")).toContainText("connected · engine");
+  await play(page);
 }

@@ -25,10 +25,17 @@ const (
 	RegistrationOff  = "off"  // only admins, with the command line
 )
 
-// World access settings: which signed-in accounts may play.
+// World access settings: which signed-in accounts may play the server's
+// main world.
 const (
-	AccessOpen   = "open"   // every account
-	AccessInvite = "invite" // members only: invited, or added by an admin
+	AccessOpen   = "open"   // every account: the main world is public
+	AccessInvite = "invite" // members only: the main world is private
+)
+
+// Who may create worlds.
+const (
+	CreateEveryone = "everyone" // every account (public mode only)
+	CreateGM       = "gm"       // admins and the game masters of a world
 )
 
 // CookieName holds the sign-in session token over plain HTTP (local
@@ -49,6 +56,9 @@ const (
 	MaxInviteUses    = 100
 	MaxInviteDays    = 30
 	defaultInviteTTL = 7 * 24 * time.Hour
+	// JoinCodeUses is how many players the join code of a new world lets
+	// in: a class or a group of friends.
+	JoinCodeUses = 30
 )
 
 // DefaultAddressBurst lets a class of 30 behind one address register
@@ -64,9 +74,23 @@ type Store interface {
 // Config sets up a Service.
 type Config struct {
 	Store        Store
-	World        store.World // the world this server runs
-	Registration string      // RegistrationSelf or RegistrationOff
-	Access       string      // AccessOpen or AccessInvite
+	Registration string // RegistrationSelf or RegistrationOff
+	// Edu is edu mode: every world is private, listed only to its members
+	// and admins, and only admins and game masters create worlds.
+	Edu bool
+	// Create is who may create worlds: CreateEveryone or CreateGM; edu
+	// mode is always CreateGM.
+	Create string
+	// Packs are the packs worlds can be created from, and the packs of the
+	// worlds that can be played.
+	Packs []Pack
+	// Live tells how many players are online in a world and ends a world
+	// that is loaded; nil when no world is ever loaded (tests).
+	Live Live
+	// WorldsPerAccount is how many unfinished worlds an account may have
+	// created (admins have no limit), MaxWorlds how many the server may
+	// have; 0 is DefaultWorldsPerAccount and DefaultMaxWorlds.
+	WorldsPerAccount, MaxWorlds int
 	// ClientIP finds the client address that the rate limits count by.
 	ClientIP func(*http.Request) string
 	// HTTPS reports whether the browser reached the server over HTTPS
@@ -93,6 +117,9 @@ type Service struct {
 	nameAll  *limiter // wrong passwords per account name, from any address
 	guess    *limiter // invite codes, per client address
 	guessAcc *limiter // invite codes, per account
+	create   *limiter // new worlds, per client address
+	makeAcc  *limiter // new worlds, per account
+	packs    map[string]Pack
 }
 
 // New returns a Service.
@@ -119,6 +146,22 @@ func New(cfg Config) *Service {
 	if cfg.AddressBurst <= 0 {
 		cfg.AddressBurst = DefaultAddressBurst
 	}
+	if cfg.Create != CreateEveryone || cfg.Edu {
+		cfg.Create = CreateGM
+	}
+	if cfg.WorldsPerAccount <= 0 {
+		cfg.WorldsPerAccount = DefaultWorldsPerAccount
+	}
+	if cfg.MaxWorlds <= 0 {
+		cfg.MaxWorlds = DefaultMaxWorlds
+	}
+	if cfg.Live == nil {
+		cfg.Live = noLive{}
+	}
+	packs := map[string]Pack{}
+	for _, p := range cfg.Packs {
+		packs[p.ID] = p
+	}
 	return &Service{
 		cfg: cfg, now: now,
 		// A class behind one address registers and signs in at once: the
@@ -129,6 +172,9 @@ func New(cfg Config) *Service {
 		nameAll:  newLimiter(100, 36*time.Second, now), // 100 an hour
 		guess:    newLimiter(cfg.AddressBurst, 30*time.Second, now),
 		guessAcc: newLimiter(10, time.Minute, now),
+		create:   newLimiter(cfg.AddressBurst, time.Minute, now),
+		makeAcc:  newLimiter(3, 10*time.Minute, now),
+		packs:    packs,
 	}
 }
 
@@ -145,6 +191,9 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("POST /api/logout", s.post(s.logout))
 	mux.HandleFunc("POST /api/join", s.post(s.join))
 	mux.HandleFunc("POST /api/invites", s.post(s.invite))
+	mux.HandleFunc("GET /api/worlds", s.get(s.worlds))
+	mux.HandleFunc("POST /api/worlds", s.post(s.createWorld))
+	mux.HandleFunc("POST /api/finish", s.post(s.finish))
 	return mux
 }
 
@@ -228,26 +277,19 @@ func decode(r *http.Request, v any) error {
 	return nil
 }
 
-// Me is what GET /api/me and every successful POST answer.
+// Me is what GET /api/me and the sign-in POSTs answer.
 type Me struct {
 	Account      *MeAccount `json:"account"` // nil when not signed in
 	Registration string     `json:"registration"`
-	World        MeWorld    `json:"world"`
+	Mode         string     `json:"mode"`             // "public" or "edu"
+	Create       bool       `json:"create"`           // the account may create worlds
+	Joined       int64      `json:"joined,omitempty"` // the world POST /api/join joined
 }
 
 // MeAccount is the signed-in account.
 type MeAccount struct {
 	Name string `json:"name"`
 	Role string `json:"role"`
-}
-
-// MeWorld is the world this server runs, as the account sees it.
-type MeWorld struct {
-	Pack   string `json:"pack"`
-	Access string `json:"access"`
-	Role   string `json:"role,omitempty"` // the account's role in it, if a member
-	Play   bool   `json:"play"`           // the account may play
-	Invite bool   `json:"invite"`         // the account may make invites
 }
 
 func (s *Service) me(w http.ResponseWriter, r *http.Request) {
@@ -274,19 +316,17 @@ func (s *Service) me(w http.ResponseWriter, r *http.Request) {
 
 // describe is the Me of a (nil: not signed in).
 func (s *Service) describe(ctx context.Context, a *store.Account) (Me, error) {
-	me := Me{Registration: s.cfg.Registration, World: MeWorld{Pack: s.cfg.World.PackID, Access: s.cfg.Access}}
+	me := Me{Registration: s.cfg.Registration, Mode: "public"}
+	if s.cfg.Edu {
+		me.Mode = "edu"
+	}
 	if a == nil {
 		return me, nil
 	}
 	me.Account = &MeAccount{Name: a.Name, Role: a.Role}
-	role, err := s.cfg.Store.Member(ctx, s.cfg.World.ID, a.ID)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return Me{}, err
-	}
-	me.World.Role = role
-	me.World.Play = a.Role == store.RoleAdmin || role != "" || s.cfg.Access == AccessOpen
-	me.World.Invite = a.Role == store.RoleAdmin || role == store.MemberGM
-	return me, nil
+	var err error
+	me.Create, err = s.mayCreate(ctx, a)
+	return me, err
 }
 
 // account returns the signed-in account of r, or errSignIn.
@@ -306,8 +346,9 @@ func (s *Service) account(ctx context.Context, r *http.Request) (store.Account, 
 	return a, err
 }
 
-// Auth tells the WebSocket endpoint who connects: 401 without a sign-in,
-// 403 for an account that may not play in the world.
+// Auth tells the WebSocket endpoint who connects to which world (the
+// "world" query parameter): 401 without a sign-in, 404 for a world that
+// does not exist or has finished, 403 for one the account may not play.
 func (s *Service) Auth(r *http.Request) (ws.Who, int) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -319,15 +360,22 @@ func (s *Service) Auth(r *http.Request) (ws.Who, int) {
 		s.cfg.Log.Error("account lookup failed", "err", err)
 		return ws.Who{}, http.StatusServiceUnavailable
 	}
-	me, err := s.describe(ctx, &a)
+	id, ok := worldParam(r.URL.Query().Get("world"))
+	if !ok {
+		return ws.Who{}, http.StatusNotFound
+	}
+	wd, role, err := s.world(ctx, id, a.ID)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && wd.Finished) {
+		return ws.Who{}, http.StatusNotFound
+	}
 	if err != nil {
-		s.cfg.Log.Error("account lookup failed", "err", err)
+		s.cfg.Log.Error("world lookup failed", "err", err)
 		return ws.Who{}, http.StatusServiceUnavailable
 	}
-	if !me.World.Play {
+	if !s.mayPlay(&a, wd, role) {
 		return ws.Who{}, http.StatusForbidden
 	}
-	return ws.Who{Account: a.ID, Name: a.Name}, 0
+	return ws.Who{Account: a.ID, Name: a.Name, World: wd.ID}, 0
 }
 
 type credentials struct {
@@ -445,23 +493,26 @@ func (s *Service) join(w http.ResponseWriter, r *http.Request) (any, error) {
 	if !ok {
 		return nil, errBadCode
 	}
-	err = s.cfg.Store.RedeemInvite(r.Context(), codeHash(code), s.cfg.World.ID, a.ID, s.now())
+	world, err := s.cfg.Store.RedeemInvite(r.Context(), codeHash(code), a.ID, s.now())
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, errBadCode
 	}
 	if err != nil {
 		return nil, err
 	}
-	s.cfg.Log.Info("invite used", "account", a.ID, "world", s.cfg.World.ID)
-	return s.describe(r.Context(), &a)
+	s.cfg.Log.Info("invite used", "account", a.ID, "world", world)
+	me, err := s.describe(r.Context(), &a)
+	me.Joined = world
+	return me, err
 }
 
-var errBadCode = fail(http.StatusBadRequest, "That invite code is not valid, used up or expired.")
+var errBadCode = fail(http.StatusBadRequest, "That code is not valid, used up or expired.")
 
 type inviteRequest struct {
-	Uses int  `json:"uses"`
-	Days int  `json:"days"`
-	GM   bool `json:"gm"`
+	World int64 `json:"world"`
+	Uses  int   `json:"uses"`
+	Days  int   `json:"days"`
+	GM    bool  `json:"gm"`
 }
 
 // InviteAnswer is what POST /api/invites answers.
@@ -481,11 +532,14 @@ func (s *Service) invite(w http.ResponseWriter, r *http.Request) (any, error) {
 	if err := decode(r, &q); err != nil {
 		return nil, err
 	}
-	me, err := s.describe(r.Context(), &a)
+	wd, role, err := s.world(r.Context(), q.World, a.ID)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && wd.Finished) {
+		return nil, errNoWorld
+	}
 	if err != nil {
 		return nil, err
 	}
-	if !me.World.Invite || (q.GM && a.Role != store.RoleAdmin) {
+	if !s.mayInvite(&a, wd, role) || (q.GM && a.Role != store.RoleAdmin) {
 		return nil, fail(http.StatusForbidden, "Only admins and the world's game masters make invites; only admins make game masters.")
 	}
 	if q.Uses == 0 {
@@ -498,15 +552,15 @@ func (s *Service) invite(w http.ResponseWriter, r *http.Request) (any, error) {
 	if q.Uses < 1 || q.Uses > MaxInviteUses || q.Days < 0 || q.Days > MaxInviteDays {
 		return nil, errBadRequest
 	}
-	role := store.MemberPlayer
+	role = store.MemberPlayer
 	if q.GM {
 		role = store.MemberGM
 	}
-	code, expires, err := CreateInvite(r.Context(), s.cfg.Store, s.cfg.World.ID, a.ID, role, q.Uses, s.now(), s.now().Add(ttl))
+	code, expires, err := CreateInvite(r.Context(), s.cfg.Store, wd.ID, a.ID, role, q.Uses, s.now(), s.now().Add(ttl))
 	if err != nil {
 		return nil, err
 	}
-	s.cfg.Log.Info("invite made", "account", a.ID, "world", s.cfg.World.ID, "uses", q.Uses, "role", role)
+	s.cfg.Log.Info("invite made", "account", a.ID, "world", wd.ID, "uses", q.Uses, "role", role)
 	return InviteAnswer{Code: code, Uses: q.Uses, Expires: expires, GM: q.GM}, nil
 }
 

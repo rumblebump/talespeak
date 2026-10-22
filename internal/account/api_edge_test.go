@@ -76,13 +76,13 @@ func TestCookieSecureOverHTTPS(t *testing.T) {
 	if len(c.Value) != base64.RawURLEncoding.EncodedLen(32) {
 		t.Errorf("token = %d characters, want 32 random bytes", len(c.Value))
 	}
-	req := httptest.NewRequest("GET", "/ws", nil)
+	req := httptest.NewRequest("GET", "/ws?world=1", nil)
 	req.AddCookie(c)
 	if _, status := f.svc.Auth(req); status != 0 {
 		t.Errorf("Auth with the __Host- cookie = %d", status)
 	}
 	plain := &http.Cookie{Name: CookieName, Value: c.Value}
-	req = httptest.NewRequest("GET", "/ws", nil)
+	req = httptest.NewRequest("GET", "/ws?world=1", nil)
 	req.AddCookie(plain)
 	if _, status := f.svc.Auth(req); status != 401 {
 		t.Errorf("Auth over HTTPS with the plain cookie name = %d, want 401", status)
@@ -93,7 +93,7 @@ func TestCookieSecureOverHTTPS(t *testing.T) {
 	if len(cs) != 1 || cs[0].Name != SecureCookieName || cs[0].MaxAge >= 0 || !cs[0].Secure || cs[0].Value != "" {
 		t.Errorf("sign-out cookie = %+v", cs)
 	}
-	req = httptest.NewRequest("GET", "/ws", nil)
+	req = httptest.NewRequest("GET", "/ws?world=1", nil)
 	req.AddCookie(c)
 	if _, status := f.svc.Auth(req); status != 401 {
 		t.Errorf("Auth after sign-out = %d", status)
@@ -122,7 +122,7 @@ func TestSessionExpiryAndPasswordChange(t *testing.T) {
 	f := newFixture(t, Config{})
 	b := f.player("Mira")
 	f.now = f.now.Add(SessionDays*24*time.Hour - time.Second)
-	if code := b.get("/ws", nil); code != 200 {
+	if code := b.get(f.ws(0), nil); code != 200 {
 		t.Errorf("a second before the end: %d", code)
 	}
 	f.now = f.now.Add(time.Second)
@@ -130,7 +130,7 @@ func TestSessionExpiryAndPasswordChange(t *testing.T) {
 	if code := b.get("/api/me", &me); code != 200 || me.Account != nil {
 		t.Errorf("after %d days: me = %d %+v, want signed out", SessionDays, code, me)
 	}
-	if code := b.get("/ws", nil); code != 401 {
+	if code := b.get(f.ws(0), nil); code != 401 {
 		t.Errorf("ws after expiry = %d", code)
 	}
 
@@ -141,7 +141,7 @@ func TestSessionExpiryAndPasswordChange(t *testing.T) {
 	if err := f.st.SetPassword(context.Background(), a.ID, "x"); err != nil {
 		t.Fatal(err)
 	}
-	if code := b2.get("/ws", nil); code != 401 {
+	if code := b2.get(f.ws(0), nil); code != 401 {
 		t.Errorf("ws after a password change = %d", code)
 	}
 }
@@ -159,11 +159,11 @@ func TestMaxSessions(t *testing.T) {
 		}
 		bs = append(bs, b)
 	}
-	if code := first.get("/ws", nil); code != 401 {
+	if code := first.get(f.ws(0), nil); code != 401 {
 		t.Errorf("the oldest of %d sessions = %d, want ended", MaxSessions+1, code)
 	}
 	for i, b := range bs {
-		if code := b.get("/ws", nil); code != 200 {
+		if code := b.get(f.ws(0), nil); code != 200 {
 			t.Errorf("session %d = %d", i, code)
 		}
 	}
@@ -180,7 +180,7 @@ func TestBadCookies(t *testing.T) {
 		if code := b.get("/api/me", &me); code != 200 || me.Account != nil {
 			t.Errorf("cookie %.20q: me = %d %+v", v, code, me)
 		}
-		if code := b.get("/ws", nil); code != 401 {
+		if code := b.get(f.ws(0), nil); code != 401 {
 			t.Errorf("cookie %.20q: ws = %d", v, code)
 		}
 		if code := b.post("/api/logout", `{}`, nil); code != 200 {
@@ -193,11 +193,11 @@ func TestBadCookies(t *testing.T) {
 // world members and admins.
 func TestAuthAccess(t *testing.T) {
 	open := newFixture(t, Config{})
-	if who, status := open.svc.Auth(httptest.NewRequest("GET", "/ws", nil)); status != 401 || who.Account != 0 {
+	if who, status := open.svc.Auth(httptest.NewRequest("GET", "/ws?world=1", nil)); status != 401 || who.Account != 0 {
 		t.Errorf("no cookie: %+v, %d", who, status)
 	}
 	p := open.player("Mira")
-	req := httptest.NewRequest("GET", "/ws", nil)
+	req := httptest.NewRequest("GET", "/ws?world=1", nil)
 	req.AddCookie(p.cookie)
 	who, status := open.svc.Auth(req)
 	a, _, _ := open.st.AccountByName(context.Background(), "Mira")
@@ -205,24 +205,28 @@ func TestAuthAccess(t *testing.T) {
 		t.Errorf("open world: %+v, %d", who, status)
 	}
 
-	inv := newFixture(t, Config{Access: AccessInvite})
+	inv := newInviteFixture(t, Config{})
 	kid := inv.player("kid")
 	admin := inv.admin("teacher")
-	var me Me
-	if code := admin.get("/api/me", &me); code != 200 || !me.World.Play || !me.World.Invite || me.World.Role != "" || me.Account.Role != "admin" {
-		t.Errorf("admin me = %d %+v", code, me)
+	if c, ok := admin.card(0); !ok || !c.Play || !c.Invite || c.Finish || c.Role != "" {
+		t.Errorf("admin's card of the private main world = %+v, %v", c, ok)
 	}
-	if code := admin.get("/ws", nil); code != 200 {
+	if code := admin.get(inv.ws(0), nil); code != 200 {
 		t.Errorf("admin, not a member, ws = %d", code)
 	}
-	if code := kid.get("/ws", nil); code != 403 {
+	if code := kid.get(inv.ws(0), nil); code != 403 {
 		t.Errorf("player, not a member, ws = %d", code)
+	}
+	for _, path := range []string{"/ws", "/ws?world=", "/ws?world=0", "/ws?world=-1", "/ws?world=x", "/ws?world=9999"} {
+		if code := admin.get(path, nil); code != 404 {
+			t.Errorf("%s = %d, want 404", path, code)
+		}
 	}
 	k, _, _ := inv.st.AccountByName(context.Background(), "kid")
 	if err := inv.st.AddMember(context.Background(), inv.world.ID, k.ID, store.MemberPlayer); err != nil {
 		t.Fatal(err)
 	}
-	if code := kid.get("/ws", nil); code != 200 {
+	if code := kid.get(inv.ws(0), nil); code != 200 {
 		t.Errorf("member ws = %d", code)
 	}
 }
@@ -376,7 +380,7 @@ func TestAddressLimits(t *testing.T) {
 
 // Invite code guesses count per address and per account apart.
 func TestJoinLimits(t *testing.T) {
-	f := newFixture(t, Config{ClientIP: headerIP, AddressBurst: 3, Access: AccessInvite})
+	f := newInviteFixture(t, Config{ClientIP: headerIP, AddressBurst: 3})
 	var accounts []*browser
 	for i := range 3 {
 		accounts = append(accounts, f.player(fmt.Sprint("guess", i)))
@@ -406,19 +410,19 @@ func TestJoinLimits(t *testing.T) {
 
 // The default invite is one use for a week.
 func TestInviteDefaults(t *testing.T) {
-	f := newFixture(t, Config{Access: AccessInvite})
+	f := newInviteFixture(t, Config{})
 	admin := f.admin("teacher")
 	var inv InviteAnswer
-	if code := admin.post("/api/invites", `{}`, &inv); code != 200 || inv.Uses != 1 || inv.GM ||
+	if code := admin.post("/api/invites", `{"world":1}`, &inv); code != 200 || inv.Uses != 1 || inv.GM ||
 		!inv.Expires.Equal(f.now.Add(defaultInviteTTL)) {
 		t.Errorf("default invite = %d %+v", code, inv)
 	}
-	for _, body := range []string{`{"uses":100,"days":30}`, `{"uses":1,"days":1}`} {
+	for _, body := range []string{`{"world":1,"uses":100,"days":30}`, `{"world":1,"uses":1,"days":1}`} {
 		if code := admin.post("/api/invites", body, nil); code != 200 {
 			t.Errorf("%s: %d", body, code)
 		}
 	}
-	if code := admin.post("/api/invites", `{"uses":1,"extra":true}`, nil); code != 400 {
+	if code := admin.post("/api/invites", `{"world":1,"uses":1,"extra":true}`, nil); code != 400 {
 		t.Errorf("unknown field: %d", code)
 	}
 }
@@ -426,31 +430,36 @@ func TestInviteDefaults(t *testing.T) {
 // A GM who joins with a player invite stays a GM, and the invite's use is
 // left for someone else.
 func TestJoinKeepsHigherRole(t *testing.T) {
-	f := newFixture(t, Config{Access: AccessInvite})
+	f := newInviteFixture(t, Config{})
 	admin := f.admin("teacher")
 	var inv InviteAnswer
-	admin.post("/api/invites", `{"gm":true}`, &inv)
+	admin.post("/api/invites", `{"world":1,"gm":true}`, &inv)
 	gm := f.player("gwen")
+	role := func(b *browser) string {
+		t.Helper()
+		c, _ := b.card(0)
+		return c.Role
+	}
 	var me Me
-	if code := gm.post("/api/join", `{"code":"`+inv.Code+`"}`, &me); code != 200 || me.World.Role != "gm" {
+	if code := gm.post("/api/join", `{"code":"`+inv.Code+`"}`, &me); code != 200 || role(gm) != "gm" {
 		t.Fatalf("gm join = %d %+v", code, me)
 	}
-	admin.post("/api/invites", `{"uses":1}`, &inv)
-	if code := gm.post("/api/join", `{"code":"`+inv.Code+`"}`, &me); code != 200 || me.World.Role != "gm" {
+	admin.post("/api/invites", `{"world":1,"uses":1}`, &inv)
+	if code := gm.post("/api/join", `{"code":"`+inv.Code+`"}`, &me); code != 200 || role(gm) != "gm" {
 		t.Errorf("gm joins with a player invite = %d %+v", code, me)
 	}
 	kid := f.player("kid")
-	if code := kid.post("/api/join", `{"code":"`+inv.Code+`"}`, &me); code != 200 || me.World.Role != "player" {
+	if code := kid.post("/api/join", `{"code":"`+inv.Code+`"}`, &me); code != 200 || role(kid) != "player" {
 		t.Errorf("the use is left for a player: %d %+v", code, me)
 	}
 }
 
-// A code made for another world of the same database is refused, and is
-// not used up by trying it here.
+// A code joins the world it was made for, whichever world the player
+// looks at.
 func TestJoinOtherWorldCode(t *testing.T) {
-	f := newFixture(t, Config{Access: AccessInvite})
+	f := newInviteFixture(t, Config{})
 	ctx := context.Background()
-	other, err := f.st.OpenWorld(ctx, "other pack", "")
+	other, err := f.st.OpenWorld(ctx, "test-pack", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,19 +468,15 @@ func TestJoinOtherWorldCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	kid := f.player("kid")
-	var e map[string]string
-	if status := kid.post("/api/join", `{"code":"`+code+`"}`, &e); status != 400 {
-		t.Fatalf("code of another world: %d %v", status, e)
+	var me Me
+	if status := kid.post("/api/join", `{"code":"`+code+`"}`, &me); status != 200 || me.Joined != other.ID {
+		t.Fatalf("code of another world: %d %+v", status, me)
 	}
-	k, _, _ := f.st.AccountByName(ctx, "kid")
-	if role, err := f.st.Member(ctx, other.ID, k.ID); err == nil {
-		t.Errorf("a refused code made the account a %s of the other world", role)
+	if c, ok := kid.card(other.ID); !ok || !c.Play || c.Role != "player" {
+		t.Errorf("card of the joined world = %+v, %v", c, ok)
 	}
-	f.player("zed")
-	z, _, _ := f.st.AccountByName(ctx, "zed")
-	norm, _ := normalizeCode(code)
-	if err := f.st.RedeemInvite(ctx, codeHash(norm), other.ID, z.ID, f.now); err != nil {
-		t.Errorf("the other world's code was used up by a refused try: %v", err)
+	if c, ok := kid.card(0); ok {
+		t.Errorf("the code also let the account into the main world: %+v", c)
 	}
 }
 
@@ -564,12 +569,12 @@ func (failingStore) AccountByName(context.Context, string) (store.Account, strin
 // 503, the API 500.
 func TestStoreFailure(t *testing.T) {
 	f := newFixture(t, Config{})
-	svc := New(Config{Store: failingStore{f.st}, World: f.world, Registration: RegistrationSelf, Access: AccessOpen, Log: quiet})
+	svc := New(Config{Store: failingStore{f.st}, Registration: RegistrationSelf, Packs: testPacks, Log: quiet})
 	srv := httptest.NewServer(svc.Handler())
 	defer srv.Close()
 	cookie := &http.Cookie{Name: CookieName, Value: base64.RawURLEncoding.EncodeToString(make([]byte, 32))}
 
-	req := httptest.NewRequest("GET", "/ws", nil)
+	req := httptest.NewRequest("GET", "/ws?world=1", nil)
 	req.AddCookie(cookie)
 	if who, status := svc.Auth(req); status != 503 || who.Account != 0 {
 		t.Errorf("Auth = %+v, %d; want 503", who, status)

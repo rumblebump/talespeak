@@ -14,6 +14,7 @@ import (
 
 	"github.com/rumblebump/talespeak/internal/account"
 	"github.com/rumblebump/talespeak/internal/game"
+	"github.com/rumblebump/talespeak/internal/hub"
 	"github.com/rumblebump/talespeak/internal/pack"
 	"github.com/rumblebump/talespeak/internal/script"
 	"github.com/rumblebump/talespeak/internal/ws"
@@ -39,6 +40,10 @@ func defaults() limits {
 		messageBurst:      ws.DefaultBurst,
 		idleTimeout:       ws.DefaultIdleTimeout,
 		signInBurst:       account.DefaultAddressBurst,
+		worldsPerAccount:  account.DefaultWorldsPerAccount,
+		maxWorlds:         account.DefaultMaxWorlds,
+		loadedWorlds:      hub.DefaultMaxLoaded,
+		worldIdle:         hub.DefaultIdle,
 	}
 }
 
@@ -98,6 +103,12 @@ func TestLoadLimitsSets(t *testing.T) {
 		{"TALESPEAK_IDLE_TIMEOUT", "45s", func(l limits) bool { return l.idleTimeout == 45*time.Second }},
 		{"TALESPEAK_IDLE_TIMEOUT", "24h", func(l limits) bool { return l.idleTimeout == 24*time.Hour }},
 		{"TALESPEAK_IDLE_TIMEOUT", "1h30m", func(l limits) bool { return l.idleTimeout == 90*time.Minute }},
+		{"TALESPEAK_WORLDS_PER_ACCOUNT", "1", func(l limits) bool { return l.worldsPerAccount == 1 }},
+		{"TALESPEAK_WORLDS_PER_ACCOUNT", "1000", func(l limits) bool { return l.worldsPerAccount == 1000 }},
+		{"TALESPEAK_MAX_WORLDS", "1", func(l limits) bool { return l.maxWorlds == 1 }},
+		{"TALESPEAK_LOADED_WORLDS", "10000", func(l limits) bool { return l.loadedWorlds == 10000 }},
+		{"TALESPEAK_WORLD_IDLE", "10s", func(l limits) bool { return l.worldIdle == 10*time.Second }},
+		{"TALESPEAK_WORLD_IDLE", "24h", func(l limits) bool { return l.worldIdle == 24*time.Hour }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.key+"="+tt.value, func(t *testing.T) {
@@ -159,6 +170,13 @@ func TestLoadLimitsRefuses(t *testing.T) {
 		{"TALESPEAK_IDLE_TIMEOUT", "44s"},
 		{"TALESPEAK_IDLE_TIMEOUT", "25h"},
 		{"TALESPEAK_IDLE_TIMEOUT", "30"},
+		{"TALESPEAK_WORLDS_PER_ACCOUNT", "0"},
+		{"TALESPEAK_WORLDS_PER_ACCOUNT", "1001"},
+		{"TALESPEAK_MAX_WORLDS", "0"},
+		{"TALESPEAK_LOADED_WORLDS", "0"},
+		{"TALESPEAK_LOADED_WORLDS", "10001"},
+		{"TALESPEAK_WORLD_IDLE", "9s"},
+		{"TALESPEAK_WORLD_IDLE", "25h"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.key+"="+tt.value, func(t *testing.T) {

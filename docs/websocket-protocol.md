@@ -1,6 +1,6 @@
 # WebSocket protocol
 
-The browser talks to the engine over one WebSocket at `/ws` on the same origin. Upgrades from another origin are refused. The upgrade needs the sign-in cookie ([accounts.md](accounts.md)): without it the server answers 401, and 403 for an account that may not play the world (an invite-only world it has not joined).
+The browser talks to the engine over one WebSocket per world at `/ws?world=ID` on the same origin, where `ID` is the world's id from the lobby ([accounts.md](accounts.md)). Upgrades from another origin are refused. The upgrade needs the sign-in cookie: without it the server answers 401, 404 for a world that does not exist or has ended (or no `world`), and 403 for an account that may not play the world (a private world it has not joined). A player who cannot join after the upgrade (the server has too many worlds loaded, the world's pack is not installed, the world could not load) gets an `error` and the connection closes (1008). When a world ends, its players get an `error` ("This world has ended.") and their connections close (1008); the client then finds the world gone from the lobby and goes back to it.
 
 Every message, in both directions, is one JSON object with a `type` field.
 
@@ -15,7 +15,7 @@ Admins can change these defaults with environment variables ([admin-limits.md](a
 | New connections per client address | 60 at once, then 1 per second | Upgrade refused with HTTP 429 and `Retry-After` |
 | Message size from the client | 16 KiB | Connection closed (1009, message too big) |
 | Messages per connection | 20 at once, then 10 per second | Connection closed (1008, too many messages) |
-| Script time per client address | 2 s at once, then 250 ms per second | The message gets an `error` ("Too much at once: wait a moment, then try again."); a question stays open |
+| Script time per client address and world | 2 s at once, then 250 ms per second | The message gets an `error` ("Too much at once: wait a moment, then try again."); a question stays open |
 | Silence from the client | 2 minutes | Connection closed (1008, idle timeout); clients ping every 30 s |
 | Binary frame, or text that is not one JSON object (including `null` and arrays) | | Connection closed (1003) |
 

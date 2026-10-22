@@ -74,11 +74,12 @@ type Item struct {
 	Label string `json:"label"`
 }
 
-// Who is the signed-in account behind a connection, from WithAuth; the
-// zero Who without it.
+// Who is the signed-in account behind a connection and the world it
+// plays, from WithAuth; the zero Who without it.
 type Who struct {
 	Account int64
 	Name    string
+	World   int64
 }
 
 // Game is what a connection plays once it is welcomed.

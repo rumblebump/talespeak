@@ -52,7 +52,7 @@ export default defineConfig({
       INVITE_URL,
       "invite",
       "../content/test-pack",
-      { TALESPEAK_WORLD_ACCESS: "invite" },
+      { TALESPEAK_WORLD_ACCESS: "invite", TALESPEAK_CREATE_WORLDS: "gm" },
       "echo 'admin password' | ../bin/talespeak account add -admin teacher && ",
     ),
   ],

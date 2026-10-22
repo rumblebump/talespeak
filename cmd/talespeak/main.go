@@ -1,11 +1,11 @@
 // Command talespeak runs the Talespeak engine.
 //
-//	talespeak serve        start the server (TALESPEAK_LISTEN, TALESPEAK_DATA, TALESPEAK_PACK;
+//	talespeak serve        start the server (TALESPEAK_LISTEN, TALESPEAK_DATA, TALESPEAK_PACK, TALESPEAK_PACKS;
 //	                       sign-in: docs/accounts.md; limits: docs/admin-limits.md)
 //	talespeak account add [-admin] NAME   add an account; the password is read from standard input
 //	talespeak account password NAME       change an account's password (standard input)
 //	talespeak account role NAME ROLE      make an account an admin or a player
-//	talespeak invite [-uses N] [-days D] [-gm]  print a new invite code to the world
+//	talespeak invite [-uses N] [-days D] [-gm] [-world ID]  print a new invite code to a world
 //	talespeak healthcheck  exit 0 if the local server reports healthy (used by Docker)
 //	talespeak version      print the version
 package main
@@ -28,8 +28,10 @@ import (
 	"github.com/rumblebump/talespeak/internal/account"
 	"github.com/rumblebump/talespeak/internal/clientip"
 	"github.com/rumblebump/talespeak/internal/game"
+	"github.com/rumblebump/talespeak/internal/hub"
 	"github.com/rumblebump/talespeak/internal/pack"
 	"github.com/rumblebump/talespeak/internal/server"
+	"github.com/rumblebump/talespeak/internal/store"
 	"github.com/rumblebump/talespeak/internal/ws"
 )
 
@@ -105,29 +107,34 @@ func serve(args []string) error {
 		return err
 	}
 	log := slog.Default()
-	p, packName, err := loadPack(lim.pack)
+	ps, err := loadPacks(os.Getenv, lim.pack)
 	if err != nil {
 		return err
 	}
-	w, err := db.OpenWorld(ctx, p.ID, packVersion)
-	if err != nil {
-		return fmt.Errorf("%s: %w", packName, err)
+	home, err := db.OpenWorld(ctx, ps.main.ID, packVersion)
+	if err == nil {
+		err = db.SetVisibility(ctx, home.ID, acc.visibility())
 	}
-	world, err := game.NewWorld(p, lim.script, log, game.WithClientBudget(lim.luaClientRate, lim.luaClientBurst),
-		game.WithClientMemory(lim.luaClientMemory), game.WithStore(db, w.ID))
 	if err != nil {
-		return fmt.Errorf("%s: %w", packName, err)
+		return fmt.Errorf("main world of %s: %w", ps.main.ID, err)
 	}
-	defer world.Close()
-	accounts := account.New(account.Config{Store: db, World: w, Registration: acc.registration, Access: acc.world,
+	worlds := hub.New(hub.Config{Store: db, Packs: ps.byID(), MaxLoaded: lim.loadedWorlds, Idle: lim.worldIdle, Log: log,
+		Load: func(w store.World, p *pack.Pack) (*game.World, error) {
+			return game.NewWorld(p, lim.script, log.With("world", w.ID), game.WithClientBudget(lim.luaClientRate, lim.luaClientBurst),
+				game.WithClientMemory(lim.luaClientMemory), game.WithStore(db, w.ID))
+		}})
+	defer worlds.Close()
+	go worlds.Run(ctx)
+	accounts := account.New(account.Config{Store: db, Registration: acc.registration, Edu: acc.mode == modeEdu, Create: acc.create,
+		Packs: ps.lobby(), Live: worlds, WorldsPerAccount: lim.worldsPerAccount, MaxWorlds: lim.maxWorlds,
 		ClientIP: proxies.IP, HTTPS: proxies.HTTPS, AddressBurst: lim.signInBurst, Log: log})
-	sockets := ws.New(version, log, ws.WithClientIP(proxies.IP), ws.WithGame(world), ws.WithAuth(accounts.Auth),
+	sockets := ws.New(version, log, ws.WithClientIP(proxies.IP), ws.WithGame(worlds), ws.WithAuth(accounts.Auth),
 		ws.WithMaxConns(lim.maxConns), ws.WithMaxConnsPerClient(lim.maxConnsPerClient),
 		ws.WithConnectRate(lim.connectRate, lim.connectBurst),
 		ws.WithRateLimit(lim.messageRate, lim.messageBurst), ws.WithIdleTimeout(lim.idleTimeout))
 	srv := &http.Server{
 		Addr: *listen,
-		Handler: server.New(server.Options{Version: version, Store: db, WebSocket: sockets, Assets: pack.AssetHandler(p),
+		Handler: server.New(server.Options{Version: version, Store: db, WebSocket: sockets, Assets: pack.AssetHandler(ps.all...),
 			API: accounts.Handler(), Hosts: hosts}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -137,8 +144,8 @@ func serve(args []string) error {
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
-	log.Info("talespeak started", "version", version, "listen", *listen, "data", *data, "pack", p.ID, "world", w.ID,
-		"mode", acc.mode, "registration", acc.registration, "access", acc.world)
+	log.Info("talespeak started", "version", version, "listen", *listen, "data", *data, "pack", ps.main.ID, "packs", len(ps.all),
+		"world", home.ID, "mode", acc.mode, "registration", acc.registration, "access", acc.world, "create", acc.create)
 
 	select {
 	case err := <-errc:

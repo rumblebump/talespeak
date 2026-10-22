@@ -1,6 +1,6 @@
-# Accounts, invites and what lasts
+# Accounts, worlds, join codes and what lasts
 
-Players sign in with a local account: a name and a password. A server runs one world of its pack, and the world can be open to every account or invite only. What a pack's scripts keep in `state.player` and `state.world`, and where each player is, lasts in the database through reconnects and restarts. Sign-in with school accounts (OIDC, SAML), email and reset codes come later (T-0013).
+Players sign in with a local account: a name and a password. After signing in they see the lobby: a card for every world they may play, a box for a join code, and, when they may, a form to create a world from one of the server's packs. What a pack's scripts keep in `state.player` and `state.world`, and where each player is, lasts in the database through reconnects and restarts. Sign-in with school accounts (OIDC, SAML), email and reset codes come later (T-0013).
 
 ## Settings
 
@@ -8,12 +8,30 @@ Set in `.env` like the resource limits ([admin-limits.md](admin-limits.md)). An 
 
 | Variable | Values | Default | What it does |
 | --- | --- | --- | --- |
-| `TALESPEAK_MODE` | `public`, `edu` | `public` | Edu mode is for schools: registration defaults to `off`, and the world is always invite only |
+| `TALESPEAK_MODE` | `public`, `edu` | `public` | Edu mode is for schools: registration defaults to `off`, every world is private, and only admins and game masters create worlds |
 | `TALESPEAK_REGISTRATION` | `self`, `off` | `self`; `off` in edu mode | `self`: anyone can make an account on the sign-in page. `off`: only an admin makes accounts, with the command line |
-| `TALESPEAK_WORLD_ACCESS` | `open`, `invite` | `open`; always `invite` in edu mode (`open` is refused) | `open`: every signed-in account plays. `invite`: only members play, who joined with an invite code; admins always can |
+| `TALESPEAK_WORLD_ACCESS` | `open`, `invite` | `open`; always `invite` in edu mode (`open` is refused) | The server's main world: `open` makes it public, `invite` private (only members play, who joined with a code; admins always can) |
+| `TALESPEAK_CREATE_WORLDS` | `everyone`, `gm` | `everyone`; always `gm` in edu mode (`everyone` is refused) | Who may create worlds in the lobby: every account, or only admins and the game masters of a world |
+| `TALESPEAK_PACK` | a folder | the built-in demo | The pack of the server's main world |
+| `TALESPEAK_PACKS` | a folder | none | Every folder in it with a `pack.yaml` is a pack worlds can be created from, next to the main world's pack and the demo. Two packs with one id stop the server; a pack with the demo's id replaces it |
 | `TALESPEAK_SIGNIN_BURST` | 1 to 1000000 | `40` | Registrations, sign-ins and invite codes one address may try at once (see [admin-limits.md](admin-limits.md)) |
 
-Registering never lets anyone into an invite-only world: a new account waits on the sign-in page for an invite code. In edu mode that holds whatever the other settings say.
+Registering never lets anyone into a private world: a new account sees only the public worlds, and in edu mode none, until it types a join code. In edu mode that holds whatever the other settings say.
+
+The limits on worlds (how many per account and per server, how many loaded at once, how long an empty world stays loaded) are in [admin-limits.md](admin-limits.md).
+
+## Worlds and join codes
+
+A world is one run of a pack, with its own players and state. The server's main world runs the pack in `TALESPEAK_PACK` (the demo without it) and always exists; players create more in the lobby. Every world is
+
+- **public**: listed in every lobby; every signed-in account plays it, or
+- **private**: listed only to its members and admins; an account becomes a member with one of its join codes.
+
+Whoever creates a world picks its pack, an optional name (one line, at most 40 characters) and public or private, becomes its game master and gets a join code for up to 30 players, valid for 7 days, shown once on the world's card. The game master makes more codes with the card's **join code** button (for 30 players) or the **invite** button while playing (for one player), and ends the world with **end world**: its players are sent back to the lobby, and its state and its codes are deleted. The main world cannot be ended from the lobby. In edu mode every world is private and listed only to its members and admins, also one that was public before edu mode was switched on.
+
+Each card shows the world's name, its pack and the pack's description, public or private, who created it, how many players it has and how many are online now, since when it runs, and the account's role in it. A world whose pack the server no longer has stays listed but cannot be played. Worlds load when their first player arrives and unload when nobody has played them for `TALESPEAK_WORLD_IDLE`; unloading ends their timers, which do not last yet (T-0012).
+
+The design doc's third kind, invite only without a code (players added by their game master), and player limits per world come with T-0016.
 
 ## Admins and invites on the command line
 
@@ -24,11 +42,12 @@ The server binary manages accounts in its data directory (`TALESPEAK_DATA`, or `
 printf '%s\n' "$PASSWORD" | docker compose exec -T talespeak /talespeak account add -admin carl
 printf '%s\n' "$PASSWORD" | docker compose exec -T talespeak /talespeak account password carl   # also signs it out everywhere
 docker compose exec -T talespeak /talespeak account role mira admin                               # or player
-docker compose exec -T talespeak /talespeak invite -uses 30 -days 7                               # prints a code for 30 players
-docker compose exec -T talespeak /talespeak invite -gm                                            # a code that makes a game master
+docker compose exec -T talespeak /talespeak invite -uses 30 -days 7                               # prints a code to the main world for 30 players
+docker compose exec -T talespeak /talespeak invite -gm                                            # a code that makes a game master of the main world
+docker compose exec -T talespeak /talespeak invite -world 12 -gm                                  # the same for world 12 (the id is in the lobby's address, #world=12)
 ```
 
-In the browser, admins and the world's game masters get an **invite** button, which shows a code for one player, valid for 7 days. Only admins make game-master codes (`-gm`, or `"gm": true` in the API). A code is shown once: the server keeps only its hash. Codes are 10 characters like `7KQ2M-XR4WD`; case, spaces and dashes do not matter, and O, I and L are read as 0, 1 and 1.
+In the browser, admins and the world's game masters make join codes as described above. Only admins make game-master codes (`-gm`, or `"gm": true` in the API). A code is shown once: the server keeps only its hash. Codes are 10 characters like `7KQ2M-XR4WD`; case, spaces and dashes do not matter, and O, I and L are read as 0, 1 and 1. A code names its world, so the lobby's one box takes the codes of every world.
 
 ## Names and passwords
 
@@ -44,8 +63,10 @@ In the browser, admins and the world's game masters get an **invite** button, wh
 | Signing in | address | `TALESPEAK_SIGNIN_BURST` | one every 5 s |
 | Wrong passwords | account name and address | 10 | one a minute |
 | Wrong passwords | account name | 100 | 100 an hour |
-| Invite codes | address | `TALESPEAK_SIGNIN_BURST` | one every 30 s |
-| Invite codes | account | 10 | one a minute |
+| Join codes | address | `TALESPEAK_SIGNIN_BURST` | one every 30 s |
+| Join codes | account | 10 | one a minute |
+| New worlds | address | `TALESPEAK_SIGNIN_BURST` | one a minute |
+| New worlds | account | 3 | one every 10 minutes |
 
 A refused try gets HTTP 429 ("Too many tries"). Only wrong passwords count toward the per-name limits, and the strict one counts per name and address, so one guesser cannot lock an account out (players behind the same address still share it). A looser limit of 100 wrong passwords an hour per name covers guessing from many addresses; someone with many addresses can use it up and block sign-ins to that account, a correct password included, until it refills (about 36 seconds per try). That is the price of a real limit on guessing: letting correct passwords through would let a guesser go on until one is. Addresses are counted as for the other limits: IPv6 by its /64 ([websocket-protocol.md](websocket-protocol.md)). At most two passwords are hashed at once and eight more wait; past that a sign-in gets 503 at once.
 
@@ -68,11 +89,16 @@ The web client uses a small JSON API on the same origin. POSTs must send `Conten
 
 | Request | Body | Answer |
 | --- | --- | --- |
-| `GET /api/me` | | `{"account": {"name", "role"} or null, "registration": "self" or "off", "world": {"pack", "access", "role", "play", "invite"}}` |
+| `GET /api/me` | | `{"account": {"name", "role"} or null, "registration": "self" or "off", "mode": "public" or "edu", "create": true if the account may create worlds}` |
 | `POST /api/register` | `{"name", "password"}` | The same as `/api/me`, signed in; 409 when the name is taken, 403 when registration is off |
 | `POST /api/login` | `{"name", "password"}` | The same, signed in; 401 for a wrong name or password (the same answer and about the same time for both) |
 | `POST /api/logout` | `{}` | The same, signed out |
-| `POST /api/join` | `{"code"}` | The same, now a member; 400 for a code that is unknown, used up or expired |
-| `POST /api/invites` | `{"uses": 1..100, "days": 1..30, "gm": false}` (all optional) | `{"code", "uses", "expires", "gm"}`; 403 unless an admin or the world's game master |
+| `GET /api/worlds` | | The lobby: `{"worlds": [card, ...], "packs": [{"id", "title", "description"}, ...]}`, the newest world first, at most 200; `packs` is empty when the account may not create worlds |
+| `POST /api/worlds` | `{"pack", "title", "visibility": "public" or "private"}` (`title` optional, `visibility` private when left out) | `{"world": card, "invite": {"code", "uses", "expires"}}`; 403 when the account may not create worlds, 409 past its limit, 503 past the server's |
+| `POST /api/join` | `{"code"}` | The same as `/api/me` with `"joined": world id`, now a member; 400 for a code that is unknown, used up, expired or of an ended world |
+| `POST /api/invites` | `{"world", "uses": 1..100, "days": 1..30, "gm": false}` (all but `world` optional) | `{"code", "uses", "expires", "gm"}`; 403 unless an admin or the world's game master, 404 for a world that does not exist or has ended |
+| `POST /api/finish` | `{"world"}` | Ends the world and answers the lobby like `GET /api/worlds`; 403 unless an admin or its game master, and for the main world |
 
-Errors are `{"error": "a sentence the player can read"}`. The WebSocket at `/ws` needs the sign-in cookie: without one the upgrade gets 401, and an account that may not play the world gets 403.
+A card is `{"id", "title", "pack", "packTitle", "description", "visibility", "gm", "players", "online", "role", "main", "created", "play", "invite", "finish"}`: `gm` is who created it (none for the main world), `players` how many characters it has, `online` how many play now, `role` the account's role in it (`gm`, `player` or none), `main` true for the main world, and `play`, `invite` and `finish` whether the account may play it, make its codes and end it.
+
+Errors are `{"error": "a sentence the player can read"}`. The WebSocket at `/ws?world=ID` needs the sign-in cookie: without one the upgrade gets 401, a world that does not exist or has ended 404, and an account that may not play the world 403.

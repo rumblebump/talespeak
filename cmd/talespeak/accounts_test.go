@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -26,17 +27,21 @@ func TestLoadAccess(t *testing.T) {
 		want access
 		errs []string // each must be in the error; nil: no error
 	}{
-		{"defaults", nil, access{"public", "self", "open"}, nil},
-		{"public", map[string]string{"TALESPEAK_MODE": "public"}, access{"public", "self", "open"}, nil},
-		{"edu defaults", map[string]string{"TALESPEAK_MODE": "edu"}, access{"edu", "off", "invite"}, nil},
-		{"edu with registration", map[string]string{"TALESPEAK_MODE": "edu", "TALESPEAK_REGISTRATION": "self"}, access{"edu", "self", "invite"}, nil},
-		{"edu invite said twice", map[string]string{"TALESPEAK_MODE": "edu", "TALESPEAK_WORLD_ACCESS": "invite"}, access{"edu", "off", "invite"}, nil},
-		{"public closed", map[string]string{"TALESPEAK_REGISTRATION": "off", "TALESPEAK_WORLD_ACCESS": "invite"}, access{"public", "off", "invite"}, nil},
+		{"defaults", nil, access{"public", "self", "open", "everyone"}, nil},
+		{"public", map[string]string{"TALESPEAK_MODE": "public"}, access{"public", "self", "open", "everyone"}, nil},
+		{"edu defaults", map[string]string{"TALESPEAK_MODE": "edu"}, access{"edu", "off", "invite", "gm"}, nil},
+		{"edu with registration", map[string]string{"TALESPEAK_MODE": "edu", "TALESPEAK_REGISTRATION": "self"}, access{"edu", "self", "invite", "gm"}, nil},
+		{"edu invite said twice", map[string]string{"TALESPEAK_MODE": "edu", "TALESPEAK_WORLD_ACCESS": "invite"}, access{"edu", "off", "invite", "gm"}, nil},
+		{"public closed", map[string]string{"TALESPEAK_REGISTRATION": "off", "TALESPEAK_WORLD_ACCESS": "invite"}, access{"public", "off", "invite", "everyone"}, nil},
 		{"edu open refused", map[string]string{"TALESPEAK_MODE": "edu", "TALESPEAK_WORLD_ACCESS": "open"}, access{}, []string{"edu worlds are always invite only"}},
 		{"unknown mode", map[string]string{"TALESPEAK_MODE": "school"}, access{}, []string{`TALESPEAK_MODE="school"`}},
 		{"mode is case sensitive", map[string]string{"TALESPEAK_MODE": "EDU"}, access{}, []string{`TALESPEAK_MODE="EDU"`}},
 		{"unknown registration", map[string]string{"TALESPEAK_REGISTRATION": "maybe"}, access{}, []string{`TALESPEAK_REGISTRATION="maybe"`}},
 		{"unknown access", map[string]string{"TALESPEAK_WORLD_ACCESS": "closed"}, access{}, []string{`TALESPEAK_WORLD_ACCESS="closed"`}},
+		{"public gm only", map[string]string{"TALESPEAK_CREATE_WORLDS": "gm"}, access{"public", "self", "open", "gm"}, nil},
+		{"edu gm said twice", map[string]string{"TALESPEAK_MODE": "edu", "TALESPEAK_CREATE_WORLDS": "gm"}, access{"edu", "off", "invite", "gm"}, nil},
+		{"edu everyone refused", map[string]string{"TALESPEAK_MODE": "edu", "TALESPEAK_CREATE_WORLDS": "everyone"}, access{}, []string{"only admins and game masters create worlds"}},
+		{"unknown create", map[string]string{"TALESPEAK_CREATE_WORLDS": "all"}, access{}, []string{`TALESPEAK_CREATE_WORLDS="all"`}},
 		{"both reported", map[string]string{"TALESPEAK_REGISTRATION": "x", "TALESPEAK_WORLD_ACCESS": "y"}, access{},
 			[]string{`TALESPEAK_REGISTRATION="x"`, `TALESPEAK_WORLD_ACCESS="y"`}},
 	}
@@ -253,18 +258,15 @@ func TestAccountDataFromEnv(t *testing.T) {
 	}
 }
 
-var codeLine = regexp.MustCompile(`^([0-9A-Z]{5}-[0-9A-Z]{5})  \((player|gm) of demo, (\d+) use\(s\), expires (\S+)\)\n$`)
+var codeLine = regexp.MustCompile(`^([0-9A-Z]{5}-[0-9A-Z]{5})  \((player|gm) of world (\d+), (\S+), (\d+) use\(s\), expires (\S+)\)\n$`)
 
-// joinWith registers name on a test API for the demo world in dir and
-// joins with code; it returns the role the account then has.
+// joinWith registers name on a test API of the database and joins with
+// code; it returns the status and the role the account then has in the
+// world the code joined.
 func joinWith(t *testing.T, db *sqlite.Store, name, code string) (int, string) {
 	t.Helper()
 	ctx := context.Background()
-	w, err := db.OpenWorld(ctx, "demo", packVersion)
-	if err != nil {
-		t.Fatal(err)
-	}
-	svc := account.New(account.Config{Store: db, World: w, Registration: account.RegistrationSelf, Access: account.AccessInvite,
+	svc := account.New(account.Config{Store: db, Registration: account.RegistrationSelf, Packs: []account.Pack{{ID: "demo", Title: "Demo"}},
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	srv := httptest.NewServer(svc.Handler())
 	defer srv.Close()
@@ -286,7 +288,12 @@ func joinWith(t *testing.T, db *sqlite.Store, name, code string) (int, string) {
 	defer resp.Body.Close()
 	var me account.Me
 	_ = json.NewDecoder(resp.Body).Decode(&me)
-	return resp.StatusCode, me.World.Role
+	if me.Joined == 0 {
+		return resp.StatusCode, ""
+	}
+	a, _, _ := db.AccountByName(ctx, name)
+	role, _ := db.Member(ctx, me.Joined, a.ID)
+	return resp.StatusCode, role
 }
 
 // talespeak invite prints a code to the world the server runs, which then
@@ -300,12 +307,12 @@ func TestInviteCmd(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := codeLine.FindStringSubmatch(out.String())
-	if m == nil || m[2] != "player" || m[3] != "2" {
+	if m == nil || m[2] != "player" || m[3] != "1" || m[4] != "demo" || m[5] != "2" {
 		t.Fatalf("output = %q", out.String())
 	}
-	exp, err := time.Parse(time.RFC3339, m[4])
+	exp, err := time.Parse(time.RFC3339, m[6])
 	if err != nil || exp.Sub(time.Now()) < 71*time.Hour || exp.Sub(time.Now()) > 73*time.Hour {
-		t.Errorf("expires %q (%v), want in 3 days", m[4], err)
+		t.Errorf("expires %q (%v), want in 3 days", m[6], err)
 	}
 	db := openDB(t, dir)
 	for i, name := range []string{"Ann", "Bob", "Cat"} {
@@ -324,11 +331,39 @@ func TestInviteCmd(t *testing.T) {
 		t.Fatal(err)
 	}
 	m = codeLine.FindStringSubmatch(out.String())
-	if m == nil || m[2] != "gm" || m[3] != "1" {
+	if m == nil || m[2] != "gm" || m[5] != "1" {
 		t.Fatalf("gm output = %q", out.String())
 	}
 	if status, role := joinWith(t, db, "Gwen", m[1]); status != 200 || role != "gm" {
 		t.Errorf("gm joins: %d, role %q", status, role)
+	}
+
+	// -world names another world.
+	ctx := context.Background()
+	gwen, _, _ := db.AccountByName(ctx, "Gwen")
+	w, err := db.CreateWorld(ctx, store.NewWorld{PackID: "test-pack", Visibility: store.VisibilityPrivate, CreatedBy: gwen.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := inviteCmd([]string{"-data", dir, "-world", strconv.FormatInt(w.ID, 10)}, &out); err != nil {
+		t.Fatal(err)
+	}
+	m = codeLine.FindStringSubmatch(out.String())
+	if m == nil || m[3] != strconv.FormatInt(w.ID, 10) || m[4] != "test-pack" {
+		t.Fatalf("-world output = %q", out.String())
+	}
+	if status, role := joinWith(t, db, "Hal", m[1]); status != 200 || role != "player" {
+		t.Errorf("joins the other world: %d, role %q", status, role)
+	}
+	if err := db.FinishWorld(ctx, w.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{strconv.FormatInt(w.ID, 10), "9999"} {
+		out.Reset()
+		if err := inviteCmd([]string{"-data", dir, "-world", id}, &out); err == nil || !strings.Contains(err.Error(), "does not exist or has ended") || out.Len() != 0 {
+			t.Errorf("-world %s: %v, %q", id, err, out.String())
+		}
 	}
 }
 
@@ -345,6 +380,8 @@ func TestInviteCmdRefuses(t *testing.T) {
 		{[]string{"-data", dir, "-days", "-1"}, "-days from 1 to 30"},
 		{[]string{"-data", dir, "extra"}, "unexpected arguments"},
 		{[]string{"-data", dir, "-uses", "lots"}, "invalid value"},
+		{[]string{"-data", dir, "-world", "-1"}, "-uses from 1 to 100"},
+		{[]string{"-data", dir, "-world", "x"}, "invalid value"},
 	} {
 		var out bytes.Buffer
 		if err := inviteCmd(tt.args, &out); err == nil || !strings.Contains(err.Error(), tt.want) || out.Len() != 0 {
