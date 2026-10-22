@@ -1,4 +1,4 @@
-// The Talespeak client: renders the engine's messages (story text, spoken
+// The Talespeak client: the lobby of worlds, then the engine's messages (story text, spoken
 // lines, rooms, clickable items, dialogs, multiple choice, typed questions,
 // pictures) and sends back what the player clicks and types. Plain ES
 // modules, no build step.
@@ -64,6 +64,42 @@ function saveSetting(key, on) {
   }
 }
 
+/** worldFromHash reads the world a page shows from its address
+ * (#world=12), so a reload stays in it; 0 for none. */
+function worldFromHash() {
+  const m = /^#world=([1-9][0-9]{0,14})$/.exec(location.hash);
+  return m ? Number(m[1]) : 0;
+}
+
+function setHash(world) {
+  const url = location.pathname + location.search + (world ? "#world=" + world : "");
+  try {
+    history.replaceState(null, "", url);
+  } catch {
+    // a sandboxed page may refuse; a reload then opens the lobby
+  }
+}
+
+/** cleanCard keeps what the client shows of a world card. */
+function cleanCard(c) {
+  return {
+    id: Number.isSafeInteger(c.id) && c.id > 0 ? c.id : 0,
+    title: text(c.title).slice(0, 80),
+    packTitle: text(c.packTitle).slice(0, 120),
+    description: text(c.description).slice(0, 300),
+    visibility: c.visibility === "public" ? "public" : "private",
+    gm: text(c.gm).slice(0, 20),
+    players: Number.isSafeInteger(c.players) ? c.players : 0,
+    online: Number.isSafeInteger(c.online) ? c.online : 0,
+    role: c.role === "gm" || c.role === "player" ? c.role : "",
+    main: c.main === true,
+    created: text(c.created),
+    play: c.play === true,
+    invite: c.invite === true,
+    finish: c.finish === true,
+  };
+}
+
 /** text turns any server value into a string for display. */
 const text = (v) => (v === undefined || v === null ? "" : String(v));
 
@@ -114,8 +150,13 @@ function game() {
   let historyAt = -1;
 
   return {
-    view: "loading", // signin, join, play or replaced
+    view: "loading", // signin, lobby, play or replaced
     me: null, // the answer of /api/me
+    worlds: [], // the lobby's world cards
+    packs: [], // what the account may create worlds from
+    world: 0, // the world played, or about to be
+    codes: {}, // world id -> the last join code made here: { text, code, copied }
+    newWorld: { pack: "", title: "", visibility: "public" },
     form: { name: "", password: "", code: "" },
     formError: "",
     busy: false,
@@ -167,24 +208,49 @@ function game() {
     },
 
     // show moves to the view for me, an answer of the account API.
-    show(me) {
+    async show(me) {
       this.me = me;
       this.formError = "";
       this.form.password = "";
       if (!me.account) {
         this.stopGame();
+        this.world = 0;
+        this.codes = {};
+        setHash(0); // the next account to sign in here starts in the lobby
         this.view = "signin";
         this.setStatus("offline", "not signed in");
         this.$nextTick(() => this.$refs.name && this.$refs.name.focus());
-      } else if (!me.world || !me.world.play) {
-        this.stopGame();
-        this.view = "join";
-        this.setStatus("offline", "waiting for an invite");
-        this.$nextTick(() => this.$refs.code && this.$refs.code.focus());
-      } else if (this.view !== "play") {
-        this.view = "play";
-        this.startGame();
+        return;
       }
+      if (this.view === "play") return;
+      await this.loadLobby();
+      const want = Number.isSafeInteger(me.joined) && me.joined > 0 ? me.joined : worldFromHash();
+      const card = this.worlds.find((c) => c.id === want);
+      if (card && card.play) this.enter(card);
+      else this.openLobby();
+    },
+
+    // loadLobby asks the server for the world cards.
+    async loadLobby() {
+      try {
+        const l = await api("/api/worlds");
+        this.worlds = Array.isArray(l.worlds) ? l.worlds.filter((c) => c && typeof c === "object").map(cleanCard).filter((c) => c.id) : [];
+        this.packs = Array.isArray(l.packs)
+          ? l.packs
+              .filter((p) => p && typeof p.id === "string")
+              .map((p) => ({ id: p.id, title: text(p.title).slice(0, 120), description: text(p.description).slice(0, 300) }))
+          : [];
+        if (!this.packs.some((p) => p.id === this.newWorld.pack)) this.newWorld.pack = this.packs.length ? this.packs[0].id : "";
+      } catch (err) {
+        this.formError = err.message;
+      }
+    },
+
+    openLobby() {
+      this.view = "lobby";
+      this.world = 0;
+      setHash(0);
+      this.setStatus("offline", "pick a world");
     },
 
     // send runs one account request and shows its answer.
@@ -193,7 +259,7 @@ function game() {
       this.busy = true;
       this.formError = "";
       try {
-        this.show(await api(path, body));
+        await this.show(await api(path, body));
       } catch (err) {
         this.formError = err.message;
       } finally {
@@ -215,10 +281,108 @@ function game() {
       this.send("/api/logout", {});
     },
 
-    // makeInvite asks for a one-use invite code and shows it in the story.
+    // enter plays the world of card.
+    enter(card) {
+      this.stopGame();
+      this.world = card.id;
+      setHash(card.id);
+      this.view = "play";
+      this.startGame();
+    },
+
+    // toLobby leaves the world for the lobby.
+    async toLobby() {
+      this.stopGame();
+      this.openLobby();
+      await this.loadLobby();
+    },
+
+    // createWorld makes a world from the picked pack and shows its join
+    // code on its card.
+    async createWorld() {
+      if (this.busy) return;
+      this.busy = true;
+      this.formError = "";
+      try {
+        const made = await api("/api/worlds", {
+          pack: this.newWorld.pack,
+          title: cleanLine(this.newWorld.title),
+          visibility: this.newWorld.visibility === "private" ? "private" : "public",
+        });
+        const id = made.world && Number.isSafeInteger(made.world.id) ? made.world.id : 0;
+        if (id && made.invite) this.keepCode(id, made.invite);
+        this.newWorld.title = "";
+        await this.loadLobby();
+      } catch (err) {
+        this.formError = err.message;
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    // makeCode makes a join code for card's world, for a group.
+    async makeCode(card) {
+      if (this.busy) return;
+      this.busy = true;
+      this.formError = "";
+      try {
+        this.keepCode(card.id, await api("/api/invites", { world: card.id, uses: 30 }));
+      } catch (err) {
+        this.formError = err.message;
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    keepCode(world, inv) {
+      const code = text(inv.code);
+      const n = Number.isSafeInteger(inv.uses) ? inv.uses : 1;
+      const until = new Date(text(inv.expires)).toLocaleDateString();
+      const who = n === 1 ? "one player" : "up to " + n + " players";
+      this.codes = { ...this.codes, [world]: { code, copied: false, text: "Join code: " + code + " (for " + who + ", until " + until + ")" } };
+    },
+
+    codeFor(card) {
+      const c = this.codes[card.id];
+      return c ? c.text : "";
+    },
+
+    async copyCode(card) {
+      const c = this.codes[card.id];
+      if (!c) return;
+      try {
+        await navigator.clipboard.writeText(c.code);
+        this.codes = { ...this.codes, [card.id]: { ...c, copied: true } };
+      } catch {
+        this.formError = "This browser did not let the page copy. Select the code and copy it yourself.";
+      }
+    },
+
+    copyLabel(card) {
+      const c = this.codes[card.id];
+      return c && c.copied ? "copied" : "copy";
+    },
+
+    async endWorld(card) {
+      if (this.busy) return;
+      if (!window.confirm("End " + card.title + " for every player? Its game state is deleted. This cannot be undone.")) return;
+      this.busy = true;
+      this.formError = "";
+      try {
+        await api("/api/finish", { world: card.id });
+        await this.loadLobby();
+      } catch (err) {
+        this.formError = err.message;
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    // makeInvite asks for a one-use invite code to the world played and
+    // shows it in the story.
     async makeInvite() {
       try {
-        const inv = await api("/api/invites", {});
+        const inv = await api("/api/invites", { world: this.world });
         const until = new Date(text(inv.expires)).toLocaleDateString();
         this.addLine("Invite code: " + text(inv.code) + " (for one player, until " + until + ")", "notice", true);
       } catch (err) {
@@ -240,14 +404,24 @@ function game() {
     get canRegister() {
       return !!this.me && this.me.registration === "self";
     },
+    get isEdu() {
+      return !!this.me && this.me.mode === "edu";
+    },
+    get canCreate() {
+      return this.signedIn && this.packs.length > 0;
+    },
+    get playing() {
+      return this.worlds.find((c) => c.id === this.world) || null;
+    },
     get canInvite() {
-      return this.signedIn && this.view === "play" && !!this.me.world && this.me.world.invite === true;
+      const c = this.playing;
+      return this.signedIn && this.view === "play" && !!c && c.invite;
     },
     get showSignIn() {
       return this.view === "signin";
     },
-    get showJoin() {
-      return this.view === "join";
+    get showLobby() {
+      return this.view === "lobby";
     },
     get showPlay() {
       return this.view === "play";
@@ -256,11 +430,56 @@ function game() {
       return this.view === "replaced";
     },
 
+    // The lobby's cards: the account's own worlds first, then the main
+    // world, then by players online and the newest.
+    get cards() {
+      const rank = (c) => (c.role === "gm" ? 0 : c.role ? 1 : c.main ? 2 : 3);
+      return [...this.worlds].sort((a, b) => rank(a) - rank(b) || b.online - a.online || b.id - a.id);
+    },
+    get noWorlds() {
+      return this.worlds.length === 0;
+    },
+    get noWorldsText() {
+      return this.canCreate
+        ? "No worlds to play yet. Join one with a code, or start a new one below."
+        : "No worlds for you yet. When a game master gives you a code, type it below.";
+    },
+    get newPack() {
+      return this.packs.find((p) => p.id === this.newWorld.pack) || null;
+    },
+    get newPackDescription() {
+      return this.newPack ? this.newPack.description : "";
+    },
+    get newPackTitle() {
+      return this.newPack ? this.newPack.title : "";
+    },
+    showPackTitle(card) {
+      return card.packTitle !== card.title;
+    },
+    roleText(card) {
+      return card.role === "gm" ? "you are its game master" : "you are a member";
+    },
+    // cardMeta is one line about the world: who runs it, how many play,
+    // since when.
+    cardMeta(card) {
+      const parts = [];
+      if (card.gm) parts.push("GM " + card.gm);
+      parts.push(card.players === 1 ? "1 player" : card.players + " players");
+      parts.push(card.online + " online now");
+      const started = new Date(card.created);
+      if (!Number.isNaN(started.getTime())) parts.push("since " + started.toLocaleDateString());
+      return parts.join(" · ");
+    },
+    cannotPlay(card) {
+      return card.role || card.visibility === "public" ? "This world's pack is not installed on this server." : "";
+    },
+
     // The game
 
     startGame() {
       this.setStatus("connecting", "connecting…");
       conn = connect({
+        world: this.world,
         onOpen: () => this.setStatus("online", "connected"),
         onMessage: (msg) => this.receive(msg),
         onClose: (retryMs) => {
@@ -273,12 +492,21 @@ function game() {
           this.view = "replaced";
           this.setStatus("offline", "playing elsewhere");
         },
-        // A connection refused because the sign-in ended or the invite
-        // was taken back looks like any other: ask the server first.
+        // A connection refused because the sign-in ended, the world ended
+        // or the invite was taken back looks like any other: ask the
+        // server first.
         canRetry: async () => {
           const me = await api("/api/me");
-          if (me.account && me.world && me.world.play) return true;
-          this.show(me);
+          if (!me.account) {
+            this.show(me);
+            return false;
+          }
+          await this.loadLobby();
+          const card = this.playing;
+          if (card && card.play) return true;
+          this.stopGame();
+          this.openLobby();
+          this.formError = "That world has ended, or you may no longer play it.";
           return false;
         },
       });

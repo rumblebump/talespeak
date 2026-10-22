@@ -63,8 +63,8 @@ func TestServeRefusesBadConfig(t *testing.T) {
 	}
 }
 
-// TALESPEAK_PACK runs that folder instead of the demo, and its images are
-// served under /packs/<id>/assets/.
+// TALESPEAK_PACK runs that folder's main world instead of the demo's, and
+// its images are served under /packs/<id>/assets/.
 func TestServeRunsTalespeakPack(t *testing.T) {
 	integration(t)
 	dir, err := filepath.Abs("../../content/test-pack")
@@ -98,15 +98,16 @@ func TestServeRunsTalespeakPack(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "image/png" || !strings.HasPrefix(string(body), "\x89PNG") {
 		t.Errorf("square.png = %d %q, %d bytes", resp.StatusCode, resp.Header.Get("Content-Type"), len(body))
 	}
-	if resp, err := http.Get("http://" + addr + "/packs/demo/assets/wall-map-clear.png"); err != nil || resp.StatusCode != http.StatusNotFound {
-		t.Errorf("the demo's image is served next to TALESPEAK_PACK: %v %v", resp.Status, err)
+	// The demo stays installed, for new worlds.
+	if resp, err := http.Get("http://" + addr + "/packs/demo/assets/wall-map-clear.png"); err != nil || resp.StatusCode != http.StatusOK {
+		t.Errorf("the demo's image next to TALESPEAK_PACK: %v %v", resp.Status, err)
 	} else {
 		resp.Body.Close()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	c, _, err := websocket.Dial(ctx, "ws://"+addr+"/ws", &websocket.DialOptions{HTTPHeader: signUp(t, addr, "mira")})
+	c, _, err := websocket.Dial(ctx, "ws://"+addr+"/ws?world=1", &websocket.DialOptions{HTTPHeader: signUp(t, addr, "mira")})
 	if err != nil {
 		t.Fatal(err)
 	}

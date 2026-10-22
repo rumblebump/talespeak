@@ -14,6 +14,7 @@
     <span class="status" :data-state="state" x-text="statusText" role="status">loading…</span>
     <span class="settings">
       <span class="who" x-cloak x-show="signedIn" x-text="accountName"></span>
+      <button type="button" class="toggle" x-cloak x-show="showPlay" @click="toLobby">worlds</button>
       <button type="button" class="toggle" x-cloak x-show="canInvite" @click="makeInvite">invite</button>
       <button type="button" class="toggle" x-cloak x-show="signedIn" @click="signOut">sign out</button>
       <button type="button" class="toggle" x-cloak x-show="canSpeak" :aria-pressed="readAloud" @click="toggleReadAloud" x-text="readAloudLabel">read aloud</button>
@@ -43,12 +44,65 @@
       <p class="form-error" x-show="formError" x-text="formError" role="alert"></p>
     </form>
 
-    <form class="account" x-cloak x-show="showJoin" @submit.prevent="join" aria-label="Join the world">
-      <p>This world is invite only. Type the invite code you got from its game master.</p>
-      <label>invite code <input x-ref="code" x-model="form.code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="40" required></label>
-      <p class="actions"><button type="submit" :disabled="busy">join</button></p>
+    <section class="lobby" x-cloak x-show="showLobby" aria-labelledby="lobby-title">
+      <h2 id="lobby-title">Worlds</h2>
+      <p class="muted" x-show="noWorlds" x-text="noWorldsText"></p>
+      <ul class="cards">
+        <template x-for="card in cards" :key="card.id">
+          <li>
+            <article class="card" :aria-label="card.title" :data-main="card.main">
+              <h3 x-text="card.title"></h3>
+              <p class="card-pack" x-show="showPackTitle(card)" x-text="card.packTitle"></p>
+              <p class="card-desc" x-show="card.description" x-text="card.description"></p>
+              <p class="badges">
+                <span class="badge" x-text="card.visibility"></span>
+                <span class="badge" x-show="card.main">main world</span>
+                <span class="badge you" x-show="card.role" x-text="roleText(card)"></span>
+              </p>
+              <p class="card-meta" x-text="cardMeta(card)"></p>
+              <p class="card-code" x-show="codeFor(card)" role="status">
+                <span x-text="codeFor(card)"></span>
+                <button type="button" class="copy" @click="copyCode(card)" x-text="copyLabel(card)">copy</button>
+              </p>
+              <p class="card-note" x-show="!card.play" x-text="cannotPlay(card)"></p>
+              <p class="actions">
+                <button type="button" class="play" x-show="card.play" @click="enter(card)">play</button>
+                <button type="button" x-show="card.invite" :disabled="busy" @click="makeCode(card)">join code</button>
+                <button type="button" x-show="card.finish" :disabled="busy" @click="endWorld(card)">end world</button>
+              </p>
+            </article>
+          </li>
+        </template>
+      </ul>
+
+      <form class="account" @submit.prevent="join" aria-label="Join with a code">
+        <h3>Join with a code</h3>
+        <p>Got a code from a game master or a friend? Type it here.</p>
+        <label>join code <input x-ref="code" x-model="form.code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="40" required></label>
+        <p class="actions"><button type="submit" :disabled="busy">join</button></p>
+      </form>
+
+      <form class="account" x-show="canCreate" @submit.prevent="createWorld" aria-label="New world">
+        <h3>New world</h3>
+        <p>Pick a pack. You run the world as its game master and get a code to share.</p>
+        <label>pack
+          <select x-model="newWorld.pack" required>
+            <template x-for="p in packs" :key="p.id">
+              <option :value="p.id" x-text="p.title"></option>
+            </template>
+          </select>
+        </label>
+        <p class="muted" x-show="newPackDescription" x-text="newPackDescription"></p>
+        <label>name (optional) <input x-model="newWorld.title" autocomplete="off" maxlength="40" :placeholder="newPackTitle"></label>
+        <fieldset x-show="!isEdu">
+          <legend>who can play</legend>
+          <label class="choice"><input type="radio" value="public" x-model="newWorld.visibility"> public: listed here for everyone</label>
+          <label class="choice"><input type="radio" value="private" x-model="newWorld.visibility"> private: only with the join code</label>
+        </fieldset>
+        <p class="actions"><button type="submit" :disabled="busy">create</button></p>
+      </form>
       <p class="form-error" x-show="formError" x-text="formError" role="alert"></p>
-    </form>
+    </section>
 
     <div class="account" x-cloak x-show="showReplaced">
       <p>You are playing in another window or on another device now.</p>

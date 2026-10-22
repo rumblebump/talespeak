@@ -36,6 +36,8 @@ const (
 	MaxLabelBytes = 100
 	// MaxAssets bounds the files in assets/.
 	MaxAssets = 500
+	// MaxPackDescriptionBytes bounds the pack's description in the lobby.
+	MaxPackDescriptionBytes = 300
 )
 
 // Limits bound a pack's images. Admins can change them (see
@@ -54,6 +56,8 @@ var DefaultLimits = Limits{AssetBytes: 2 << 20, AssetsBytes: 64 << 20}
 type Pack struct {
 	ID    string `yaml:"id"`
 	Title string `yaml:"title"`
+	// Description is what the lobby shows about the pack; optional.
+	Description string `yaml:"description"`
 	// Start is the room new players enter.
 	Start string           `yaml:"start"`
 	Rooms map[string]*Room `yaml:"-"`
@@ -110,6 +114,9 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 	}
 	if err := checkTitle(p.Title); err != nil {
 		fail("pack.yaml", "title: %v", err)
+	}
+	if len(p.Description) > MaxPackDescriptionBytes || !utf8.ValidString(p.Description) {
+		fail("pack.yaml", "description: at most %d bytes of text", MaxPackDescriptionBytes)
 	}
 
 	files, err := fs.Glob(fsys, "rooms/*.yaml")

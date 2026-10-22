@@ -15,6 +15,8 @@ assets/<name>.png       # optional images: .png, .jpg, .jpeg, .gif, .webp
 ```yaml
 id: demo              # 1 to 64 of a-z, 0-9, _ and -
 title: The damp cell  # one line, 1 to 120 characters
+description: >-       # optional: what the lobby shows about the pack, at most 300 bytes
+  Wake up in a cell and talk, trick or puzzle your way out.
 start: cell           # the room new players enter
 ```
 

@@ -71,3 +71,17 @@ func FuzzIP(f *testing.F) {
 		_ = r.IP(req) // must not panic
 	})
 }
+
+func TestWide(t *testing.T) {
+	for in, want := range map[string]string{
+		"192.0.2.1":            "192.0.2.1",
+		"2001:db8:1:2::/64":    "2001:db8:1::/48",
+		"2001:db8::/32":        "2001:db8::/32",
+		"not an address":       "not an address",
+		Key("2001:db8:9:8::1"): "2001:db8:9::/48",
+	} {
+		if got := Wide(in); got != want {
+			t.Errorf("Wide(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

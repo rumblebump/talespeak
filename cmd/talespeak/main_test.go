@@ -286,7 +286,7 @@ func TestServeRunsAndShutsDownOnSignal(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	c, _, err := websocket.Dial(ctx, "ws://"+addr+"/ws", &websocket.DialOptions{HTTPHeader: signUp(t, addr, "mira")})
+	c, _, err := websocket.Dial(ctx, "ws://"+addr+"/ws?world=1", &websocket.DialOptions{HTTPHeader: signUp(t, addr, "mira")})
 	if err != nil {
 		t.Fatal(err)
 	}

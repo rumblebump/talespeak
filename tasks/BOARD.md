@@ -49,3 +49,4 @@ Nothing here.
 | [T-0031](done/T-0031-party-primitives.md) | Who is in a room, leaving the world, and room timers | feature | high |
 | [T-0032](done/T-0032-demo-box-code-per-world.md) | Demo key box code picked anew in every world | feature | low |
 | [T-0034](done/T-0034-accounts-lasting-state.md) | Local accounts, invites, and player and world state that last | feature | high |
+| [T-0035](done/T-0035-world-lobby.md) | World lobby, creating worlds and join codes | feature | high |

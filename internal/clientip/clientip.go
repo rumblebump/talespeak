@@ -110,3 +110,19 @@ func Key(ip string) string {
 	}
 	return p.String()
 }
+
+// Wide widens a Key to the /48 of an IPv6 network, which one home or
+// office often has whole, for limits that must not multiply with the /64s
+// such a network can pick: on what lasts (accounts, worlds) or what costs
+// the server the most (Lua time and memory).
+func Wide(key string) string {
+	p, err := netip.ParsePrefix(key)
+	if err != nil || !p.Addr().Is6() || p.Bits() <= 48 {
+		return key
+	}
+	wide, err := p.Addr().Prefix(48)
+	if err != nil {
+		return key
+	}
+	return wide.String()
+}

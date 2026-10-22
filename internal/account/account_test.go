@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +28,23 @@ type fixture struct {
 	now   time.Time
 }
 
+// testPacks are the packs of a fixture.
+var testPacks = []Pack{{ID: "demo", Title: "The damp cell", Description: "A cell."}, {ID: "test-pack", Title: "Test pack"}}
+
+// newFixture serves the account API with a public main world of the demo
+// pack (f.world).
 func newFixture(t *testing.T, cfg Config) *fixture {
+	t.Helper()
+	return newFixtureVisibility(t, cfg, store.VisibilityPublic)
+}
+
+// newInviteFixture is newFixture with an invite-only (private) main world.
+func newInviteFixture(t *testing.T, cfg Config) *fixture {
+	t.Helper()
+	return newFixtureVisibility(t, cfg, store.VisibilityPrivate)
+}
+
+func newFixtureVisibility(t *testing.T, cfg Config, visibility string) *fixture {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("integration: real SQLite file")
@@ -42,13 +59,23 @@ func newFixture(t *testing.T, cfg Config) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := st.SetVisibility(ctx, w.ID, visibility); err != nil {
+		t.Fatal(err)
+	}
+	w.Visibility = visibility
 	f := &fixture{t: t, st: st, world: w, now: time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)}
-	cfg.Store, cfg.World, cfg.Log, cfg.Now = st, w, quiet, func() time.Time { return f.now }
+	cfg.Store, cfg.Log, cfg.Now = st, quiet, func() time.Time { return f.now }
+	if cfg.Home == 0 {
+		cfg.Home = w.ID
+	}
 	if cfg.Registration == "" {
 		cfg.Registration = RegistrationSelf
 	}
-	if cfg.Access == "" {
-		cfg.Access = AccessOpen
+	if cfg.Create == "" {
+		cfg.Create = CreateEveryone
+	}
+	if cfg.Packs == nil {
+		cfg.Packs = testPacks
 	}
 	f.svc = New(cfg)
 	mux := http.NewServeMux()
@@ -117,6 +144,49 @@ func (b *browser) do(req *http.Request, out any) int {
 	return resp.StatusCode
 }
 
+// ws is the WebSocket path to world (the main world when 0).
+func (f *fixture) ws(world int64) string {
+	if world == 0 {
+		world = f.world.ID
+	}
+	return "/ws?world=" + strconv.FormatInt(world, 10)
+}
+
+// lobby returns what the browser's lobby shows.
+func (b *browser) lobby() Lobby {
+	b.f.t.Helper()
+	var l Lobby
+	if code := b.get("/api/worlds", &l); code != 200 {
+		b.f.t.Fatalf("GET /api/worlds = %d", code)
+	}
+	return l
+}
+
+// card returns the browser's card of world (the main world when 0), and
+// whether the lobby shows it.
+func (b *browser) card(world int64) (Card, bool) {
+	b.f.t.Helper()
+	if world == 0 {
+		world = b.f.world.ID
+	}
+	for _, c := range b.lobby().Worlds {
+		if c.ID == world {
+			return c, true
+		}
+	}
+	return Card{}, false
+}
+
+// signUp registers a new player on a fresh browser.
+func (f *fixture) signUp(name string) *browser {
+	f.t.Helper()
+	b := f.browser()
+	if code := b.post("/api/register", `{"name":"`+name+`","password":"correct horse"}`, nil); code != 200 {
+		f.t.Fatalf("register %s: %d", name, code)
+	}
+	return b
+}
+
 func (f *fixture) admin(name string) *browser {
 	f.t.Helper()
 	hash, err := Hash(context.Background(), "admin password")
@@ -137,17 +207,20 @@ func TestRegisterSignInAndOut(t *testing.T) {
 	f := newFixture(t, Config{})
 	b := f.browser()
 	var me Me
-	if code := b.get("/api/me", &me); code != 200 || me.Account != nil || me.Registration != "self" || me.World.Pack != "demo" {
+	if code := b.get("/api/me", &me); code != 200 || me.Account != nil || me.Registration != "self" || me.Mode != "public" || me.Create {
 		t.Fatalf("signed out me = %d %+v", code, me)
 	}
-	if code := b.post("/api/register", `{"name":"Mira","password":"correct horse"}`, &me); code != 200 || me.Account == nil || me.Account.Name != "Mira" || !me.World.Play || me.World.Invite {
+	if code := b.post("/api/register", `{"name":"Mira","password":"correct horse"}`, &me); code != 200 || me.Account == nil || me.Account.Name != "Mira" || !me.Create {
 		t.Fatalf("register = %d %+v", code, me)
+	}
+	if c, ok := b.card(0); !ok || !c.Play || c.Invite || c.Finish || !c.Main || c.Role != "" || c.Title != "The damp cell" || c.Description != "A cell." {
+		t.Fatalf("main world's card = %+v, %v", c, ok)
 	}
 	c := b.cookie
 	if c == nil || !c.HttpOnly || c.SameSite != http.SameSiteStrictMode || c.Secure || c.Path != "/" {
 		t.Errorf("cookie = %+v", c)
 	}
-	if code := b.get("/ws", nil); code != 200 {
+	if code := b.get(f.ws(0), nil); code != 200 {
 		t.Errorf("ws auth after register = %d", code)
 	}
 
@@ -170,10 +243,10 @@ func TestRegisterSignInAndOut(t *testing.T) {
 		t.Errorf("logout = %d %+v", code, me)
 	}
 	b.cookie = c // the old cookie no longer works
-	if code := b.get("/ws", nil); code != 401 {
+	if code := b.get(f.ws(0), nil); code != 401 {
 		t.Errorf("ws auth after logout = %d", code)
 	}
-	if code := other.get("/ws", nil); code != 200 {
+	if code := other.get(f.ws(0), nil); code != 200 {
 		t.Errorf("the other session = %d", code)
 	}
 }
@@ -237,30 +310,37 @@ func TestCrossSiteRefused(t *testing.T) {
 
 // An invite-only world: registering lets no one in; an invite does.
 func TestInviteOnlyWorld(t *testing.T) {
-	f := newFixture(t, Config{Access: AccessInvite})
+	f := newInviteFixture(t, Config{})
 	kid := f.browser()
 	var me Me
-	if code := kid.post("/api/register", `{"name":"kid","password":"correct horse"}`, &me); code != 200 || me.World.Play {
+	if code := kid.post("/api/register", `{"name":"kid","password":"correct horse"}`, &me); code != 200 {
 		t.Fatalf("register = %d %+v", code, me)
 	}
-	if code := kid.get("/ws", nil); code != 403 {
+	if c, ok := kid.card(0); ok {
+		t.Fatalf("a private world in the lobby of a new account: %+v", c)
+	}
+	if code := kid.get(f.ws(0), nil); code != 404 { // as if it did not exist
 		t.Errorf("ws auth before the invite = %d", code)
 	}
 	var e map[string]string
-	if code := kid.post("/api/invites", `{}`, &e); code != 403 {
+	home := `"world":` + strconv.FormatInt(f.world.ID, 10)
+	if code := kid.post("/api/invites", `{`+home+`}`, &e); code != 404 {
 		t.Errorf("a player made an invite: %d %v", code, e)
 	}
 
 	admin := f.admin("teacher")
 	var inv InviteAnswer
-	if code := admin.post("/api/invites", `{"uses":1,"days":2}`, &inv); code != 200 || len(inv.Code) != 11 || inv.Uses != 1 || !inv.Expires.Equal(f.now.Add(48*time.Hour)) {
+	if code := admin.post("/api/invites", `{"uses":1,"days":2,`+home+`}`, &inv); code != 200 || len(inv.Code) != 11 || inv.Uses != 1 || !inv.Expires.Equal(f.now.Add(48*time.Hour)) {
 		t.Fatalf("invite = %d %+v", code, inv)
 	}
 	typed := strings.ToLower(strings.ReplaceAll(inv.Code, "-", " "))
-	if code := kid.post("/api/join", `{"code":"`+typed+`"}`, &me); code != 200 || !me.World.Play || me.World.Role != "player" {
+	if code := kid.post("/api/join", `{"code":"`+typed+`"}`, &me); code != 200 || me.Joined != f.world.ID {
 		t.Fatalf("join = %d %+v", code, me)
 	}
-	if code := kid.get("/ws", nil); code != 200 {
+	if c, ok := kid.card(0); !ok || !c.Play || c.Role != "player" || c.Invite {
+		t.Fatalf("card after joining = %+v, %v", c, ok)
+	}
+	if code := kid.get(f.ws(0), nil); code != 200 {
 		t.Errorf("ws auth after the invite = %d", code)
 	}
 
@@ -271,7 +351,7 @@ func TestInviteOnlyWorld(t *testing.T) {
 		t.Errorf("used up code = %d %v", code, e)
 	}
 	// Expired.
-	admin.post("/api/invites", `{"days":1}`, &inv)
+	admin.post("/api/invites", `{"days":1,`+home+`}`, &inv)
 	f.now = f.now.Add(25 * time.Hour)
 	if code := other.post("/api/join", `{"code":"`+inv.Code+`"}`, &e); code != 400 {
 		t.Errorf("expired code = %d %v", code, e)
@@ -280,23 +360,29 @@ func TestInviteOnlyWorld(t *testing.T) {
 		t.Errorf("bad code = %d %v", code, e)
 	}
 	// A GM invite, from an admin only; a GM then makes player invites.
-	if code := admin.post("/api/invites", `{"gm":true}`, &inv); code != 200 || !inv.GM {
+	if code := admin.post("/api/invites", `{"gm":true,`+home+`}`, &inv); code != 200 || !inv.GM {
 		t.Fatalf("gm invite = %d %+v", code, inv)
 	}
-	if code := kid.post("/api/invites", `{"gm":true}`, &e); code != 403 {
+	if code := kid.post("/api/invites", `{"gm":true,`+home+`}`, &e); code != 403 {
 		t.Errorf("a player made a gm invite: %d", code)
 	}
-	if code := other.post("/api/join", `{"code":"`+inv.Code+`"}`, &me); code != 200 || me.World.Role != "gm" || !me.World.Invite {
+	if code := other.post("/api/join", `{"code":"`+inv.Code+`"}`, &me); code != 200 || me.Joined != f.world.ID {
 		t.Fatalf("gm join = %d %+v", code, me)
 	}
-	if code := other.post("/api/invites", `{"uses":100}`, &inv); code != 200 {
+	if c, _ := other.card(0); c.Role != "gm" || !c.Invite || c.Finish {
+		t.Fatalf("gm's card of the main world = %+v", c)
+	}
+	if code := other.post("/api/invites", `{"uses":100,`+home+`}`, &inv); code != 200 {
 		t.Errorf("gm invite for players = %d", code)
 	}
-	if code := other.post("/api/invites", `{"gm":true}`, &e); code != 403 {
+	if code := other.post("/api/invites", `{"gm":true,`+home+`}`, &e); code != 403 {
 		t.Errorf("a gm made a gm invite: %d", code)
 	}
-	for _, body := range []string{`{"uses":101}`, `{"uses":-1}`, `{"days":31}`, `{"days":-1}`} {
-		if code := admin.post("/api/invites", body, nil); code != 400 {
+	for _, body := range []string{`{"uses":101}`, `{"uses":-1}`, `{"days":31}`, `{"days":-1}`, `{}`, `{"world":0}`, `{"world":9999}`} {
+		if !strings.Contains(body, "world") && body != "{}" {
+			body = strings.Replace(body, "{", "{"+home+",", 1)
+		}
+		if code := admin.post("/api/invites", body, nil); code != 400 && code != 404 {
 			t.Errorf("%s: %d", body, code)
 		}
 	}
@@ -304,7 +390,7 @@ func TestInviteOnlyWorld(t *testing.T) {
 
 // Guessing invite codes and passwords is slowed down.
 func TestRateLimits(t *testing.T) {
-	f := newFixture(t, Config{Access: AccessInvite})
+	f := newInviteFixture(t, Config{})
 	b := f.browser()
 	b.post("/api/register", `{"name":"guesser","password":"correct horse"}`, nil)
 	limited := 0

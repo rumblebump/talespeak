@@ -2,4 +2,5 @@
 # The cellar tests room.go; T-0015 adds a timer and a soundboard.
 id: test-pack
 title: Test pack
+description: Every renderer once, for the browser tests.
 start: hall

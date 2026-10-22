@@ -127,6 +127,7 @@ type World struct {
 	scripts  map[string]*script.Script // room id -> its compiled script
 	sessions map[*session]struct{}
 	closed   bool
+	lastLeft time.Time // when the world was last empty: started, or the last player left
 
 	rate, burst float64            // Lua seconds per second and at once, per client
 	budgets     map[string]*budget // client -> Lua time left
@@ -181,6 +182,7 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Opti
 	for _, o := range opts {
 		o(w)
 	}
+	w.lastLeft = w.now()
 	if w.store != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), saveTimeout)
 		vals, err := w.store.WorldState(ctx, w.worldID)
@@ -228,6 +230,14 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Opti
 func (w *World) Close() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.closeLocked()
+}
+
+// closeLocked is Close. The caller holds w.mu.
+func (w *World) closeLocked() {
+	if w.closed {
+		return
+	}
 	w.closed = true
 	for s := range w.sessions {
 		s.stopTimers()
@@ -256,6 +266,11 @@ func (w *World) NewSession(client string, who ws.Who) (ws.Session, []ws.Message)
 		s.id = "p" + strconv.Itoa(w.players)
 		s.name = w.freeName()
 	} else {
+		if w.closed {
+			// Ended or unloaded: loading the character would write to a
+			// world that may be finished.
+			return nil, []ws.Message{{Type: "error", Message: ErrClosedMessage}}
+		}
 		var err error
 		if room, err = s.load(who); err != nil {
 			if !errors.Is(err, errNoAccount) {
@@ -272,6 +287,74 @@ func (w *World) NewSession(client string, who ws.Who) (ws.Session, []ws.Message)
 	}
 	return s, s.enterLocked(room, false)
 }
+
+// Online is how many players are in the world now.
+func (w *World) Online() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.sessions)
+}
+
+// Closed reports whether the world was closed.
+func (w *World) Closed() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.closed
+}
+
+// IdleSince reports since when the world has had no players; ok is false
+// while someone plays, or once it closed.
+func (w *World) IdleSince() (since time.Time, ok bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.lastLeft, !w.closed && len(w.sessions) == 0
+}
+
+// CloseIfIdle closes the world when nobody has played it since before
+// (or exactly at) cutoff, and reports whether it did. A player joining at
+// the same time either comes first, and the world stays, or finds the
+// world closed.
+func (w *World) CloseIfIdle(cutoff time.Time) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed || len(w.sessions) > 0 || w.lastLeft.After(cutoff) {
+		return false
+	}
+	w.closeLocked()
+	return true
+}
+
+// CloseIfEmpty closes the world when nobody plays it, and reports whether
+// it did.
+func (w *World) CloseIfEmpty() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed || len(w.sessions) > 0 {
+		return false
+	}
+	w.closeLocked()
+	return true
+}
+
+// End sends every player away with msg, as if they left, and closes the
+// world: their connections close after msg.
+func (w *World) End(msg string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for s := range w.sessions {
+		s.end()
+		s.lagged = true // Pending reports the session over: the connection closes
+		s.queue, s.queueBytes = []ws.Message{{Type: "error", Message: msg}}, 0
+		if s.notify != nil {
+			s.notify()
+		}
+	}
+	w.closeLocked()
+}
+
+// ClientKey is the key the Lua time and memory budgets count client by:
+// its address, or for IPv6 its /48.
+func ClientKey(client string) string { return budgetKey(client) }
 
 // budgetKey widens an IPv6 key to budgetPrefix bits.
 func budgetKey(client string) string {
@@ -492,6 +575,9 @@ func (s *session) end() {
 	s.leave()
 	s.closed = true
 	delete(s.w.sessions, s)
+	if len(s.w.sessions) == 0 {
+		s.w.lastLeft = s.w.now()
+	}
 	if s.char != 0 && s.w.chars[s.char] == s {
 		delete(s.w.chars, s.char)
 	}

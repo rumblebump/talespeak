@@ -34,12 +34,56 @@ type Account struct {
 	Role string // RolePlayer or RoleAdmin
 }
 
+// World visibilities.
+const (
+	VisibilityPublic  = "public"  // listed; every account may play
+	VisibilityPrivate = "private" // members only, who join with a code
+)
+
 // World is one running game of a pack.
 type World struct {
 	ID          int64
 	PackID      string
 	PackVersion string
+	Title       string // "" shows the pack's title
+	Visibility  string // VisibilityPublic or VisibilityPrivate
+	CreatedBy   int64  // the account that created it; 0 for the server's main world
+	Home        bool   // the server's main world, which OpenWorld returns
+	Created     time.Time
+	Finished    bool
 }
+
+// NewWorld is a world an account creates.
+type NewWorld struct {
+	PackID, PackVersion, Title, Visibility string
+	CreatedBy                              int64
+	// PerAccount is how many unfinished worlds the creator may have
+	// created, this one included; 0 has no limit. Total is how many
+	// unfinished worlds the server may have.
+	PerAccount, Total int
+}
+
+// WorldInfo is a world as an account sees it in the lobby.
+type WorldInfo struct {
+	World
+	Creator string // the creator's name; "" for the main world or a deleted account
+	Role    string // the account's member role, "" when not a member
+	Players int    // characters in the world
+}
+
+// ErrAccountWorlds and ErrServerWorlds refuse a new world past
+// NewWorld.PerAccount and NewWorld.Total.
+var (
+	ErrAccountWorlds = errors.New("store: too many worlds for the account")
+	ErrServerWorlds  = errors.New("store: too many worlds on the server")
+)
+
+// MaxLiveInvites is how many invites one world may have that still work.
+// CreateInvite refuses more with ErrInvites.
+const MaxLiveInvites = 100
+
+// ErrInvites refuses an invite to a world with MaxLiveInvites already.
+var ErrInvites = errors.New("store: too many invites to the world")
 
 // Character is one account's player in one world.
 type Character struct {
@@ -123,11 +167,27 @@ type Accounts interface {
 // Worlds are running games, who may join them, and what their players
 // keep.
 type Worlds interface {
-	// OpenWorld returns the newest unfinished world of the pack, creating
-	// one when there is none. It records the pack version it now runs.
+	// OpenWorld returns the newest unfinished main world of the pack,
+	// creating one when there is none. It records the pack version it now
+	// runs.
 	OpenWorld(ctx context.Context, packID, packVersion string) (World, error)
+	// SetVisibility changes who may see and play the world.
+	SetVisibility(ctx context.Context, world int64, visibility string) error
+	// CreateWorld adds a world and makes its creator a game master of it,
+	// or returns ErrAccountWorlds or ErrServerWorlds.
+	CreateWorld(ctx context.Context, w NewWorld) (World, error)
+	// World returns the world, finished or not, or ErrNotFound.
+	World(ctx context.Context, world int64) (World, error)
+	// ListWorlds returns the unfinished worlds account may see, at most
+	// limit: the public ones and those it is a member of, or with all
+	// every one. Those it is a member of come first, then the others; the
+	// newest first in each.
+	ListWorlds(ctx context.Context, account int64, all bool, limit int) ([]WorldInfo, error)
+	// IsGM reports whether the account is a game master of an unfinished
+	// world.
+	IsGM(ctx context.Context, account int64) (bool, error)
 	// FinishWorld ends the world: its state and its players' state are
-	// deleted, and OpenWorld starts a new one.
+	// deleted, and OpenWorld starts a new main world.
 	FinishWorld(ctx context.Context, world int64) error
 
 	// Member returns the account's role in the world, or ErrNotFound.
@@ -136,13 +196,14 @@ type Worlds interface {
 	AddMember(ctx context.Context, world, account int64, role string) error
 
 	// CreateInvite stores an invite, and drops those expired at now or
-	// used up.
+	// used up. It returns ErrInvites when the world has MaxLiveInvites.
 	CreateInvite(ctx context.Context, inv Invite, now time.Time) error
-	// RedeemInvite uses one use of the invite to world with the code's
-	// hash: the account becomes a member with its role, unless it has that
-	// role or a higher one already. It returns ErrNotFound for an unknown,
-	// used up or expired code, or one for another world.
-	RedeemInvite(ctx context.Context, codeHash []byte, world, account int64, now time.Time) error
+	// RedeemInvite uses one use of the invite with the code's hash: the
+	// account becomes a member of its world with its role, unless it has
+	// that role or a higher one already. It returns the world, or
+	// ErrNotFound for an unknown, used up or expired code, or one of a
+	// finished world.
+	RedeemInvite(ctx context.Context, codeHash []byte, account int64, now time.Time) (int64, error)
 
 	// Character returns the account's character in the world, creating it
 	// with name when there is none.

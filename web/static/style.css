@@ -222,3 +222,65 @@ footer { padding: 0.75rem 1rem; text-align: center; color: var(--muted); font-si
 }
 .who { color: var(--fg); }
 .story .notice { color: var(--accent); }
+
+/* The lobby: a card per world, joining with a code, a new world. */
+.lobby h2 { color: var(--accent); font-size: 1.1rem; margin: 0 0 0.75rem; }
+.lobby h3 { font-size: 1rem; margin: 0 0 0.25rem; }
+.cards {
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: 0.75rem;
+}
+.card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.card[data-main="true"] { border-color: var(--accent); }
+.card h3 { color: var(--accent); unicode-bidi: isolate; overflow-wrap: anywhere; overflow: hidden; }
+.card p { margin: 0; overflow-wrap: anywhere; }
+.card-pack, .card-meta, .card-note { color: var(--muted); font-size: 0.85rem; }
+.card-desc { font-size: 0.9rem; }
+.badges { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.badge {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 0.4rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.badge.you { color: var(--you); border-color: var(--you); }
+.card-code { color: var(--accent); font-size: 0.9rem; }
+.card .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: auto; padding-top: 0.25rem; }
+.card button, .copy {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0.2rem 0.75rem;
+  min-height: 2.25rem;
+}
+.card button.play { border-color: var(--accent); color: var(--accent); }
+.copy { margin-left: 0.5rem; min-height: 1.75rem; font-size: 0.85rem; }
+.account select {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font: inherit;
+}
+.account fieldset { border: 1px solid var(--line); border-radius: 3px; margin: 0 0 0.75rem; padding: 0.5rem 0.75rem; }
+.account legend { color: var(--muted); padding: 0 0.25rem; }
+.account label.choice { display: flex; gap: 0.5rem; align-items: baseline; margin: 0.25rem 0; }
+.account label.choice input { display: inline; width: auto; margin: 0; accent-color: var(--accent); }

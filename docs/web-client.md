@@ -7,8 +7,8 @@ The browser client in `web/static/` is a renderer: it draws the messages the eng
 | File | What it does |
 | --- | --- |
 | `index.html` | The page; Alpine attributes hold only simple expressions |
-| `app.js` | The `game` Alpine component: signing in, every renderer and all input handling |
-| `net.js` | The WebSocket: reconnects with backoff (1 s doubling to 30 s), pings every 30 s, stops after 4001 (playing elsewhere) or when the player may no longer play |
+| `app.js` | The `game` Alpine component: signing in, the lobby, every renderer and all input handling |
+| `net.js` | The WebSocket to one world: reconnects with backoff (1 s doubling to 30 s), pings every 30 s, stops after 4001 (playing elsewhere) or when the player may no longer play |
 | `speech.js` | Read aloud with the browser's local voices |
 | `style.css` | Terminal theme on CSS variables: dark, light (follows the system), large text |
 | `vendor/alpine-csp.js` | Alpine.js CSP build, pinned in `web/vendor.json` |
@@ -20,8 +20,8 @@ Plain ES modules, no build step. The CSP build of Alpine runs without `'unsafe-e
 The page asks `/api/me` first ([accounts.md](accounts.md)) and shows one of:
 
 - **Sign in**: name and password, with **new account** when the server allows registering. Errors from the server are shown under the form.
-- **Join the world**: in an invite-only world, an account that is not a member types its invite code.
-- **The game**, with the account name, **sign out**, and **invite** for admins and game masters (the code appears in the story).
+- **The lobby** (`GET /api/worlds`): a card per world the account may see, its own worlds first, each with its name, pack, description, public or private, its game master, players and players online now, since when it runs, and the account's role; **play**, and for its game masters **join code** (a code for 30 players, shown on the card with **copy**) and **end world** (after a confirmation). Below: **Join with a code**, and **New world** (pack, optional name, public or private) when the account may create worlds. The code of a new world is shown on its card.
+- **The game**, with the account name, **worlds** (back to the lobby), **sign out**, and **invite** for admins and game masters (a code for one player, shown in the story). The page's address names the world (`#world=12`), so a reload continues there; the lobby and signing out clear it.
 - **Playing elsewhere**: after another tab or device took over, with **play here**.
 
 The only `fetch` the client makes is to these API paths (`scripts/check-web.sh` checks it).

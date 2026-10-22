@@ -20,4 +20,6 @@ Free-text chat in kids mode passes normalize, word list, personal-info block and
 
 ## Notes
 
+T-0035 (2026-10-22): world names typed in the lobby are free text (at most 40 characters; control, direction and blank-looking characters and stacked accents removed) and every signed-in account sees the names of public worlds and their creators. The filter here must cover them; until then a kids server should run in edu mode, where worlds are listed only to their members. `cleanTitle` also drops the zero-width joiner, so emoji sequences split; revisit with the filter.
+
 Design: Talespeak Engine Design doc, https://claude.ai/code/artifact/15bc0469-681c-4afa-b7b9-5d227560ebc6
