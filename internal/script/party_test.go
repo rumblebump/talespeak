@@ -16,11 +16,14 @@ import (
 type partyHost struct {
 	recorder
 	players    []Player
+	world      []Player // what world.players lists
 	roomTimers map[string]time.Duration
 	refuse     bool // StartRoomTimer refuses every new timer
 }
 
 func (h *partyHost) Players() []Player { return h.players }
+
+func (h *partyHost) WorldPlayers() []Player { return h.world }
 
 func (h *partyHost) StartRoomTimer(name string, d time.Duration, show string) error {
 	if h.refuse {
@@ -82,9 +85,9 @@ func TestRoomPlayersList(t *testing.T) {
 		want    string
 	}{
 		{"nobody", nil, "say:0"},
-		{"one", []Player{{"p1", "traveler"}}, "say:1 p1=traveler"},
-		{"in order", []Player{{"p3", "c"}, {"p1", "a"}, {"p2", "b"}}, "say:3 p3=c p1=a p2=b"},
-		{"odd names", []Player{{"p1", ""}, {"p2", "x y\tz"}}, "say:2 p1= p2=x y\tz"},
+		{"one", []Player{{ID: "p1", Name: "traveler"}}, "say:1 p1=traveler"},
+		{"in order", []Player{{ID: "p3", Name: "c"}, {ID: "p1", Name: "a"}, {ID: "p2", Name: "b"}}, "say:3 p3=c p1=a p2=b"},
+		{"odd names", []Player{{ID: "p1", Name: ""}, {ID: "p2", Name: "x y\tz"}}, "say:2 p1= p2=x y\tz"},
 	}
 	src := `function on_enter(p)
   local list = room.players()
@@ -105,7 +108,7 @@ end`
 // Each call returns a new table: a script changing it changes nothing
 // for the next call.
 func TestRoomPlayersFreshTable(t *testing.T) {
-	h := &partyHost{players: []Player{{"p1", "a"}}}
+	h := &partyHost{players: []Player{{ID: "p1", Name: "a"}}}
 	out, err := runParty(t, h, `function on_enter(p)
   local a = room.players()
   a[1].name = "changed"
@@ -126,6 +129,7 @@ end`)
 func TestPartyWithoutParty(t *testing.T) {
 	for _, call := range []string{
 		`room.players()`,
+		`world.players()`,
 		`timer.start("g", 5, {room = true})`,
 		`timer.start("g", 5, {room = true, show = "Turn"})`,
 		`timer.cancel("g", {room = true})`,
@@ -267,6 +271,33 @@ func TestRoomTimerShownCountsAsOutput(t *testing.T) {
 end`)
 		if tt.ok != (err == nil) {
 			t.Errorf("%s after %d outputs: err = %v", tt.opts, MaxOutputs, err)
+		}
+	}
+}
+
+// T-0036: world.players lists the host's world with rooms and GMs, and
+// room.players and player carry gm.
+func TestWorldPlayersAndGM(t *testing.T) {
+	h := &partyHost{
+		players: []Player{{ID: "p7", Name: "Ada", Room: "a", GM: true}},
+		world:   []Player{{ID: "p2", Name: "Bo", Room: "b"}, {ID: "p7", Name: "Ada", Room: "a", GM: true}},
+	}
+	src := `function on_enter(p)
+  local parts = {tostring(p.gm)}
+  for _, q in ipairs(world.players()) do parts[#parts + 1] = q.id .. "/" .. q.name .. "@" .. q.room .. "=" .. tostring(q.gm) end
+  local r = room.players()[1]
+  parts[#parts + 1] = r.id .. "=" .. tostring(r.gm) .. " room=" .. tostring(r.room)
+  say(table.concat(parts, " "))
+end`
+	r := New(roomy)
+	t.Cleanup(r.Close)
+	env := load(t, r, src)
+	for _, gm := range []bool{true, false} {
+		h.out = nil
+		_, err := r.RunHook(h, env, Hook{Name: "on_enter", Player: "Ada", PlayerID: "p7", GM: gm})
+		want := "say:" + strconv.FormatBool(gm) + " p2/Bo@b=false p7/Ada@a=true p7=true room=nil"
+		if err != nil || strings.Join(h.out, ";") != want {
+			t.Errorf("GM %v: out = %q, err = %v, want %q", gm, h.out, err, want)
 		}
 	}
 }
