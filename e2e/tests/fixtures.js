@@ -53,11 +53,18 @@ export function card(page, title) {
   return title === undefined ? page.locator('.card[data-main="true"]') : page.getByRole("article", { name: title, exact: true });
 }
 
+// status is the connection status in the header. The lobby's join codes
+// are status regions too, and stay on the page for a moment after a play
+// click: always ask for this one.
+export function status(page) {
+  return page.locator("header").getByRole("status");
+}
+
 // play picks a world in the lobby (the main world by default) and waits
 // until the engine has welcomed the player.
 export async function play(page, title) {
   await card(page, title).getByRole("button", { name: "play" }).click();
-  await expect(page.getByRole("status")).toContainText("connected · engine");
+  await expect(status(page)).toContainText("connected · engine");
 }
 
 // open signs up, loads the client, picks the server's main world in the

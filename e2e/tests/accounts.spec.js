@@ -1,6 +1,6 @@
 // Accounts: signing up and in with the form, a character that lasts across
 // reloads, a second window taking over, and an invite-only world.
-import { test, expect, open, play, signUp } from "./fixtures.js";
+import { test, expect, open, play, signUp, status } from "./fixtures.js";
 import { INVITE_URL } from "../playwright.config.js";
 
 const story = (page) => page.locator(".story");
@@ -12,7 +12,7 @@ test("sign up, sign out and sign in again with the form", async ({ page }) => {
   await page.goto("/");
   const form = page.getByRole("form", { name: "Sign in" });
   await expect(form).toBeVisible();
-  await expect(page.getByRole("status")).toHaveText("not signed in");
+  await expect(status(page)).toHaveText("not signed in");
   await expect(page.getByRole("textbox", { name: "What you do" })).toBeHidden();
 
   await form.getByLabel("name").fill(name);
@@ -21,7 +21,7 @@ test("sign up, sign out and sign in again with the form", async ({ page }) => {
   await expect(form.getByRole("alert")).toHaveText("Passwords are at least 8 characters long.");
   await form.getByLabel("password").fill("correct horse");
   await form.getByRole("button", { name: "new account" }).click();
-  await expect(page.getByRole("status")).toHaveText("pick a world");
+  await expect(status(page)).toHaveText("pick a world");
   await play(page);
   await expect(story(page)).toContainText("Welcome, " + name + ".");
   await expect(page.locator(".who")).toHaveText(name);
@@ -45,7 +45,7 @@ test("a reload continues in the room the player left", async ({ page }) => {
   await page.getByRole("button", { name: "cellar door" }).click();
   await expect(story(page)).toContainText("Down to the cellar.");
   await page.reload();
-  await expect(page.getByRole("status")).toContainText("connected · engine");
+  await expect(status(page)).toContainText("connected · engine");
   await expect(story(page)).toContainText("Cellar");
   await expect(story(page).locator(".room-title")).toHaveCount(0); // not back in the hall
   await expect(page.getByRole("navigation").getByRole("button")).toHaveText(["stairs up"]);
@@ -55,12 +55,12 @@ test("a second window takes over, and the first can take it back", async ({ page
   await open(page);
   const second = await context.newPage();
   await second.goto(page.url()); // the address names the world
-  await expect(second.getByRole("status")).toContainText("connected · engine");
+  await expect(status(second)).toContainText("connected · engine");
   await expect(page.locator(".account").getByText("You are playing in another window or on another device now.")).toBeVisible();
-  await expect(page.getByRole("status")).toHaveText("playing elsewhere");
+  await expect(status(page)).toHaveText("playing elsewhere");
 
   await page.getByRole("button", { name: "play here" }).click();
-  await expect(page.getByRole("status")).toContainText("connected · engine");
+  await expect(status(page)).toContainText("connected · engine");
   await expect(second.getByRole("button", { name: "play here" })).toBeVisible();
   await second.close();
 });
@@ -97,7 +97,7 @@ test.describe("an invite-only world", () => {
       await expect(lobby.getByRole("alert")).toContainText("not valid");
       await join.getByLabel("join code").fill(code.toLowerCase());
       await join.getByRole("button", { name: "join" }).click();
-      await expect(page.getByRole("status")).toContainText("connected · engine");
+      await expect(status(page)).toContainText("connected · engine");
       await expect(story(page)).toContainText("Welcome, " + kid + ".");
     } finally {
       await teacher.close();
