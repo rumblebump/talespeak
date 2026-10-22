@@ -50,12 +50,33 @@ func (w *World) inRoom(room string) []*session {
 	return list
 }
 
-// Players implements script.Party.
+// online lists the players in the world, the earliest to join first:
+// connected and not leaving, so a world that closes or restarts lists
+// only the players who are back. The caller holds w.mu.
+func (w *World) online() []*session {
+	var list []*session
+	for p := range w.sessions {
+		if !p.closed && !p.leaving {
+			list = append(list, p)
+		}
+	}
+	slices.SortFunc(list, func(a, b *session) int { return cmp.Compare(a.joined, b.joined) })
+	return list
+}
+
+// Players and WorldPlayers implement script.Party.
 func (s *session) Players() []script.Player {
-	list := s.w.inRoom(s.room)
+	return players(s.w.inRoom(s.room))
+}
+
+func (s *session) WorldPlayers() []script.Player {
+	return players(s.w.online())
+}
+
+func players(list []*session) []script.Player {
 	out := make([]script.Player, len(list))
 	for i, p := range list {
-		out[i] = script.Player{ID: p.id, Name: p.name}
+		out[i] = script.Player{ID: p.id, Name: p.name, Room: p.room, GM: p.gm}
 	}
 	return out
 }
@@ -77,7 +98,7 @@ func (s *session) leave() {
 	env := s.envs[s.room]
 	if env != nil && env.HasHook("on_leave") {
 		s.moves = 0
-		h := script.Hook{Name: "on_leave", Player: s.name, PlayerID: s.id, NoWait: true}
+		h := s.hook(script.Hook{Name: "on_leave", NoWait: true})
 		err := w.charged(s.client, func() error {
 			_, err := w.rt.RunHook(s, env, h)
 			return err

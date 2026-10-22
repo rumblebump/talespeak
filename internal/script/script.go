@@ -124,13 +124,16 @@ type Host interface {
 	TimerLeft(name string) (time.Duration, bool)
 }
 
-// Party is what a Host shares with the other players in its room: who is
-// there, and the room's timers. A Host without it plays alone, and
-// room.players and room timers raise an error.
+// Party is what a Host shares with the other players in its room and its
+// world: who is there, and the room's timers. A Host without it plays
+// alone, and room.players, world.players and room timers raise an error.
 type Party interface {
 	// Players lists the players in the room, the caller included, in the
 	// order they came in.
 	Players() []Player
+	// WorldPlayers lists the players online in the world, in every room,
+	// the caller included, in the order they joined.
+	WorldPlayers() []Player
 	// StartRoomTimer, StopRoomTimer and RoomTimerLeft are StartTimer,
 	// StopTimer and TimerLeft for a timer of the room, shared by the
 	// players in it: once it runs out, the engine calls on_timer(player,
@@ -140,10 +143,14 @@ type Party interface {
 	RoomTimerLeft(name string) (time.Duration, bool)
 }
 
-// Player is a player as room.players lists them.
+// Player is a player as room.players and world.players list them.
 type Player struct {
 	ID   string
 	Name string
+	// Room is the player's room; world.players lists it.
+	Room string
+	// GM is set for a game master of the world (player.gm).
+	GM bool
 }
 
 // Voice says how a line reaches the player, set by say(text, {speak =
@@ -416,7 +423,9 @@ type Hook struct {
 	Player string
 	// PlayerID, when not "", is the player's id in the world, player.id.
 	PlayerID string
-	Args     []string
+	// GM is player.gm: the player is a game master of the world.
+	GM   bool
+	Args []string
 	// NoWait refuses ui.dialog, ui.select and ui.ask in the hook: the
 	// engine runs it while the player has a question open already, for a
 	// timer or another player's change.
@@ -450,6 +459,7 @@ func (r *Runtime) RunHook(host Host, env *Env, h Hook) (*Thread, error) {
 	if h.PlayerID != "" {
 		p.RawSetString("id", lua.LString(h.PlayerID))
 	}
+	p.RawSetString("gm", lua.LBool(h.GM))
 	if host != nil {
 		p.RawSetString("room", lua.LString(host.Room()))
 	}
