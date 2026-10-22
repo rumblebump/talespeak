@@ -1,0 +1,11 @@
+id: shop
+title: The clock shop
+description: >-
+  Ticking everywhere! Five tall clocks stand along the wall, each with an
+  animal painted on its face: an owl, a ship, a rose, a moon and a crown.
+  Behind the counter, a door leads to the workshop. A brass speaking tube
+  runs from the counter through the wall.
+script: shop.lua
+items:
+  - id: workshop
+    label: door to the workshop

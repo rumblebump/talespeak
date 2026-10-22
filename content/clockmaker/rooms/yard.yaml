@@ -1,0 +1,10 @@
+id: yard
+title: Scotland Yard
+description: >-
+  Inspector Lestrade's office: a desk covered in files and a cold cup of
+  tea. Four photographs are pinned to the wall: the people who were near
+  the clock shop on the night the watch was stolen.
+script: yard.lua
+items:
+  - id: lestrade
+    label: Inspector Lestrade

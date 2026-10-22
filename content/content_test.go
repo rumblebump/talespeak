@@ -16,8 +16,9 @@ import (
 // Every pack in content/ loads and its scripts start.
 func TestPacksLoad(t *testing.T) {
 	for name, fsys := range map[string]fs.FS{
-		"demo":      content.Demo(),
-		"test-pack": os.DirFS("test-pack"),
+		"demo":       content.Demo(),
+		"test-pack":  os.DirFS("test-pack"),
+		"clockmaker": os.DirFS("clockmaker"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			p, err := pack.Load(fsys)

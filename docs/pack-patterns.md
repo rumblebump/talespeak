@@ -209,3 +209,21 @@ ui.items(items.visible(player, ALL_ITEMS))
 Call `items.visible` again in `on_change`: the other players' takes change the world keys `item_<id>`. `items.release(player, id)` in `on_leave` puts a `once` item back when its owner leaves.
 
 **Effects that wear off:** `items.bless(player, "blessing", {seconds = 60, moves = 5, show = "Blessing"})` lasts a minute or five moves, whichever comes first. Call `items.move(player)` once per action and `items.on_timer(player, name)` in `on_timer`; `on_effect_end(player, id)` runs when it wears off. `items.blessed(player, id)` asks whether it is still on.
+
+## Save spots for a party
+
+A game in levels that a party plays together, saved at the end of each level, is written in Lua on `state.world` alone, so that one player's hook can move the whole party. The clockmaker pack (`content/clockmaker/lib/case.lua`) does it:
+
+| World key | Holds |
+| --- | --- |
+| `case` | The level, a run number, the party (`members`, the join `order`, who is `active`), and whether the case is solved |
+| `lv` | The progress of the current level; empty again at every save spot |
+| `bag_<player id>`, `save_<player id>` | What each player carries, and their bag as it was when the level began. In `state.world`, not `state.player`, because a save spot saves everyone's bag at once |
+| `online` | Who is in the world now, set in `on_enter`, removed in `on_leave` |
+
+- **Save spot:** a door at the end of the level. A player who clicks it waits there; when every active player waits, that hook copies every `bag_` to `save_`, clears `lv`, raises the level and the run, and moves the player to the next level's first room. The others are moved by `on_change`, which may call `room.go`.
+- **Everyone left:** the `on_leave` that empties `online` starts the level again: `lv` cleared, every `bag_` set back to its `save_`, the run raised. A player whose `state.player` run is older is sent to the level's first room when they come back, also after a restart, because their character's room is saved too.
+- **Party size:** puzzles read how many the level is made for (`lv.n`), fixed when the level starts, so a player joining later does not change a half-solved puzzle.
+- **The lead decides:** going on without players who left (what they carried goes to the lead), or playing the level again with only those here. Until the engine tells scripts who the world's game master is (`player.gm`), the lead is the first player who joined, or the earliest one online.
+
+Known gap: `on_leave` does not run when the world closes, so a restart while players are connected leaves them in `online`, and the level continues where it was instead of starting again. A core list of who is in the world (`world.players()`) will close it.

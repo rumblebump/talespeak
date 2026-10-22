@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # Cross-compiles on the build machine's own architecture (no QEMU) and ships
-# one static binary on a distroless base. The web client is embedded in the
-# binary with go:embed, so the image needs nothing else.
+# one static binary on a distroless base. The web client and the demo pack
+# are embedded in the binary with go:embed; the other story packs from
+# content/ are copied to /packs, where the lobby offers them.
 
 # renovate: datasource=docker depName=golang versioning=docker
 ARG GO_VERSION=1.26
@@ -25,7 +26,8 @@ RUN mkdir -p /out/data
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/talespeak /talespeak
 COPY --from=build --chown=65532:65532 /out/data /data
-ENV TALESPEAK_DATA=/data TALESPEAK_LISTEN=:8080
+COPY --from=build /src/content/clockmaker /packs/clockmaker
+ENV TALESPEAK_DATA=/data TALESPEAK_LISTEN=:8080 TALESPEAK_PACKS=/packs
 VOLUME ["/data"]
 EXPOSE 8080
 USER nonroot:nonroot
