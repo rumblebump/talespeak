@@ -170,20 +170,29 @@ function crates(player)
   if not answer then
     return
   end
+  if code(answer) == "" then
+    say("There is no crate like that. Each crate has a letter and a number.")
+    return
+  end
   if code(answer) ~= case.crate() then
     say("You pry open crate " .. code(answer) .. ". Only old fishing nets.")
     case.wiggins("The X on the map marks the crate. Find its row letter and its column number.")
     return
   end
-  local first = case.change(function(v)
-    local was = v.crate
-    v.crate = true
-    return not was
-  end)
-  if not first then
+  if case.lv().crate then
+    say("Crate " .. case.crate() .. " is open already: someone was quicker.")
     return
   end
-  case.give(player.id, "club_card")
+  -- the card first, then the open crate (nothing waits in between)
+  if not case.give(player.id, "club_card") then
+    return
+  end
+  if not case.change(function(v)
+        v.crate = true
+        return true
+      end) then
+    return
+  end
   say("Inside crate " .. case.crate() .. ": a dozen stolen clocks, but no watch. On top lies a card. You take it.")
   case.read(player, "club_card")
   case.news(player, player.name .. " opened the right crate! Stolen clocks, and a Diogenes Club card. Back to the wharf and the cab!")

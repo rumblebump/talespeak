@@ -606,7 +606,7 @@ func TestClockmakerGoOnWithout(t *testing.T) {
 	text, got := g.click(a, "cab")
 	want(t, "lead asked", text, "Still to come: traveler 3.")
 	d := lastOf(got, "dialog")
-	if d == nil || !strings.Contains(d.Title, "traveler 3 left the game. Go on without them?") {
+	if d == nil || !strings.Contains(d.Title, "traveler 3 is not here. Go on without them?") {
 		t.Fatalf("dialog = %+v", d)
 	}
 	text, _ = g.choose(a, got, 1)
@@ -615,7 +615,8 @@ func TestClockmakerGoOnWithout(t *testing.T) {
 	text, _ = g.click(a, "satchel")
 	want(t, "key came to the lead", text, "brass key to the clock shop")
 	text, _ = g.click(a, "casebook")
-	want(t, "casebook", text, "Made for 2.", "traveler 3 (left behind)", "traveler (you) (lead)")
+	want(t, "casebook", text, "Made for 2.", "traveler (you) (lead)")
+	dontWant(t, "seat freed", text, "traveler 3")
 }
 
 // The casebook lets the lead play the level again without who is away.

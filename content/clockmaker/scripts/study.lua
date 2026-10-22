@@ -125,7 +125,7 @@ function telegram(player)
     return
   end
   local c = case.get()
-  local ids = case.active_ids(c)
+  local ids = here(c)
   local choice = ui.dialog("Start the case with " .. #ids .. " Irregular" .. (#ids == 1 and "" or "s") ..
     " (" .. case.names(c, ids) .. ")? Wait if someone is still coming.", {
       "Start the case",
@@ -135,15 +135,55 @@ function telegram(player)
     case.wiggins("Right. Read the telegram again when everyone is here.")
     return
   end
+  if case.lv().n then
+    return -- someone else started it meanwhile
+  end
+  -- who looked in once and left gives their seat back
+  c = case.get()
+  local present = {}
+  for _, id in ipairs(here(c)) do
+    present[id] = true
+  end
+  local away = {}
+  for _, id in ipairs(c.order) do
+    if not present[id] then
+      away[#away + 1] = id
+    end
+  end
+  if #away > 0 then
+    case.drop(player.id, away)
+  end
   local n = case.freeze()
-  case.change(function(lv)
+  if not n then
+    return
+  end
+  local ok = case.change(function(lv)
     lv.strips = lv.strips or n
+    return true
   end)
+  if not ok then
+    return
+  end
   local text = "The case begins for " .. n .. " Irregular" .. (n == 1 and "" or "s") ..
       ". Search the room: each of you can find one strip of Holmes's word."
   case.wiggins(text)
   case.news(player, text)
   show(player)
+end
+
+-- here is the Irregulars in the study now, in the order they joined.
+function here(c)
+  local in_room = {}
+  for _, p in ipairs(room.players()) do
+    in_room[p.id] = true
+  end
+  local out = {}
+  for _, id in ipairs(c.order) do
+    if in_room[id] then
+      out[#out + 1] = id
+    end
+  end
+  return out
 end
 
 function search(player, spot)
@@ -159,28 +199,30 @@ function search(player, spot)
     say("You search the " .. SPOT_LABELS[spot] .. ". Only Holmes's clutter.")
     return
   end
+  -- No question waits from here to the end, so no other hook runs in
+  -- between: the strip goes into the satchel first, and is marked found
+  -- only once it is there.
   local c = case.get()
-  local got = case.change(function(v)
-    v.found = v.found or {}
-    if v.found[k] then
-      return "taken"
-    end
-    for _, id in pairs(v.found) do
-      if id == player.id and n > 1 then
-        return "mine"
-      end
-    end
-    v.found[k] = player.id
-    return "found"
-  end)
-  if got == "taken" then
-    say("Someone searched the " .. SPOT_LABELS[spot] .. " already: " .. case.name(c, (case.lv().found or {})[k]) .. " has that strip.")
-  elseif got == "mine" then
-    say("You have a strip already. Let another Irregular search here.")
-  elseif got == "found" then
-    if not case.give(player.id, "strip_" .. k) then
+  local found = case.lv().found or {}
+  if found[k] then
+    say("Someone searched the " .. SPOT_LABELS[spot] .. " already: " .. case.name(c, found[k]) .. " has that strip.")
+    return
+  end
+  for _, id in pairs(found) do
+    if id == player.id and n > 1 then
+      say("You have a strip already. Let another Irregular search here.")
       return
     end
+  end
+  if not case.give(player.id, "strip_" .. k) then
+    return
+  end
+  local ok = case.change(function(v)
+    v.found = v.found or {}
+    v.found[k] = player.id
+    return true
+  end)
+  if ok then
     say("In the " .. SPOT_LABELS[spot] .. " you find a torn strip of paper!")
     case.read(player, "strip_" .. k)
     case.wiggins("Only you can see your strip. Tell the others what it says!")
@@ -201,20 +243,25 @@ function desk(player)
     return
   end
   if not words.same(answer, word) then
-    say("You turn the wheels to " .. string.upper(words.normalize(answer)) .. ". The desk stays locked.")
+    if words.normalize(answer) == "" then
+      say("You leave the wheels as they are. The desk stays locked.")
+    else
+      say("You turn the wheels to " .. string.upper(words.normalize(answer)) .. ". The desk stays locked.")
+    end
     case.wiggins("Put all the strips together, in the order of their numbers.")
     return
   end
-  local first = case.change(function(v)
-    local was = v.desk
-    v.desk = true
-    return not was
-  end)
-  if first == nil then
-    return
-  end
-  if first then
-    case.give(player.id, "lens")
+  if not case.lv().desk then
+    -- the lens first, then the open desk (nothing waits in between)
+    if not case.give(player.id, "lens") then
+      return
+    end
+    if not case.change(function(v)
+          v.desk = true
+          return true
+        end) then
+      return
+    end
     say("Click! The desk opens. Inside are a letter from Holmes and his magnifying glass, which you keep.")
     case.news(player, player.name .. " opened Holmes's desk!")
   end

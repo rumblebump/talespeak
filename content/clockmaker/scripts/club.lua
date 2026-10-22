@@ -185,17 +185,29 @@ function mycroft(player)
     say("Mycroft Holmes reads his newspaper. He has said all he will say.")
     return
   end
-  local first = case.change(function(v)
-    local was = v.dealt
-    v.dealt = true
-    return not was
-  end)
-  if not first then
-    return
+  -- the cards go to the Irregulars still on the case: those the porter
+  -- had cards for, or else everyone active
+  local c = case.get()
+  local club = {}
+  for _, id in ipairs(lv.club or {}) do
+    if c.active[id] then
+      club[#club + 1] = id
+    end
   end
-  local club = lv.club
+  if #club == 0 then
+    club = case.active_ids(c)
+  end
+  -- the cards first, then dealt (nothing waits in between)
   for k = 1, 4 do
-    case.give(club[(k - 1) % #club + 1], "evidence_" .. k)
+    if not case.give(club[(k - 1) % #club + 1], "evidence_" .. k) then
+      return
+    end
+  end
+  if not case.change(function(v)
+        v.dealt = true
+        return true
+      end) then
+    return
   end
   local text = "Mycroft Holmes, Sherlock's brother, whispers: \"The card in that crate was stolen from my coat. My brother is busy, so here is what he found.\" He hands out four evidence cards. Look in your satchels!"
   say(text)

@@ -156,17 +156,22 @@ function safe(player)
     case.wiggins("Read the note again, and ask the others what those clocks show.")
     return
   end
-  local first = case.change(function(v)
-    local was = v.safe
-    v.safe = true
-    v.shut = nil
-    return not was
-  end)
-  if not first then
+  if case.lv().safe then
+    say("Someone opened the safe just before you.")
     return
   end
-  case.give(player.id, "lantern")
-  case.give(player.id, "ticket")
+  -- what the safe holds first, then the open safe (nothing waits in
+  -- between, so nobody else takes it meanwhile)
+  if not case.give(player.id, "lantern") or not case.give(player.id, "ticket") then
+    return
+  end
+  if not case.change(function(v)
+        v.safe = true
+        v.shut = nil
+        return true
+      end) then
+    return
+  end
   say("Tick, tick, CLUNK. The safe opens, and so does the workshop door! Inside: the Queen's watch case, empty, a storm lantern and a ticket. You take the lantern and the ticket.")
   case.read(player, "ticket")
   case.news(player, player.name .. " opened the safe! The watch is gone, but there is a ticket to Wharf 7. The workshop door is open.")

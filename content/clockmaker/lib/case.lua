@@ -27,7 +27,7 @@
 -- were there. Coming back, a player finds the party's level.
 --
 -- The lead decides for the party (go on without someone, play the level
--- with fewer): a GM of the world once the engine tells scripts
+-- with fewer; both free those players' seats): a GM of the world once the engine tells scripts
 -- (player.gm), until then the first Irregular who joined, or the earliest
 -- one online.
 --
@@ -200,12 +200,17 @@ function case.n()
 end
 
 -- freeze fixes the level's size now, if it is not fixed yet; returns it.
+-- Returns nil when the world cannot keep it.
 function case.freeze()
   local n = case.n()
-  case.change(function(lv)
+  local ok = case.change(function(lv)
     lv.n = lv.n or n
+    return true
   end)
-  return case.lv().n or n
+  if not ok then
+    return nil
+  end
+  return case.lv().n
 end
 
 -- A secret the world picks once, with make(), and keeps through every
@@ -458,7 +463,7 @@ function case.arrive(player)
     if m then
       m.name = player.name
       m.gm = player.gm == true
-      v.active[player.id] = true -- a member who was left behind plays again
+      v.active[player.id] = true
     elseif #v.order < case.MAX then
       v.members[player.id] = { name = player.name, gm = player.gm == true }
       v.order[#v.order + 1] = player.id
@@ -537,11 +542,13 @@ function case.rewind(n)
   if c.done then
     return
   end
-  local size = case.lv().n
+  local lv = case.lv()
   if n ~= nil then
-    size = n or nil
+    state.world.set("lv", { n = n or nil })
+  else
+    -- the same size: the strips of level 1 stay as many
+    state.world.set("lv", { n = lv.n, strips = lv.strips })
   end
-  state.world.set("lv", { n = size })
   for _, id in ipairs(c.order) do
     state.world.set("bag_" .. id, state.world.get("save_" .. id))
   end
@@ -565,6 +572,10 @@ function case.changed(player, keys)
   end
   local c = case.get()
   if not c.members[player.id] then
+    if player.room ~= "pavement" then
+      room.go("pavement") -- the party went on without them
+      return true
+    end
     return false
   end
   local start = case.LEVELS[c.level].start
@@ -587,13 +598,15 @@ end
 
 -- Save spots -----------------------------------------------------------
 
--- drop takes ids out of the active party; what they carried goes to the
--- lead's satchel, so nothing the story needs is lost.
-local function drop(lead, ids)
+-- drop takes ids out of the party, which frees their seats for players
+-- waiting outside; what they carried goes to the lead's satchel, so
+-- nothing the story needs is lost. Coming back, they join again like a
+-- new player, when a seat is free.
+function case.drop(lead, ids)
   for _, id in ipairs(ids) do
     for _, kind in ipairs({ "bag_", "save_" }) do
       local theirs = state.world.get(kind .. id) or {}
-      if #theirs > 0 then
+      if #theirs > 0 and id ~= lead then
         state.world.update(kind .. lead, function(v)
           v = v or {}
           for _, it in ipairs(theirs) do
@@ -609,16 +622,76 @@ local function drop(lead, ids)
           end
           return v
         end)
+      end
+      if state.world.get(kind .. id) ~= nil then
         state.world.set(kind .. id, nil)
       end
     end
   end
+  local gone = {}
+  for _, id in ipairs(ids) do
+    gone[id] = true
+  end
   state.world.update("case", function(v)
-    for _, id in ipairs(ids) do
-      v.active[id] = nil
+    local order = {}
+    for _, id in ipairs(v.order) do
+      if gone[id] then
+        v.members[id] = nil
+        v.active[id] = nil
+      else
+        order[#order + 1] = id
+      end
+    end
+    v.order = order
+    return v
+  end)
+  state.world.update("online", function(v)
+    v = v or {}
+    for id in pairs(gone) do
+      v[id] = nil
     end
     return v
   end)
+end
+
+-- here_ids is the members in the player's room now.
+local function here_ids()
+  local out = {}
+  for _, p in ipairs(room.players()) do
+    out[p.id] = true
+  end
+  return out
+end
+
+-- decider is who decides at a save spot: the lead when they are in this
+-- room, else the first Irregular here. (A player who was in the world
+-- when the server restarted can stay in "online" for good, so the room
+-- decides here, not "online".)
+local function decider(c)
+  local here = here_ids()
+  local lead = case.lead_id(c)
+  if lead and here[lead] then
+    return lead
+  end
+  for _, id in ipairs(c.order) do
+    if here[id] then
+      return id
+    end
+  end
+  return nil
+end
+
+-- missing is who the save spot waits for and is not in this room.
+local function missing(c)
+  local lv = case.lv()
+  local here = here_ids()
+  local out = {}
+  for _, id in ipairs(case.active_ids(c)) do
+    if not (lv.ready or {})[id] and not here[id] then
+      out[#out + 1] = id
+    end
+  end
+  return out
 end
 
 -- advance finishes the level: every bag is saved, the progress cleared,
@@ -649,8 +722,9 @@ local function advance(player)
 end
 
 -- ready is the save spot: the player waits there, and when every active
--- Irregular waits, the level is done. The lead may go on without those
--- who are not in the world. Returns true when the party moved on.
+-- Irregular waits, the level is done. The lead (or, without them, the
+-- first Irregular here) may go on without those who are not in this
+-- room. Returns true when the party moved on.
 function case.ready(player)
   local c = case.get()
   if not c.active[player.id] then
@@ -681,22 +755,32 @@ function case.ready(player)
     case.news(player, player.name .. " waits at the save spot.")
   end
   say("You wait here. Still to come: " .. case.names(c, waiting) .. ".")
-  local online = case.online()
-  local gone = {}
-  for _, id in ipairs(waiting) do
-    if not online[id] then
-      gone[#gone + 1] = id
-    end
-  end
-  if #gone > 0 and case.lead_id(c, online) == player.id then
-    local choice = ui.dialog(case.names(c, gone) .. " left the game. Go on without them? What they carry comes to you.", {
+  local away = missing(c)
+  if #away > 0 and decider(c) == player.id then
+    local choice = ui.dialog(case.names(c, away) .. " is not here. Go on without them? Their seat is freed, and what they carry comes to you.", {
       "Go on without them",
       "Wait for them",
     }, { from = "Wiggins" })
-    if choice == 1 then
-      drop(player.id, gone)
-      return case.ready(player)
+    if choice ~= 1 then
+      return false
     end
+    -- things may have changed while the dialog was open
+    c = case.get()
+    if decider(c) ~= player.id then
+      return false
+    end
+    local still = {}
+    for _, id in ipairs(missing(c)) do
+      for _, was in ipairs(away) do
+        if id == was then
+          still[#still + 1] = id
+        end
+      end
+    end
+    if #still > 0 then
+      case.drop(player.id, still)
+    end
+    return case.ready(player)
   end
   return false
 end
@@ -713,9 +797,7 @@ function case.status(player)
     if id == player.id then
       s = s .. " (you)"
     end
-    if not c.active[id] then
-      s = s .. " (left behind)"
-    elseif not online[id] then
+    if not online[id] then
       s = s .. " (away)"
     end
     if id == lead then
@@ -741,7 +823,7 @@ function case.casebook(player)
   end
   local options = { "Ask Wiggins for a hint", "Close the casebook" }
   local lead = case.lead_id(c, online) == player.id
-  if lead and #away > 0 then
+  if lead and #away > 0 and not c.done then
     options[3] = "Play this level again without " .. case.names(c, away)
   end
   local choice = ui.dialog("Wiggins's casebook", options, { from = "Wiggins" })
@@ -754,6 +836,9 @@ function case.casebook(player)
   elseif choice == 3 then
     c = case.get()
     online = case.online()
+    if case.lead_id(c, online) ~= player.id or c.done then
+      return
+    end
     away = {}
     for _, id in ipairs(case.active_ids(c)) do
       if not online[id] then
@@ -763,7 +848,7 @@ function case.casebook(player)
     if #away == 0 then
       return
     end
-    drop(player.id, away)
+    case.drop(player.id, away)
     local n = math.max(1, math.min(#case.active_ids(case.get()), case.MAX))
     if case.get().level == 1 then
       n = false -- the telegram asks again

@@ -77,20 +77,16 @@ function board(player)
       return
     end
   end
-  local n = case.n()
-  local got = case.change(function(lv)
-    lv.pieces = lv.pieces or n
-    lv.maps = lv.maps or {}
-    for k = 1, lv.pieces do
-      if not lv.maps[k] then
-        lv.maps[k] = player.id
-        return k
-      end
+  -- the piece into the satchel first, then marked taken (nothing waits
+  -- in between)
+  local lv = case.lv()
+  local pieces = lv.pieces or case.n()
+  local got = 0
+  for k = 1, pieces do
+    if not (lv.maps or {})[k] then
+      got = k
+      break
     end
-    return 0
-  end)
-  if not got then
-    return
   end
   if got == 0 then
     say("The board is empty: the others have all the pieces of the map.")
@@ -99,7 +95,14 @@ function board(player)
   if not case.give(player.id, "map_" .. got) then
     return
   end
-  local pieces = case.lv().pieces
+  if not case.change(function(v)
+        v.pieces = v.pieces or pieces
+        v.maps = v.maps or {}
+        v.maps[got] = player.id
+        return true
+      end) then
+    return
+  end
   if pieces == 1 then
     say("You take the whole map off the board.")
   else

@@ -22,11 +22,13 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/talespeak ./cmd/talespeak
 # Data directory owned by the distroless nonroot user, so the volume starts writable
 RUN mkdir -p /out/data
+# Story packs for the lobby, readable by everyone whatever the checkout's umask
+RUN mkdir -p /out/packs && cp -r content/clockmaker /out/packs/ && chmod -R u=rwX,go=rX /out/packs
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/talespeak /talespeak
 COPY --from=build --chown=65532:65532 /out/data /data
-COPY --from=build /src/content/clockmaker /packs/clockmaker
+COPY --from=build /out/packs /packs
 ENV TALESPEAK_DATA=/data TALESPEAK_LISTEN=:8080 TALESPEAK_PACKS=/packs
 VOLUME ["/data"]
 EXPOSE 8080
