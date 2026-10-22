@@ -1,0 +1,10 @@
+id: warehouse
+title: The warehouse
+description: >-
+  A huge dark hall that smells of tar and tea. Somewhere above you is a
+  loft full of crates, and in the middle of the floor a cargo lift hangs
+  on chains.
+script: warehouse.lua
+items:
+  - id: wharf
+    label: door back to the wharf

@@ -1,0 +1,11 @@
+id: club
+title: The Diogenes Club
+description: >-
+  The quietest club in London, in Pall Mall. Gentlemen read newspapers in
+  deep leather chairs, and nobody says a word. By the door is a row of
+  eight hat pegs, numbered 1 to 8. A porter in a red coat stands by the
+  Strangers' Room.
+script: club.lua
+items:
+  - id: porter
+    label: porter in a red coat

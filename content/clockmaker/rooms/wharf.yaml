@@ -1,0 +1,10 @@
+id: wharf
+title: Wharf 7
+description: >-
+  Night on the Thames. Fog rolls over the black water, and a ship's bell
+  rings somewhere. A notice board by the gate holds a torn harbour map.
+  Behind you, the big wooden door of the warehouse stands ajar.
+script: wharf.lua
+items:
+  - id: board
+    label: notice board with a map

@@ -1,0 +1,6 @@
+id: pavement
+title: Baker Street
+description: >-
+  The busy pavement outside 221B. Cabs rattle past. Upstairs, the
+  Irregulars are already at work on the case.
+script: pavement.lua

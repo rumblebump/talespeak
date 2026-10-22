@@ -1,0 +1,12 @@
+id: study
+title: 221B Baker Street
+description: >-
+  Mr Sherlock Holmes's sitting room, full of books, papers and pipe smoke.
+  A telegram lies on the table. There is a bookshelf, a Persian slipper by
+  the fire, a violin case and a coal scuttle. Holmes's writing desk is
+  locked. On the mantelpiece stand a bust of Napoleon, a brass candlestick
+  and a small clock; a green reading lamp sits on the desk.
+script: study.lua
+items:
+  - id: telegram
+    label: telegram on the table

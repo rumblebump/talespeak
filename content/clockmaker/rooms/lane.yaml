@@ -1,0 +1,10 @@
+id: lane
+title: Clerkenwell Lane
+description: >-
+  A narrow lane in Clerkenwell, where the clockmakers live. Gas lamps
+  flicker. Above a dark shop window hangs a sign: ABERNETHY AND SON,
+  CLOCKMAKERS. The shop door is locked.
+script: lane.lua
+items:
+  - id: shopdoor
+    label: door of the clock shop

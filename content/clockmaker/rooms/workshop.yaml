@@ -1,0 +1,10 @@
+id: workshop
+title: Mr Abernethy's workshop
+description: >-
+  A small room full of springs, tiny wheels and tools. A heavy iron safe
+  stands in the corner, with clock hands instead of a handle. A note is
+  pinned above the workbench. A brass speaking tube comes out of the wall.
+script: workshop.lua
+items:
+  - id: note
+    label: note above the workbench
