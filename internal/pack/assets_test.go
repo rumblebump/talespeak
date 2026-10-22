@@ -68,7 +68,7 @@ func TestLoadAssets(t *testing.T) {
 			t.Errorf("asset %q = %+v, want type %s", name, a, typ)
 		}
 	}
-	if url, ok := p.Image("a.png"); !ok || url != "/packs/t/assets/a.png" {
+	if url, ok := p.Image("a.png"); !ok || url != "/packs/t/1.0.0/assets/a.png" {
 		t.Errorf("Image(a.png) = %q, %v", url, ok)
 	}
 	for _, name := range []string{"missing.png", "", "../pack.yaml", "A.png"} {
@@ -237,7 +237,7 @@ func TestLoadTooManyAssets(t *testing.T) {
 // Asset problems are reported with the pack's other problems.
 func TestAssetErrorsJoinOthers(t *testing.T) {
 	_, err := Load(packFS(map[string]*fstest.MapFile{
-		"pack.yaml":     file([]byte("id: BAD\ntitle: T\nstart: r\n")),
+		"pack.yaml":     file([]byte("id: BAD\nversion: 1.0.0\ntitle: T\nstart: r\n")),
 		"assets/A.png":  file(image(".png", 16)),
 		"assets/b.png":  file(image(".gif", 16)),
 		"assets/ok.png": file(image(".png", 16)),
@@ -329,7 +329,7 @@ func assetServer(t *testing.T) (*httptest.Server, *Pack) {
 		t.Fatal(err)
 	}
 	u, err := Load(packFS(map[string]*fstest.MapFile{
-		"pack.yaml":    file([]byte("id: u\ntitle: U\nstart: r\n")),
+		"pack.yaml":    file([]byte("id: u\nversion: 1.0.0\ntitle: U\nstart: r\n")),
 		"assets/b.gif": file(image(".gif", 50)),
 	}))
 	if err != nil {
@@ -384,7 +384,7 @@ func TestAssetHandlerServes(t *testing.T) {
 		t.Errorf("Last-Modified = %q, want none (assets have no time)", resp.Header.Get("Last-Modified"))
 	}
 	// The second pack is served by the same handler.
-	if resp, body := do(t, "GET", hs.URL+"/packs/u/assets/b.gif", nil); resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "image/gif" || len(body) != 50 {
+	if resp, body := do(t, "GET", hs.URL+"/packs/u/1.0.0/assets/b.gif", nil); resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "image/gif" || len(body) != 50 {
 		t.Errorf("pack u: %d %q, %d bytes", resp.StatusCode, resp.Header.Get("Content-Type"), len(body))
 	}
 }
@@ -437,20 +437,20 @@ func TestAssetHandlerNotFound(t *testing.T) {
 		path   string
 		status int
 	}{
-		{"/packs/nope/assets/a.png", http.StatusNotFound},
-		{"/packs/t/assets/missing.png", http.StatusNotFound},
-		{"/packs/t/assets/b.gif", http.StatusNotFound}, // pack u's image
-		{"/packs/u/assets/a.png", http.StatusNotFound},
-		{"/packs/t/assets/A.PNG", http.StatusNotFound},
-		{"/packs/t/assets/", http.StatusNotFound},
-		{"/packs/t/assets/a.png/x", http.StatusNotFound},
-		{"/packs/t/assets/%2e%2e%2fpack.yaml", http.StatusNotFound},
-		{"/packs/t/assets/..%2fpack.yaml", http.StatusNotFound},
-		{"/packs/t/assets/a.png%00", http.StatusNotFound},
+		{"/packs/nope/1.0.0/assets/a.png", http.StatusNotFound},
+		{"/packs/t/1.0.0/assets/missing.png", http.StatusNotFound},
+		{"/packs/t/1.0.0/assets/b.gif", http.StatusNotFound}, // pack u's image
+		{"/packs/u/1.0.0/assets/a.png", http.StatusNotFound},
+		{"/packs/t/1.0.0/assets/A.PNG", http.StatusNotFound},
+		{"/packs/t/1.0.0/assets/", http.StatusNotFound},
+		{"/packs/t/1.0.0/assets/a.png/x", http.StatusNotFound},
+		{"/packs/t/1.0.0/assets/%2e%2e%2fpack.yaml", http.StatusNotFound},
+		{"/packs/t/1.0.0/assets/..%2fpack.yaml", http.StatusNotFound},
+		{"/packs/t/1.0.0/assets/a.png%00", http.StatusNotFound},
 		{"/packs/t/pack.yaml", http.StatusNotFound},
 		{"/packs/t/rooms/r.yaml", http.StatusNotFound},
 		{"/packs/", http.StatusNotFound},
-		{"/packs/%74/assets/a.png", http.StatusOK}, // %74 is "t": the same file
+		{"/packs/%74/1.0.0/assets/a.png", http.StatusOK}, // %74 is "t": the same file
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
@@ -465,7 +465,7 @@ func TestAssetHandlerNotFound(t *testing.T) {
 	}
 	// A path with dot segments is cleaned by a redirect, which leads to a
 	// 404, never to a file outside assets/.
-	resp, _ := do(t, "GET", hs.URL+"/packs/t/assets/../pack.yaml", nil)
+	resp, _ := do(t, "GET", hs.URL+"/packs/t/1.0.0/assets/../pack.yaml", nil)
 	if resp.StatusCode == http.StatusOK {
 		t.Errorf("dot segments: status %d", resp.StatusCode)
 	}
@@ -483,7 +483,7 @@ func TestAssetHandlerMethods(t *testing.T) {
 func TestAssetHandlerWithoutPacks(t *testing.T) {
 	hs := httptest.NewServer(AssetHandler())
 	defer hs.Close()
-	if resp, _ := do(t, "GET", hs.URL+"/packs/t/assets/a.png", nil); resp.StatusCode != http.StatusNotFound {
+	if resp, _ := do(t, "GET", hs.URL+"/packs/t/1.0.0/assets/a.png", nil); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
 	}
 }

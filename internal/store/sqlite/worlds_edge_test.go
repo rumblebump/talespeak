@@ -175,11 +175,11 @@ func TestOpenWorldPerPack(t *testing.T) {
 	if _, err := s.CreateWorld(ctx, store.NewWorld{PackID: "other", Visibility: store.VisibilityPublic, CreatedBy: ann.ID}); err != nil {
 		t.Fatal(err)
 	}
-	demo, err := s.OpenWorld(ctx, "demo", "1")
+	demo, err := s.OpenWorld(ctx, "demo", "1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := s.OpenWorld(ctx, "other", "1")
+	other, err := s.OpenWorld(ctx, "other", "1", nil)
 	if err != nil || other.ID == demo.ID || !other.Home || other.CreatedBy != 0 {
 		t.Errorf("main world of another pack = %+v, %v", other, err)
 	}
@@ -187,7 +187,7 @@ func TestOpenWorldPerPack(t *testing.T) {
 	if err := s.FinishWorld(ctx, demo.ID); err != nil {
 		t.Fatal(err)
 	}
-	again, err := s.OpenWorld(ctx, "demo", "2")
+	again, err := s.OpenWorld(ctx, "demo", "2", nil)
 	if err != nil || again.ID == demo.ID || !again.Home || again.PackVersion != "2" {
 		t.Errorf("after finishing the main world: %+v, %v", again, err)
 	}

@@ -19,7 +19,7 @@ test("demo: guard, straw, wall map, riddle, corridor and escape", async ({ page 
   await expect(page.getByRole("button", { name: "flattened straw" })).toBeVisible();
 
   await page.getByRole("button", { name: "scratches on the wall" }).click();
-  await expect(page.locator("dialog.picture img")).toHaveAttribute("src", /^\/packs\/demo\/assets\/wall-map-(clear|faint)\.png$/);
+  await expect(page.locator("dialog.picture img")).toHaveAttribute("src", /^\/packs\/demo\/1\.0\.0\/assets\/wall-map-(clear|faint)\.png$/);
   await page.keyboard.press("Escape");
 
   // While the guard watches, the door is a bad idea.

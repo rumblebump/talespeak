@@ -27,7 +27,7 @@ func libWorld(t *testing.T, rooms, libs map[string]string) (*World, error) {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	fsys := fstest.MapFS{"pack.yaml": {Data: []byte("id: t\ntitle: T\nstart: " + ids[0] + "\n")}}
+	fsys := fstest.MapFS{"pack.yaml": {Data: []byte("id: t\nversion: 1.0.0\ntitle: T\nstart: " + ids[0] + "\n")}}
 	for id, src := range rooms {
 		fsys["rooms/"+id+".yaml"] = &fstest.MapFile{Data: []byte("id: " + id + "\ntitle: " + strings.ToUpper(id) + "\ndescription: Room " + id + ".\nscript: " + id + ".lua\n")}
 		fsys["scripts/"+id+".lua"] = &fstest.MapFile{Data: []byte(src)}

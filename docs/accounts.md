@@ -12,8 +12,8 @@ Set in `.env` like the resource limits ([admin-limits.md](admin-limits.md)). An 
 | `TALESPEAK_REGISTRATION` | `self`, `off` | `self`; `off` in edu mode | `self`: anyone can make an account on the sign-in page. `off`: only an admin makes accounts, with the command line |
 | `TALESPEAK_WORLD_ACCESS` | `open`, `invite` | `open`; always `invite` in edu mode (`open` is refused) | The server's main world: `open` makes it public, `invite` private (only members play, who joined with a code; admins always can) |
 | `TALESPEAK_CREATE_WORLDS` | `everyone`, `gm` | `everyone`; `gm` when `TALESPEAK_WORLD_ACCESS=invite`, so a server kept closed stays closed; always `gm` in edu mode (`everyone` is refused) | Who may create worlds in the lobby: every account, or only admins and the game masters of a world |
-| `TALESPEAK_PACK` | a folder | the built-in demo | The pack of the server's main world |
-| `TALESPEAK_PACKS` | a folder | none | Every folder in it with a `pack.yaml` is a pack worlds can be created from, next to the main world's pack and the demo. Two packs with one id stop the server; a pack with the demo's id replaces it |
+| `TALESPEAK_PACK` | a folder | the built-in demo | The pack of the server's main world, which runs its newest installed version |
+| `TALESPEAK_PACKS` | a folder | none | Every folder in it with a `pack.yaml` is a pack worlds can be created from, next to the main world's pack and the demo. Several versions of one pack can sit side by side, one folder each ([pack-versions.md](pack-versions.md)); two folders with the same id and version stop the server, and one with the demo's id and version replaces the built-in demo |
 | `TALESPEAK_SIGNIN_BURST` | 1 to 1000000 | `40` | Registrations, sign-ins and invite codes one address may try at once (see [admin-limits.md](admin-limits.md)) |
 
 Registering never lets anyone into a private world: a new account sees only the public worlds, and in edu mode none, until it types a join code. In edu mode that holds whatever the other settings say.

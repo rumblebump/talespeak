@@ -36,6 +36,28 @@ func (ws *worlds) World(_ context.Context, id int64) (store.World, error) {
 	return w, nil
 }
 
+func (ws *worlds) SetPackVersion(_ context.Context, id int64, version string) error {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	w, ok := ws.m[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	w.PackVersion = version
+	ws.m[id] = w
+	return nil
+}
+
+// catalog is the catalog of packs, or fails the test.
+func catalog(t *testing.T, packs ...*pack.Pack) *pack.Catalog {
+	t.Helper()
+	c, err := pack.NewCatalog(packs...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
 func (ws *worlds) finish(id int64) {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
@@ -65,7 +87,7 @@ func newFixture(t *testing.T, maxLoaded int) *fixture {
 		3: {ID: 3, PackID: "test-pack"},
 		9: {ID: 9, PackID: "removed"},
 	}}
-	f.hub = New(Config{Store: f.st, Packs: map[string]*pack.Pack{"test-pack": p}, MaxLoaded: maxLoaded, Idle: time.Minute, Log: quiet,
+	f.hub = New(Config{Store: f.st, Packs: catalog(t, p), MaxLoaded: maxLoaded, Idle: time.Minute, Log: quiet,
 		Now: func() time.Time { return f.now },
 		Load: func(w store.World, p *pack.Pack) (*game.World, error) {
 			f.loads.Add(1)

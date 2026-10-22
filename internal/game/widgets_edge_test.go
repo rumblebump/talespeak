@@ -26,7 +26,7 @@ func itemWorld(t *testing.T, items, src string) *World {
 		room += "items:\n" + items
 	}
 	fsys := fstest.MapFS{
-		"pack.yaml":      {Data: []byte("id: t\ntitle: T\nstart: r\n")},
+		"pack.yaml":      {Data: []byte("id: t\nversion: 1.0.0\ntitle: T\nstart: r\n")},
 		"rooms/r.yaml":   {Data: []byte(room)},
 		"assets/pic.png": {Data: []byte("\x89PNG\r\n\x1a\n0000")},
 	}
@@ -305,7 +305,7 @@ func TestLeaveDuringSelectAndAsk(t *testing.T) {
 func TestImageUnknownName(t *testing.T) {
 	w := itemWorld(t, "", `function on_enter() ui.image("pic.png", "ok") ui.image("../pack.yaml") end`)
 	_, first := w.NewSession("", ws.Who{})
-	if kinds(first) != "image: error:" || first[0].URL != "/packs/t/assets/pic.png" || first[0].Text != "ok" || strings.Contains(first[1].Message, "pack.yaml") {
+	if kinds(first) != "image: error:" || first[0].URL != "/packs/t/1.0.0/assets/pic.png" || first[0].Text != "ok" || strings.Contains(first[1].Message, "pack.yaml") {
 		t.Errorf("first = %+v", first)
 	}
 }
@@ -359,7 +359,7 @@ func FuzzWidgets(f *testing.F) {
 	f.Add("input", "", "", 0, []byte{}, " \n ")
 	f.Add("input", "", "", 0, []byte{}, "ask")
 	p, err := pack.Load(fstest.MapFS{
-		"pack.yaml":    {Data: []byte("id: t\ntitle: T\nstart: r\n")},
+		"pack.yaml":    {Data: []byte("id: t\nversion: 1.0.0\ntitle: T\nstart: r\n")},
 		"rooms/r.yaml": {Data: []byte("id: r\ntitle: R\ndescription: A room.\nscript: r.lua\nitems:\n  - {id: box, label: box}\n  - {id: sel, label: sel}\n")},
 		"scripts/r.lua": {Data: []byte(`
 function on_click(player, id)

@@ -106,7 +106,7 @@ func TestUnknownMessage(t *testing.T) {
 
 func packWith(script string) *pack.Pack {
 	fsys := fstest.MapFS{
-		"pack.yaml":     {Data: []byte("id: t\ntitle: T\nstart: r\n")},
+		"pack.yaml":     {Data: []byte("id: t\nversion: 1.0.0\ntitle: T\nstart: r\n")},
 		"rooms/r.yaml":  {Data: []byte("id: r\ntitle: R\ndescription: A room.\nscript: r.lua\n")},
 		"scripts/r.lua": {Data: []byte(script)},
 	}
@@ -149,7 +149,7 @@ func TestBadScriptFailsWorld(t *testing.T) {
 
 func TestRoomWithoutScriptIsDescribed(t *testing.T) {
 	fsys := fstest.MapFS{
-		"pack.yaml":    {Data: []byte("id: t\ntitle: T\nstart: r\n")},
+		"pack.yaml":    {Data: []byte("id: t\nversion: 1.0.0\ntitle: T\nstart: r\n")},
 		"rooms/r.yaml": {Data: []byte("id: r\ntitle: R\ndescription: A room.\n")},
 	}
 	p, err := pack.Load(fsys)

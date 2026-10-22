@@ -83,9 +83,13 @@ type Config struct {
 	Create string
 	// Home is the server's main world, which the lobby never ends.
 	Home int64
-	// Packs are the packs worlds can be created from, and the packs of the
-	// worlds that can be played.
+	// Packs are the packs worlds can be created from: the version new
+	// worlds start on of each pack id.
 	Packs []Pack
+	// Runs returns the pack version world w runs, or the reason its
+	// players are told when none installed can (hub.Hub.Pack). Nil looks
+	// w's pack up in Packs by id.
+	Runs func(w store.World) (Pack, error)
 	// Live tells how many players are online in a world and ends a world
 	// that is loaded; nil when no world is ever loaded (tests).
 	Live Live
@@ -164,6 +168,15 @@ func New(cfg Config) *Service {
 	packs := map[string]Pack{}
 	for _, p := range cfg.Packs {
 		packs[p.ID] = p
+	}
+	if cfg.Runs == nil {
+		cfg.Runs = func(w store.World) (Pack, error) {
+			p, ok := packs[w.PackID]
+			if !ok {
+				return Pack{}, errors.New("This world's pack is not installed on this server.")
+			}
+			return p, nil
+		}
 	}
 	return &Service{
 		cfg: cfg, now: now,

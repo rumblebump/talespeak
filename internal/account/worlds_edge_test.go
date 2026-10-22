@@ -327,7 +327,7 @@ func TestLobbyWithHub(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	live.h = hub.New(hub.Config{Store: f.st, Packs: map[string]*pack.Pack{"demo": demo}, Log: quiet,
+	live.h = hub.New(hub.Config{Store: f.st, Packs: mustCatalog(t, demo), Log: quiet,
 		Load: func(w store.World, p *pack.Pack) (*game.World, error) {
 			return game.NewWorld(p, script.DefaultLimits, quiet, game.WithStore(f.st, w.ID))
 		}})
@@ -421,3 +421,13 @@ type errLive struct{ err error }
 
 func (errLive) Online(int64) int                   { return 0 }
 func (l errLive) Finish(int64, func() error) error { return l.err }
+
+// mustCatalog is the catalog of packs, or fails the test.
+func mustCatalog(t *testing.T, packs ...*pack.Pack) *pack.Catalog {
+	t.Helper()
+	c, err := pack.NewCatalog(packs...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}

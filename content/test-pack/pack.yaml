@@ -1,6 +1,7 @@
 # A tiny pack for the browser tests (e2e/): every renderer once.
 # The cellar tests room.go; T-0015 adds a timer and a soundboard.
 id: test-pack
+version: 1.0.0
 title: Test pack
 description: Every renderer once, for the browser tests.
 start: hall

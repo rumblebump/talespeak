@@ -55,7 +55,7 @@ func newFixtureVisibility(t *testing.T, cfg Config, visibility string) *fixture 
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	w, err := st.OpenWorld(ctx, "demo", "")
+	w, err := st.OpenWorld(ctx, "demo", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
