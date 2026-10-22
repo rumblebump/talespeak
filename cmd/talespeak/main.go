@@ -111,14 +111,22 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
-	home, err := db.OpenWorld(ctx, ps.main.ID, packVersion)
+	changed, err := db.RecordPacks(ctx, ps.installed())
+	if err != nil {
+		return fmt.Errorf("installed packs: %w", err)
+	}
+	for _, p := range changed {
+		log.Warn("pack files changed without a new version: worlds run the new files, give each change its own version",
+			"pack", p.ID, "version", p.Version)
+	}
+	home, err := openHome(ctx, db, ps)
 	if err == nil {
 		err = db.SetVisibility(ctx, home.ID, acc.visibility())
 	}
 	if err != nil {
-		return fmt.Errorf("main world of %s: %w", ps.main.ID, err)
+		return fmt.Errorf("main world of %s: %w", ps.mainID, err)
 	}
-	worlds := hub.New(hub.Config{Store: db, Packs: ps.byID(), Home: home.ID, MaxLoaded: lim.loadedWorlds, Idle: lim.worldIdle,
+	worlds := hub.New(hub.Config{Store: db, Packs: ps.cat, Home: home.ID, MaxLoaded: lim.loadedWorlds, Idle: lim.worldIdle,
 		PerClient: lim.worldsPerClient, Log: log,
 		Load: func(w store.World, p *pack.Pack) (*game.World, error) {
 			return game.NewWorld(p, lim.script, log.With("world", w.ID), game.WithClientBudget(lim.luaClientRate, lim.luaClientBurst),
@@ -127,7 +135,13 @@ func serve(args []string) error {
 	defer worlds.Close()
 	go worlds.Run(ctx)
 	accounts := account.New(account.Config{Store: db, Registration: acc.registration, Edu: acc.mode == modeEdu, Create: acc.create, Home: home.ID,
-		Packs: ps.lobby(), Live: worlds, WorldsPerAccount: lim.worldsPerAccount, MaxWorlds: lim.maxWorlds,
+		Packs: ps.lobby(), Live: worlds, Runs: func(w store.World) (account.Pack, error) {
+			p, err := worlds.Pack(w)
+			if err != nil {
+				return account.Pack{}, err
+			}
+			return lobbyPack(p), nil
+		}, WorldsPerAccount: lim.worldsPerAccount, MaxWorlds: lim.maxWorlds,
 		ClientIP: proxies.IP, HTTPS: proxies.HTTPS, AddressBurst: lim.signInBurst, Log: log})
 	sockets := ws.New(version, log, ws.WithClientIP(proxies.IP), ws.WithGame(worlds), ws.WithAuth(accounts.Auth),
 		ws.WithMaxConns(lim.maxConns), ws.WithMaxConnsPerClient(lim.maxConnsPerClient),
@@ -145,7 +159,7 @@ func serve(args []string) error {
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
-	log.Info("talespeak started", "version", version, "listen", *listen, "data", *data, "pack", ps.main.ID, "packs", len(ps.all),
+	log.Info("talespeak started", "version", version, "listen", *listen, "data", *data, "pack", ps.main().Name(), "packs", len(ps.all),
 		"world", home.ID, "mode", acc.mode, "registration", acc.registration, "access", acc.world, "create", acc.create)
 
 	select {

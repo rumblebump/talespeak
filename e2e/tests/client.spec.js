@@ -111,7 +111,7 @@ test("picture popup", async ({ page }) => {
   await expect(picture).toBeVisible();
   await expect(picture.locator("figcaption")).toHaveText("A test square");
   const img = picture.getByRole("img", { name: "A test square" });
-  await expect(img).toHaveAttribute("src", "/packs/test-pack/assets/square.png");
+  await expect(img).toHaveAttribute("src", "/packs/test-pack/1.0.0/assets/square.png");
   await expect.poll(() => img.evaluate((el) => el.naturalWidth)).toBe(16);
   await expect(img).toHaveClass("pixel");
   // ui.items after the picture replaced the items.

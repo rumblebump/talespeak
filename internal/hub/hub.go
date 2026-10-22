@@ -43,9 +43,11 @@ type Config struct {
 	// Store finds the worlds players connect to.
 	Store interface {
 		World(ctx context.Context, world int64) (store.World, error)
+		SetPackVersion(ctx context.Context, world int64, version string) error
 	}
-	// Packs are the installed packs by id.
-	Packs map[string]*pack.Pack
+	// Packs are the installed packs. A world runs the newest version
+	// compatible with the one it recorded (pack.Catalog.Pick).
+	Packs *pack.Catalog
 	Load  Loader
 	// Home is the server's main world: it stays loaded once it is, and
 	// counts against neither MaxLoaded nor PerClient.
@@ -112,6 +114,7 @@ func New(cfg Config) *Hub {
 var (
 	errEnded  = errors.New("This world has ended. Go back to the lobby.")
 	errNoPack = errors.New("This world's pack is not installed on this server.")
+	errNoVer  = errors.New("This world needs another version of its pack than this server has.")
 	errFull   = errors.New("The server has too many worlds open right now. Try again in a few minutes.")
 	errLoad   = errors.New("This world could not be loaded. Try again later.")
 	errClosed = errors.New("The server is shutting down.")
@@ -305,17 +308,42 @@ func (h *Hub) load(id int64) (*game.World, error) {
 		h.cfg.Log.Error("world lookup failed", "world", id, "err", err)
 		return nil, errLoad
 	}
-	p := h.cfg.Packs[wd.PackID]
-	if p == nil {
-		return nil, errNoPack
+	p, err := h.Pack(wd)
+	if err != nil {
+		h.cfg.Log.Warn("world has no pack to run", "world", id, "pack", wd.PackID, "version", wd.PackVersion, "err", err)
+		return nil, err
+	}
+	if p.Version != wd.PackVersion {
+		// Recorded before the world runs it, so a later downgrade of the
+		// pack does not run state a newer version wrote.
+		if err := h.cfg.Store.SetPackVersion(ctx, id, p.Version); err != nil {
+			h.cfg.Log.Error("pack version not recorded", "world", id, "err", err)
+			return nil, errLoad
+		}
+		h.cfg.Log.Info("world moves to a new pack version", "world", id, "pack", p.ID, "from", wd.PackVersion, "to", p.Version)
+		wd.PackVersion = p.Version
 	}
 	w, err := h.cfg.Load(wd, p)
 	if err != nil {
-		h.cfg.Log.Error("world could not load", "world", id, "pack", p.ID, "err", err)
+		h.cfg.Log.Error("world could not load", "world", id, "pack", p.Name(), "err", err)
 		return nil, errLoad
 	}
-	h.cfg.Log.Info("world loaded", "world", id, "pack", p.ID)
+	h.cfg.Log.Info("world loaded", "world", id, "pack", p.ID, "version", p.Version)
 	return w, nil
+}
+
+// Pack returns the pack version world w runs when it loads next, or the
+// error its players are told when no installed version can run it.
+func (h *Hub) Pack(w store.World) (*pack.Pack, error) {
+	p, err := h.cfg.Packs.Pick(w.PackID, w.PackVersion)
+	var nv *pack.NoVersionError
+	switch {
+	case errors.As(err, &nv):
+		return nil, errNoVer
+	case err != nil:
+		return nil, errNoPack
+	}
+	return p, nil
 }
 
 // drop forgets world id when it is still w.

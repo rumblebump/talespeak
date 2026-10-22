@@ -37,7 +37,7 @@ func openStore(t *testing.T, path string) (*sqlite.Store, store.World, []ws.Who)
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	world, err := st.OpenWorld(ctx, "t", "")
+	world, err := st.OpenWorld(ctx, "t", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

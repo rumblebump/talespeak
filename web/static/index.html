@@ -88,7 +88,7 @@
         <label>pack
           <select x-model="newWorld.pack" required>
             <template x-for="p in packs" :key="p.id">
-              <option :value="p.id" x-text="p.title"></option>
+              <option :value="p.id" x-text="packLabel(p)"></option>
             </template>
           </select>
         </label>

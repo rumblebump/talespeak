@@ -32,7 +32,7 @@ type Pack struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
-	Version     string `json:"-"`
+	Version     string `json:"version"`
 }
 
 // Live is what the lobby needs from the worlds that are loaded.
@@ -77,10 +77,14 @@ func (s *Service) get(h func(w http.ResponseWriter, r *http.Request) (any, error
 
 // Card is one world in the lobby, as the account sees it.
 type Card struct {
-	ID          int64     `json:"id"`
-	Title       string    `json:"title"`
-	Pack        string    `json:"pack"`
-	PackTitle   string    `json:"packTitle"`
+	ID        int64  `json:"id"`
+	Title     string `json:"title"`
+	Pack      string `json:"pack"`
+	PackTitle string `json:"packTitle"`
+	Version   string `json:"version,omitempty"` // the pack version it runs; "" when none installed can
+	// Unavailable is why nobody can play it now, when no installed pack
+	// version can run it.
+	Unavailable string    `json:"unavailable,omitempty"`
 	Description string    `json:"description,omitempty"`
 	Visibility  string    `json:"visibility"`
 	GM          string    `json:"gm,omitempty"` // who created it; "" for the main world
@@ -138,14 +142,16 @@ func (s *Service) card(a *store.Account, wi store.WorldInfo) Card {
 	if s.cfg.Edu {
 		c.Visibility = store.VisibilityPrivate
 	}
-	p, installed := s.packs[wi.PackID]
-	if installed {
-		c.PackTitle, c.Description = p.Title, p.Description
+	p, err := s.cfg.Runs(wi.World)
+	if err == nil {
+		c.PackTitle, c.Description, c.Version = p.Title, p.Description, p.Version
+	} else {
+		c.Unavailable = err.Error()
 	}
 	if c.Title == "" {
 		c.Title = c.PackTitle
 	}
-	c.Play = installed && s.mayPlay(a, wi.World, wi.Role)
+	c.Play = s.mayPlay(a, wi.World, wi.Role)
 	c.Invite = s.mayInvite(a, wi.World, wi.Role)
 	c.Finish = s.mayFinish(a, wi.World, wi.Role)
 	return c
@@ -175,7 +181,7 @@ func (s *Service) mayPlay(a *store.Account, w store.World, role string) bool {
 	if w.Finished {
 		return false
 	}
-	if _, ok := s.packs[w.PackID]; !ok {
+	if _, err := s.cfg.Runs(w); err != nil {
 		return false
 	}
 	return a.Role == store.RoleAdmin || role != "" || (!s.cfg.Edu && w.Visibility == store.VisibilityPublic)

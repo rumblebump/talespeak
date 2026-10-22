@@ -12,7 +12,7 @@ import (
 func assetPack(t *testing.T) *pack.Pack {
 	t.Helper()
 	p, err := pack.Load(fstest.MapFS{
-		"pack.yaml":    {Data: []byte("id: t\ntitle: T\nstart: r\n")},
+		"pack.yaml":    {Data: []byte("id: t\nversion: 1.0.0\ntitle: T\nstart: r\n")},
 		"rooms/r.yaml": {Data: []byte("id: r\ntitle: R\ndescription: d\n")},
 		"assets/a.png": {Data: []byte("\x89PNG\r\n\x1a\n0000")},
 	})
@@ -31,14 +31,14 @@ func TestAssetsRoute(t *testing.T) {
 		code         int
 		csp          string
 	}{
-		{http.MethodGet, "/packs/t/assets/a.png", http.StatusOK, "default-src 'none'; sandbox"},
-		{http.MethodHead, "/packs/t/assets/a.png", http.StatusOK, "default-src 'none'; sandbox"},
-		{http.MethodGet, "/packs/t/assets/b.png", http.StatusNotFound, ContentSecurityPolicy},
-		{http.MethodGet, "/packs/x/assets/a.png", http.StatusNotFound, ContentSecurityPolicy},
+		{http.MethodGet, "/packs/t/1.0.0/assets/a.png", http.StatusOK, "default-src 'none'; sandbox"},
+		{http.MethodHead, "/packs/t/1.0.0/assets/a.png", http.StatusOK, "default-src 'none'; sandbox"},
+		{http.MethodGet, "/packs/t/1.0.0/assets/b.png", http.StatusNotFound, ContentSecurityPolicy},
+		{http.MethodGet, "/packs/x/1.0.0/assets/a.png", http.StatusNotFound, ContentSecurityPolicy},
 		{http.MethodGet, "/packs/", http.StatusNotFound, ContentSecurityPolicy},
 		{http.MethodGet, "/packs", http.StatusTemporaryRedirect, ContentSecurityPolicy}, // to /packs/, a 404
-		{http.MethodPost, "/packs/t/assets/a.png", http.StatusMethodNotAllowed, ContentSecurityPolicy},
-		{http.MethodPut, "/packs/t/assets/a.png", http.StatusMethodNotAllowed, ContentSecurityPolicy},
+		{http.MethodPost, "/packs/t/1.0.0/assets/a.png", http.StatusMethodNotAllowed, ContentSecurityPolicy},
+		{http.MethodPut, "/packs/t/1.0.0/assets/a.png", http.StatusMethodNotAllowed, ContentSecurityPolicy},
 	}
 	for _, tt := range tests {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
@@ -70,7 +70,7 @@ func TestAssetsRoute(t *testing.T) {
 
 // Without Options.Assets nothing is served under /packs/.
 func TestNoAssetsRoute(t *testing.T) {
-	rec := get(t, "/packs/t/assets/a.png")
+	rec := get(t, "/packs/t/1.0.0/assets/a.png")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
 	}

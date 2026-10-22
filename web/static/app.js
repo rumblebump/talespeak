@@ -86,6 +86,8 @@ function cleanCard(c) {
     id: Number.isSafeInteger(c.id) && c.id > 0 ? c.id : 0,
     title: text(c.title).slice(0, 80),
     packTitle: text(c.packTitle).slice(0, 120),
+    version: text(c.version).slice(0, 64),
+    unavailable: text(c.unavailable).slice(0, 200),
     description: text(c.description).slice(0, 300),
     visibility: c.visibility === "public" ? "public" : "private",
     gm: text(c.gm).slice(0, 20),
@@ -117,7 +119,7 @@ const speakerName = (v) =>
 /** A picture URL must be a pack image on this server. */
 function imageURL(v) {
   const s = text(v);
-  return /^\/packs\/[a-z0-9][a-z0-9_-]{0,63}\/assets\/[a-z0-9][a-z0-9_-]{0,63}\.(png|jpe?g|gif|webp)$/.test(s) ? s : "";
+  return /^\/packs\/[a-z0-9][a-z0-9_-]{0,63}\/(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]{1,50})?\/assets\/[a-z0-9][a-z0-9_-]{0,63}\.(png|jpe?g|gif|webp)$/.test(s) ? s : "";
 }
 
 function cleanItems(v) {
@@ -238,7 +240,7 @@ function game() {
         this.packs = Array.isArray(l.packs)
           ? l.packs
               .filter((p) => p && typeof p.id === "string")
-              .map((p) => ({ id: p.id, title: text(p.title).slice(0, 120), description: text(p.description).slice(0, 300) }))
+              .map((p) => ({ id: p.id, title: text(p.title).slice(0, 120), description: text(p.description).slice(0, 300), version: text(p.version).slice(0, 64) }))
           : [];
         if (!this.packs.some((p) => p.id === this.newWorld.pack)) this.newWorld.pack = this.packs.length ? this.packs[0].id : "";
       } catch (err) {
@@ -453,6 +455,10 @@ function game() {
     get newPackTitle() {
       return this.newPack ? this.newPack.title : "";
     },
+    // packLabel names a pack and the version new worlds start on.
+    packLabel(p) {
+      return p.version ? p.title + " (" + p.version + ")" : p.title;
+    },
     showPackTitle(card) {
       return card.packTitle !== card.title;
     },
@@ -463,6 +469,7 @@ function game() {
     // since when.
     cardMeta(card) {
       const parts = [];
+      if (card.version) parts.push("version " + card.version);
       if (card.gm) parts.push("GM " + card.gm);
       parts.push(card.players === 1 ? "1 player" : card.players + " players");
       parts.push(card.online + " online now");
@@ -471,7 +478,8 @@ function game() {
       return parts.join(" · ");
     },
     cannotPlay(card) {
-      return card.role || card.visibility === "public" ? "This world's pack is not installed on this server." : "";
+      if (!card.role && card.visibility !== "public") return "";
+      return card.unavailable || "This world's pack is not installed on this server.";
     },
 
     // The game

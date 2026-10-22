@@ -352,7 +352,7 @@ func TestWorldWithoutPack(t *testing.T) {
 func TestFormerMainWorld(t *testing.T) {
 	f := newFixture(t, Config{})
 	ctx := context.Background()
-	now, err := f.st.OpenWorld(ctx, "test-pack", "")
+	now, err := f.st.OpenWorld(ctx, "test-pack", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

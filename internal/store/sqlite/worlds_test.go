@@ -18,7 +18,7 @@ import (
 func TestCreateWorld(t *testing.T) {
 	ctx := context.Background()
 	s := fresh(t)
-	home, _ := s.OpenWorld(ctx, "demo", "")
+	home, _ := s.OpenWorld(ctx, "demo", "", nil)
 	ann := mustAccount(t, s, "Ann", store.RolePlayer)
 	bob := mustAccount(t, s, "Bob", store.RolePlayer)
 	create := func(by store.Account, per, total int) (store.World, error) {
@@ -62,7 +62,7 @@ func TestCreateWorld(t *testing.T) {
 	}
 	// The main world stays the main world: OpenWorld never returns a
 	// created one.
-	if again, err := s.OpenWorld(ctx, "demo", ""); err != nil || again.ID != home.ID || !again.Home {
+	if again, err := s.OpenWorld(ctx, "demo", "", nil); err != nil || again.ID != home.ID || !again.Home {
 		t.Errorf("OpenWorld = %+v, %v; want the main world %d", again, err, home.ID)
 	}
 	if _, err := s.CreateWorld(ctx, store.NewWorld{PackID: "demo", Visibility: "secret", CreatedBy: ann.ID}); err == nil {
@@ -111,7 +111,7 @@ func TestCreateWorldConcurrent(t *testing.T) {
 func TestListWorlds(t *testing.T) {
 	ctx := context.Background()
 	s := fresh(t)
-	home, _ := s.OpenWorld(ctx, "demo", "")
+	home, _ := s.OpenWorld(ctx, "demo", "", nil)
 	if err := s.SetVisibility(ctx, home.ID, store.VisibilityPublic); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestListWorlds(t *testing.T) {
 func TestIsGM(t *testing.T) {
 	ctx := context.Background()
 	s := fresh(t)
-	home, _ := s.OpenWorld(ctx, "demo", "")
+	home, _ := s.OpenWorld(ctx, "demo", "", nil)
 	ann := mustAccount(t, s, "Ann", store.RolePlayer)
 	bob := mustAccount(t, s, "Bob", store.RolePlayer)
 	is := func(a store.Account) bool {
@@ -226,7 +226,7 @@ func TestIsGM(t *testing.T) {
 func TestWorld(t *testing.T) {
 	ctx := context.Background()
 	s := fresh(t)
-	home, _ := s.OpenWorld(ctx, "demo", "1.0")
+	home, _ := s.OpenWorld(ctx, "demo", "1.0", nil)
 	w, err := s.World(ctx, home.ID)
 	if err != nil || w != home || !w.Home || w.PackVersion != "1.0" || w.Visibility != store.VisibilityPrivate {
 		t.Errorf("World = %+v, %v; want %+v", w, err, home)
@@ -280,7 +280,7 @@ func TestMigrateWorldsToLobby(t *testing.T) {
 	db.Close()
 
 	s := open(t, path)
-	w, err := s.OpenWorld(ctx, "demo", "")
+	w, err := s.OpenWorld(ctx, "demo", "", nil)
 	if err != nil || w.ID != 1 || !w.Home || w.Visibility != store.VisibilityPrivate || w.Title != "" || w.CreatedBy != 0 {
 		t.Fatalf("old world after the migration = %+v, %v", w, err)
 	}
@@ -294,7 +294,7 @@ func TestMigrateWorldsToLobby(t *testing.T) {
 func TestInviteCap(t *testing.T) {
 	ctx := context.Background()
 	s := fresh(t)
-	w, _ := s.OpenWorld(ctx, "demo", "")
+	w, _ := s.OpenWorld(ctx, "demo", "", nil)
 	other, err := s.CreateWorld(ctx, store.NewWorld{PackID: "test-pack", Visibility: store.VisibilityPrivate, CreatedBy: mustAccount(t, s, "Ann", store.RolePlayer).ID})
 	if err != nil {
 		t.Fatal(err)

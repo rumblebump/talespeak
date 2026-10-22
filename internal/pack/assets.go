@@ -79,20 +79,22 @@ func loadAssets(fsys fs.FS, p *Pack, limits Limits) []error {
 	return errs
 }
 
-// AssetURL is the path the engine serves the image name at.
+// AssetURL is the path the engine serves the image name at. Each version
+// of a pack has its own, so worlds on two versions show their own images.
 func (p *Pack) AssetURL(name string) string {
-	return "/packs/" + p.ID + "/assets/" + name
+	return "/packs/" + p.ID + "/" + p.Version + "/assets/" + name
 }
 
-// AssetHandler serves the images of packs at /packs/<pack id>/assets/<name>.
+// AssetHandler serves the images of packs at
+// /packs/<pack id>/<version>/assets/<name>.
 func AssetHandler(packs ...*Pack) http.Handler {
 	byID := map[string]*Pack{}
 	for _, p := range packs {
-		byID[p.ID] = p
+		byID[p.ID+"/"+p.Version] = p
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /packs/{pack}/assets/{name}", func(w http.ResponseWriter, r *http.Request) {
-		p := byID[r.PathValue("pack")]
+	mux.HandleFunc("GET /packs/{pack}/{version}/assets/{name}", func(w http.ResponseWriter, r *http.Request) {
+		p := byID[r.PathValue("pack")+"/"+r.PathValue("version")]
 		if p == nil {
 			http.NotFound(w, r)
 			return

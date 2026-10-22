@@ -178,7 +178,7 @@ func TestNewSessionReloadsClosedWorld(t *testing.T) {
 func TestNewSessionGivesUp(t *testing.T) {
 	p := testPack(t)
 	var loads atomic.Int32
-	h := New(Config{Store: newStore(), Packs: map[string]*pack.Pack{"test-pack": p}, Log: quiet,
+	h := New(Config{Store: newStore(), Packs: catalog(t, p), Log: quiet,
 		Load: func(store.World, *pack.Pack) (*game.World, error) {
 			loads.Add(1)
 			w, err := game.NewWorld(p, script.DefaultLimits, quiet)
@@ -204,9 +204,13 @@ func (failingWorlds) World(context.Context, int64) (store.World, error) {
 	return store.World{}, errors.New("disk on fire")
 }
 
+func (failingWorlds) SetPackVersion(context.Context, int64, string) error {
+	return errors.New("disk on fire")
+}
+
 // A store that fails is errLoad, not errEnded, and nothing stays loaded.
 func TestLoadStoreFailure(t *testing.T) {
-	h := New(Config{Store: failingWorlds{}, Packs: map[string]*pack.Pack{"test-pack": testPack(t)}, Log: quiet,
+	h := New(Config{Store: failingWorlds{}, Packs: catalog(t, testPack(t)), Log: quiet,
 		Load: func(store.World, *pack.Pack) (*game.World, error) {
 			t.Error("loaded without a world")
 			return nil, errors.New("no")
@@ -224,7 +228,7 @@ func TestLoadStoreFailure(t *testing.T) {
 // reports nobody online without waiting for the load.
 func TestLoadingWorld(t *testing.T) {
 	g := newGatedLoader()
-	h := New(Config{Store: newStore(), Packs: map[string]*pack.Pack{"test-pack": testPack(t)}, MaxLoaded: 1, Log: quiet, Load: g.load})
+	h := New(Config{Store: newStore(), Packs: catalog(t, testPack(t)), MaxLoaded: 1, Log: quiet, Load: g.load})
 	defer h.Close()
 	first := joinAsync(h, 1)
 	g.waitStarted(t, 1)
@@ -255,7 +259,7 @@ func TestLoadingWorld(t *testing.T) {
 func TestLoadFailsForWaiters(t *testing.T) {
 	g := newGatedLoader()
 	g.fail = true
-	h := New(Config{Store: newStore(), Packs: map[string]*pack.Pack{"test-pack": testPack(t)}, Log: quiet, Load: g.load})
+	h := New(Config{Store: newStore(), Packs: catalog(t, testPack(t)), Log: quiet, Load: g.load})
 	defer h.Close()
 	a := joinAsync(h, 1)
 	g.waitStarted(t, 1)
@@ -278,7 +282,7 @@ func TestLoadFailsForWaiters(t *testing.T) {
 func TestFinishWhileLoading(t *testing.T) {
 	g := newGatedLoader()
 	st := newStore()
-	h := New(Config{Store: st, Packs: map[string]*pack.Pack{"test-pack": testPack(t)}, Log: quiet, Load: g.load})
+	h := New(Config{Store: st, Packs: catalog(t, testPack(t)), Log: quiet, Load: g.load})
 	defer h.Close()
 	joined := joinAsync(h, 1)
 	g.waitStarted(t, 1)
@@ -324,7 +328,7 @@ func TestFinishWhileLoading(t *testing.T) {
 func TestFinishFailedLoad(t *testing.T) {
 	g := newGatedLoader()
 	g.fail = true
-	h := New(Config{Store: newStore(), Packs: map[string]*pack.Pack{"test-pack": testPack(t)}, Log: quiet, Load: g.load})
+	h := New(Config{Store: newStore(), Packs: catalog(t, testPack(t)), Log: quiet, Load: g.load})
 	defer h.Close()
 	joined := joinAsync(h, 1)
 	g.waitStarted(t, 1)
@@ -344,7 +348,7 @@ func TestFinishFailedLoad(t *testing.T) {
 // triggered the load is told the server is shutting down.
 func TestCloseWhileLoading(t *testing.T) {
 	g := newGatedLoader()
-	h := New(Config{Store: newStore(), Packs: map[string]*pack.Pack{"test-pack": testPack(t)}, Log: quiet, Load: g.load})
+	h := New(Config{Store: newStore(), Packs: catalog(t, testPack(t)), Log: quiet, Load: g.load})
 	joined := joinAsync(h, 1)
 	g.waitStarted(t, 1)
 	closed := make(chan struct{})
@@ -505,7 +509,7 @@ func homeFixture(t *testing.T, cfg Config) (*Hub, *atomic.Int32, *time.Time) {
 	}
 	loads := new(atomic.Int32)
 	now := time.Now()
-	cfg.Store, cfg.Packs, cfg.Log, cfg.Home = st, map[string]*pack.Pack{"test-pack": p}, quiet, 1
+	cfg.Store, cfg.Packs, cfg.Log, cfg.Home = st, catalog(t, p), quiet, 1
 	cfg.Now = func() time.Time { return now }
 	cfg.Load = func(store.World, *pack.Pack) (*game.World, error) {
 		loads.Add(1)

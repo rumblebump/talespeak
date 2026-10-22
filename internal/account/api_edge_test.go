@@ -459,7 +459,7 @@ func TestJoinKeepsHigherRole(t *testing.T) {
 func TestJoinOtherWorldCode(t *testing.T) {
 	f := newInviteFixture(t, Config{})
 	ctx := context.Background()
-	other, err := f.st.OpenWorld(ctx, "test-pack", "")
+	other, err := f.st.OpenWorld(ctx, "test-pack", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

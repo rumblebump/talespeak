@@ -22,7 +22,7 @@ import (
 func limitedRooms(t *testing.T, a, b string, limits script.Limits, opts ...Option) *World {
 	t.Helper()
 	p, err := pack.Load(fstest.MapFS{
-		"pack.yaml":     {Data: []byte("id: t\ntitle: T\nstart: a\n")},
+		"pack.yaml":     {Data: []byte("id: t\nversion: 1.0.0\ntitle: T\nstart: a\n")},
 		"rooms/a.yaml":  {Data: []byte("id: a\ntitle: A\ndescription: Room A.\nscript: a.lua\nitems:\n  - {id: box, label: a box}\n")},
 		"rooms/b.yaml":  {Data: []byte("id: b\ntitle: B\ndescription: Room B.\nscript: b.lua\nitems:\n  - {id: rope, label: a rope}\n")},
 		"rooms/c.yaml":  {Data: []byte("id: c\ntitle: C\ndescription: Room C.\nitems:\n  - {id: key, label: a key}\n")},
@@ -460,7 +460,7 @@ func FuzzRoomGoSession(f *testing.F) {
 		f.Add(s)
 	}
 	p, err := pack.Load(fstest.MapFS{
-		"pack.yaml":     {Data: []byte("id: t\ntitle: T\nstart: a\n")},
+		"pack.yaml":     {Data: []byte("id: t\nversion: 1.0.0\ntitle: T\nstart: a\n")},
 		"rooms/a.yaml":  {Data: []byte("id: a\ntitle: A\ndescription: Room A.\nscript: a.lua\nitems:\n  - {id: box, label: a box}\n")},
 		"rooms/b.yaml":  {Data: []byte("id: b\ntitle: B\ndescription: Room B.\nscript: b.lua\nitems:\n  - {id: rope, label: a rope}\n")},
 		"rooms/c.yaml":  {Data: []byte("id: c\ntitle: C\ndescription: Room C.\nitems:\n  - {id: key, label: a key}\n")},

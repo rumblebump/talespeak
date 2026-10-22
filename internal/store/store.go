@@ -135,6 +135,7 @@ type Store interface {
 
 	Accounts
 	Worlds
+	Packs
 
 	// Close releases the backend's resources.
 	Close() error
@@ -164,13 +165,29 @@ type Accounts interface {
 	DeleteLogin(ctx context.Context, tokenHash []byte) error
 }
 
+// InstalledPack is one version of a pack a server has: Hash is a hash of
+// its files (pack.Pack.Hash).
+type InstalledPack struct {
+	ID, Version, Hash string
+}
+
+// Packs remembers which packs a server has had.
+type Packs interface {
+	// RecordPacks notes the packs installed now and returns those that
+	// were installed before under the same id and version, with other
+	// files: a pack that changed without a new version.
+	RecordPacks(ctx context.Context, packs []InstalledPack) ([]InstalledPack, error)
+}
+
 // Worlds are running games, who may join them, and what their players
 // keep.
 type Worlds interface {
-	// OpenWorld returns the newest unfinished main world of the pack,
-	// creating one when there is none. It records the pack version it now
-	// runs.
-	OpenWorld(ctx context.Context, packID, packVersion string) (World, error)
+	// OpenWorld returns the newest unfinished main world of the pack that
+	// keep accepts by the pack version it recorded (nil accepts any),
+	// creating one that records packVersion when there is none.
+	OpenWorld(ctx context.Context, packID, packVersion string, keep func(recorded string) bool) (World, error)
+	// SetPackVersion records the pack version the world runs now.
+	SetPackVersion(ctx context.Context, world int64, version string) error
 	// SetVisibility changes who may see and play the world.
 	SetVisibility(ctx context.Context, world int64, visibility string) error
 	// CreateWorld adds a world and makes its creator a game master of it,

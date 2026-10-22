@@ -16,7 +16,7 @@ import (
 // pile up instances past MaxRoomInstances (security re-review).
 func TestUndoneMovesKeepNoInstance(t *testing.T) {
 	fs := fstest.MapFS{
-		"pack.yaml":       {Data: []byte("id: t\ntitle: T\nstart: hub\n")},
+		"pack.yaml":       {Data: []byte("id: t\nversion: 1.0.0\ntitle: T\nstart: hub\n")},
 		"rooms/hub.yaml":  {Data: []byte("id: hub\ntitle: H\ndescription: H.\nscript: hub.lua\n")},
 		"scripts/hub.lua": {Data: []byte(`function on_input(p, t) room.go(t) end`)},
 	}

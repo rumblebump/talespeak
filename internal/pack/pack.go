@@ -4,14 +4,18 @@ package pack
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"io/fs"
 	"path"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
@@ -54,8 +58,12 @@ var DefaultLimits = Limits{AssetBytes: 2 << 20, AssetsBytes: 64 << 20}
 
 // Pack is a loaded story pack.
 type Pack struct {
-	ID    string `yaml:"id"`
-	Title string `yaml:"title"`
+	ID string `yaml:"id"`
+	// Version is the pack's semantic version, like 1.2.0. Worlds keep
+	// running on newer versions with the same major version; a new major
+	// version starts new worlds. See docs/pack-versions.md.
+	Version string `yaml:"version"`
+	Title   string `yaml:"title"`
 	// Description is what the lobby shows about the pack; optional.
 	Description string `yaml:"description"`
 	// Start is the room new players enter.
@@ -66,7 +74,15 @@ type Pack struct {
 	// Modules are the sources of lib/<name>.lua by name, what a script's
 	// require(name) runs.
 	Modules map[string]string `yaml:"-"`
+	// V is Version parsed.
+	V Version `yaml:"-"`
+	// Hash is a SHA-256 of every file the engine read from the pack, in
+	// hex: a pack whose files change gets a new hash.
+	Hash string `yaml:"-"`
 }
+
+// Name is the pack's id and version, like demo 1.2.0, for messages.
+func (p *Pack) Name() string { return p.ID + " " + p.Version }
 
 // Room is one place in the story.
 type Room struct {
@@ -104,6 +120,7 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 	}
 
 	p := &Pack{Rooms: map[string]*Room{}, Assets: map[string]*Asset{}, Modules: map[string]string{}}
+	fsys = &hashFS{FS: fsys, sums: map[string][sha256.Size]byte{}}
 	lint, err := decode(fsys, "pack.yaml", p)
 	if err != nil {
 		return nil, err
@@ -111,6 +128,13 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 	errs = append(errs, lint...)
 	if !idPattern.MatchString(p.ID) {
 		fail("pack.yaml", "id %q must be 1 to 64 of a-z, 0-9, _ and -, starting with a letter or digit", p.ID)
+	}
+	if p.Version == "" {
+		fail("pack.yaml", "version is missing: add one like version: 1.0.0")
+	} else if v, err := ParseVersion(p.Version); err != nil {
+		fail("pack.yaml", "%v", err)
+	} else {
+		p.V = v
 	}
 	if err := checkTitle(p.Title); err != nil {
 		fail("pack.yaml", "title: %v", err)
@@ -174,6 +198,7 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
+	p.Hash = fsys.(*hashFS).sum()
 	return p, nil
 }
 
@@ -296,4 +321,84 @@ func checkTitle(s string) error {
 		return fmt.Errorf("must be one line of 1 to %d characters", MaxTitleRunes)
 	}
 	return nil
+}
+
+// hashFS is a file system that keeps a SHA-256 of every file read whole
+// from it, for Pack.Hash.
+type hashFS struct {
+	fs.FS
+	mu   sync.Mutex
+	sums map[string][sha256.Size]byte
+}
+
+func (h *hashFS) Open(name string) (fs.File, error) {
+	f, err := h.FS.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	return &hashFile{File: f, h: h, name: name, sum: sha256.New()}, nil
+}
+
+// Lstat and ReadLink keep fs.Lstat working through the wrapper: without
+// both, it would follow links.
+func (h *hashFS) Lstat(name string) (fs.FileInfo, error) { return fs.Lstat(h.FS, name) }
+func (h *hashFS) ReadLink(name string) (string, error)   { return fs.ReadLink(h.FS, name) }
+
+// Stat keeps fs.Stat working through the wrapper.
+func (h *hashFS) Stat(name string) (fs.FileInfo, error) { return fs.Stat(h.FS, name) }
+
+// ReadDir keeps fs.ReadDir working through the wrapper, and with it the
+// file types its entries report.
+func (h *hashFS) ReadDir(name string) ([]fs.DirEntry, error) { return fs.ReadDir(h.FS, name) }
+
+// Glob keeps fs.Glob working through the wrapper.
+func (h *hashFS) Glob(pattern string) ([]string, error) { return fs.Glob(h.FS, pattern) }
+
+// sum is the hash over the names and hashes of every file read, in name
+// order.
+func (h *hashFS) sum() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	names := make([]string, 0, len(h.sums))
+	for n := range h.sums {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	all := sha256.New()
+	for _, n := range names {
+		s := h.sums[n]
+		fmt.Fprintf(all, "%d:%s\x00", len(n), n)
+		all.Write(s[:])
+	}
+	return hex.EncodeToString(all.Sum(nil))
+}
+
+// hashFile hashes what is read from it; a file read to its end is
+// recorded when it closes.
+type hashFile struct {
+	fs.File
+	h    *hashFS
+	name string
+	sum  hash.Hash
+	eof  bool
+}
+
+func (f *hashFile) Read(b []byte) (int, error) {
+	n, err := f.File.Read(b)
+	f.sum.Write(b[:n])
+	if errors.Is(err, io.EOF) {
+		f.eof = true
+	}
+	return n, err
+}
+
+func (f *hashFile) Close() error {
+	if f.eof {
+		var s [sha256.Size]byte
+		copy(s[:], f.sum.Sum(nil))
+		f.h.mu.Lock()
+		f.h.sums[f.name] = s
+		f.h.mu.Unlock()
+	}
+	return f.File.Close()
 }

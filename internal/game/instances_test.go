@@ -20,7 +20,7 @@ import (
 func chainWorld(t *testing.T, n int) *World {
 	t.Helper()
 	fsys := fstest.MapFS{
-		"pack.yaml":    {Data: []byte("id: t\ntitle: T\nstart: r1\n")},
+		"pack.yaml":    {Data: []byte("id: t\nversion: 1.0.0\ntitle: T\nstart: r1\n")},
 		"rooms/c.yaml": {Data: []byte("id: c\ntitle: C\ndescription: Room C.\nitems:\n  - {id: key, label: a key}\n")},
 	}
 	for i := 1; i <= n; i++ {

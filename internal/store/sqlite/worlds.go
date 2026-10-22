@@ -9,29 +9,43 @@ import (
 	"github.com/rumblebump/talespeak/internal/store"
 )
 
-// OpenWorld returns the newest unfinished main world of the pack, creating
-// one when there is none, and records the pack version it runs now.
-func (s *Store) OpenWorld(ctx context.Context, packID, packVersion string) (store.World, error) {
+// OpenWorld returns the newest unfinished main world of the pack whose
+// recorded version keep accepts (nil accepts any), creating one that
+// records packVersion when there is none. It changes no world's version:
+// the hub records the version a world runs when it loads.
+func (s *Store) OpenWorld(ctx context.Context, packID, packVersion string, keep func(recorded string) bool) (store.World, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return store.World{}, err
 	}
 	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT id, pack_version FROM worlds WHERE pack_id = ? AND home = 1 AND finished_at IS NULL ORDER BY id DESC`, packID)
+	if err != nil {
+		return store.World{}, err
+	}
 	var id int64
-	err = tx.QueryRowContext(ctx, `SELECT id FROM worlds WHERE pack_id = ? AND home = 1 AND finished_at IS NULL ORDER BY id DESC LIMIT 1`, packID).Scan(&id)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
+	for rows.Next() {
+		var wid int64
+		var v string
+		if err := rows.Scan(&wid, &v); err != nil {
+			rows.Close()
+			return store.World{}, err
+		}
+		if keep == nil || keep(v) {
+			id = wid
+			break
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return store.World{}, err
+	}
+	if id == 0 {
 		res, err := tx.ExecContext(ctx, `INSERT INTO worlds (pack_id, pack_version, home) VALUES (?, ?, 1)`, packID, packVersion)
 		if err != nil {
 			return store.World{}, err
 		}
 		if id, err = res.LastInsertId(); err != nil {
-			return store.World{}, err
-		}
-	case err != nil:
-		return store.World{}, err
-	default:
-		if _, err := tx.ExecContext(ctx, `UPDATE worlds SET pack_version = ? WHERE id = ?`, packVersion, id); err != nil {
 			return store.World{}, err
 		}
 	}
@@ -40,6 +54,43 @@ func (s *Store) OpenWorld(ctx context.Context, packID, packVersion string) (stor
 		return store.World{}, err
 	}
 	return w, tx.Commit()
+}
+
+// SetPackVersion records the pack version the world runs now.
+func (s *Store) SetPackVersion(ctx context.Context, world int64, version string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE worlds SET pack_version = ? WHERE id = ?`, version, world)
+	if err != nil {
+		return err
+	}
+	return oneRow(res)
+}
+
+// RecordPacks notes the packs installed now and returns those installed
+// before with the same id and version but another hash.
+func (s *Store) RecordPacks(ctx context.Context, packs []store.InstalledPack) ([]store.InstalledPack, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var changed []store.InstalledPack
+	for _, p := range packs {
+		var had string
+		err := tx.QueryRowContext(ctx, `SELECT hash FROM installed_packs WHERE pack_id = ? AND version = ?`, p.ID, p.Version).Scan(&had)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
+			return nil, err
+		case had != p.Hash:
+			changed = append(changed, p)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO installed_packs (pack_id, version, hash) VALUES (?, ?, ?)
+			ON CONFLICT (pack_id, version) DO UPDATE SET hash = excluded.hash, last_seen = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+			p.ID, p.Version, p.Hash); err != nil {
+			return nil, err
+		}
+	}
+	return changed, tx.Commit()
 }
 
 // SetVisibility changes who may see and play the world.

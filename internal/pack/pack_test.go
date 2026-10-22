@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	goodPack = "id: t\ntitle: T\nstart: r\n"
+	goodPack = "id: t\nversion: 1.0.0\ntitle: T\nstart: r\n"
 	goodRoom = "id: r\ntitle: R\ndescription: A room.\n"
 )
 
@@ -86,20 +86,20 @@ func TestLoadErrors(t *testing.T) {
 		{"empty pack.yaml", map[string]*string{"pack.yaml": s("")}, []string{"pack.yaml"}},
 		{"pack unknown field", map[string]*string{"pack.yaml": s(goodPack + "author: x\n")}, []string{"pack.yaml", "author"}},
 		{"pack two documents", map[string]*string{"pack.yaml": s(goodPack + "---\nid: u\n")}, []string{"pack.yaml", "one YAML document"}},
-		{"pack wrong type", map[string]*string{"pack.yaml": s("id: [a]\ntitle: T\nstart: r\n")}, []string{"pack.yaml"}},
+		{"pack wrong type", map[string]*string{"pack.yaml": s("id: [a]\nversion: 1.0.0\ntitle: T\nstart: r\n")}, []string{"pack.yaml"}},
 		{"pack too large", map[string]*string{"pack.yaml": s(goodPack + "# " + long(MaxYAMLBytes) + "\n")}, []string{"pack.yaml", "larger than"}},
-		{"pack id empty", map[string]*string{"pack.yaml": s("id: \"\"\ntitle: T\nstart: r\n")}, []string{"pack.yaml", "id"}},
-		{"pack id upper case", map[string]*string{"pack.yaml": s("id: Demo\ntitle: T\nstart: r\n")}, []string{"pack.yaml", `"Demo"`}},
-		{"pack id too long", map[string]*string{"pack.yaml": s("id: " + long(65) + "\ntitle: T\nstart: r\n")}, []string{"pack.yaml", "id"}},
-		{"pack id with dot", map[string]*string{"pack.yaml": s("id: a.b\ntitle: T\nstart: r\n")}, []string{"pack.yaml", "id"}},
-		{"pack id with slash", map[string]*string{"pack.yaml": s("id: a/b\ntitle: T\nstart: r\n")}, []string{"pack.yaml", "id"}},
+		{"pack id empty", map[string]*string{"pack.yaml": s("id: \"\"\nversion: 1.0.0\ntitle: T\nstart: r\n")}, []string{"pack.yaml", "id"}},
+		{"pack id upper case", map[string]*string{"pack.yaml": s("id: Demo\nversion: 1.0.0\ntitle: T\nstart: r\n")}, []string{"pack.yaml", `"Demo"`}},
+		{"pack id too long", map[string]*string{"pack.yaml": s("id: " + long(65) + "\nversion: 1.0.0\ntitle: T\nstart: r\n")}, []string{"pack.yaml", "id"}},
+		{"pack id with dot", map[string]*string{"pack.yaml": s("id: a.b\nversion: 1.0.0\ntitle: T\nstart: r\n")}, []string{"pack.yaml", "id"}},
+		{"pack id with slash", map[string]*string{"pack.yaml": s("id: a/b\nversion: 1.0.0\ntitle: T\nstart: r\n")}, []string{"pack.yaml", "id"}},
 		{"pack title missing", map[string]*string{"pack.yaml": s("id: t\nstart: r\n")}, []string{"pack.yaml", "title"}},
 		{"pack title blank", map[string]*string{"pack.yaml": s("id: t\ntitle: \"  \"\nstart: r\n")}, []string{"pack.yaml", "title"}},
 		{"pack title two lines", map[string]*string{"pack.yaml": s("id: t\ntitle: \"a\\nb\"\nstart: r\n")}, []string{"pack.yaml", "title"}},
 		{"pack title carriage return", map[string]*string{"pack.yaml": s("id: t\ntitle: \"a\\rb\"\nstart: r\n")}, []string{"pack.yaml", "title"}},
 		{"pack title 121 characters", map[string]*string{"pack.yaml": s("id: t\ntitle: " + strings.Repeat("é", 121) + "\nstart: r\n")}, []string{"pack.yaml", "title"}},
 		{"start missing", map[string]*string{"pack.yaml": s("id: t\ntitle: T\n")}, []string{"pack.yaml", "start is missing"}},
-		{"start unknown", map[string]*string{"pack.yaml": s("id: t\ntitle: T\nstart: nowhere\n")}, []string{"pack.yaml", `"nowhere"`}},
+		{"start unknown", map[string]*string{"pack.yaml": s("id: t\nversion: 1.0.0\ntitle: T\nstart: nowhere\n")}, []string{"pack.yaml", `"nowhere"`}},
 		{"no rooms", map[string]*string{"rooms/r.yaml": nil}, []string{"pack.yaml", `start room "r"`}},
 		{"room unknown field", map[string]*string{"rooms/r.yaml": s(goodRoom + "exits: [north]\n")}, []string{"rooms/r.yaml", "exits"}},
 		{"room two documents", map[string]*string{"rooms/r.yaml": s(goodRoom + "---\n" + goodRoom)}, []string{"rooms/r.yaml", "one YAML document"}},
@@ -174,7 +174,7 @@ func TestLoadModules(t *testing.T) {
 
 func TestLoadLimitsAreInclusive(t *testing.T) {
 	p, err := Load(fsWith(map[string]*string{
-		"pack.yaml":     s("id: " + strings.Repeat("a", 64) + "\ntitle: " + strings.Repeat("é", MaxTitleRunes) + "\nstart: " + strings.Repeat("b", 64) + "\n"),
+		"pack.yaml":     s("id: " + strings.Repeat("a", 64) + "\nversion: 1.0.0\ntitle: " + strings.Repeat("é", MaxTitleRunes) + "\nstart: " + strings.Repeat("b", 64) + "\n"),
 		"rooms/r.yaml":  s("id: " + strings.Repeat("b", 64) + "\ntitle: " + strings.Repeat("x", MaxTitleRunes) + "\ndescription: " + strings.Repeat("d", MaxDescriptionBytes) + "\nscript: r.lua\n"),
 		"scripts/r.lua": s(strings.Repeat("-", MaxScriptBytes)),
 	}))
@@ -195,7 +195,7 @@ func TestLoadLimitsAreInclusive(t *testing.T) {
 // Every problem is reported, each with its file, in one error.
 func TestLoadReportsEveryProblem(t *testing.T) {
 	_, err := Load(fsWith(map[string]*string{
-		"pack.yaml":    s("id: BAD\ntitle: \"\"\nstart: r\n"),
+		"pack.yaml":    s("id: BAD\nversion: 1.0.0\ntitle: \"\"\nstart: r\n"),
 		"rooms/a.yaml": s("id: a\ntitle: A\ndescription: \"\"\n"),
 		"rooms/b.yaml": s("id: b\ntitle: B\ndescription: d\nscript: missing.lua\n"),
 		"rooms/c.yaml": s("id: c\nbogus: 1\n"),
@@ -257,14 +257,14 @@ func TestLoadAliasBomb(t *testing.T) {
 // it accepts must follow the rules in docs/content-format.md.
 func FuzzLoad(f *testing.F) {
 	f.Add(goodPack, goodRoom+"script: r.lua\n", "x = 1")
-	f.Add("id: t\ntitle: T\nstart: r\n---\n", "id: r\ntitle: R\ndescription: >-\n  a\n  b\n", "")
+	f.Add("id: t\nversion: 1.0.0\ntitle: T\nstart: r\n---\n", "id: r\ntitle: R\ndescription: >-\n  a\n  b\n", "")
 	f.Add("{id: t, title: T, start: r}", "{id: r, title: R, description: d, script: ../r.lua}", "")
-	f.Add("id: &a t\ntitle: *a\nstart: r\n", "id: r\ntitle: R\ndescription: !!binary aGk=\n", "")
+	f.Add("id: &a t\nversion: 1.0.0\ntitle: *a\nstart: r\n", "id: r\ntitle: R\ndescription: !!binary aGk=\n", "")
 	f.Add(goodPack, "id: r\ntitle: R\ndescription: !!binary aHR0cHM6Ly94LmV4YW1wbGU=\n", "")
 	f.Add(goodPack, goodRoom+"items:\n  - {id: straw, label: heap of straw}\n  - {id: door, label: \"a\\nb\"}\n", "")
 	f.Add(goodPack, goodRoom+"items: [{id: a, label: x}, {id: a, label: y}]\n", "")
 	// Pack lint: references in values, keys, comments and script literals.
-	f.Add("id: t\ntitle: www.x.example\nstart: r\n", goodRoom+"# https://ok.example\n", "")
+	f.Add("id: t\nversion: 1.0.0\ntitle: www.x.example\nstart: r\n", goodRoom+"# https://ok.example\n", "")
 	f.Add(goodPack, "id: r\ntitle: R\ndescription: |\n  a\n  //cdn.example/x\n", "")
 	f.Add(goodPack, "id: r\ntitle: R\ndescription: \"\\x68ttps://x\"\nscript: r.lua\n", "-- https://ok\r\nsay([==[\nwss://x]==])")
 	f.Add(goodPack, goodRoom+"script: r.lua\n", "say(\"\\104ttps:\\47/x\") --[[ www.ok.example ]]")
