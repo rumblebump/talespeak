@@ -75,10 +75,10 @@ func TestLintYAML(t *testing.T) {
 }
 
 func TestLintYAMLKeysAndPackFile(t *testing.T) {
-	pk := "id: t\ntitle: Visit www.example.com\nstart: r\n"
+	pk := "id: t\nversion: 1.0.0\ntitle: Visit www.example.com\nstart: r\n"
 	_, err := Load(fsWith(map[string]*string{"pack.yaml": &pk}))
-	if err == nil || !strings.Contains(err.Error(), "pack.yaml:2:") {
-		t.Fatalf("err = %v, want pack.yaml:2", err)
+	if err == nil || !strings.Contains(err.Error(), "pack.yaml:3:") {
+		t.Fatalf("err = %v, want pack.yaml:3", err)
 	}
 	if got := lintYAML("x.yaml", []byte("? https://key.example\n: v\n")); len(got) != 1 {
 		t.Errorf("key with a URL: %v", got)

@@ -13,7 +13,7 @@ import (
 func moduleWorld(t *testing.T, lib string) (*World, error) {
 	t.Helper()
 	p, err := pack.Load(fstest.MapFS{
-		"pack.yaml":     {Data: []byte("id: t\ntitle: T\nstart: a\n")},
+		"pack.yaml":     {Data: []byte("id: t\nversion: 1.0.0\ntitle: T\nstart: a\n")},
 		"rooms/a.yaml":  {Data: []byte("id: a\ntitle: A\ndescription: A.\nscript: a.lua\n")},
 		"rooms/b.yaml":  {Data: []byte("id: b\ntitle: B\ndescription: B.\nscript: b.lua\n")},
 		"scripts/a.lua": {Data: []byte(`local g = require("greet") function on_enter() say(g.hi("a")) end function on_input() room.go("b") end`)},

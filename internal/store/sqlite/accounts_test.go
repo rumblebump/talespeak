@@ -215,19 +215,27 @@ func TestLoginAccountExpiry(t *testing.T) {
 func TestOpenWorld(t *testing.T) {
 	ctx := context.Background()
 	s := fresh(t)
-	w, err := s.OpenWorld(ctx, "demo", "1.0")
+	w, err := s.OpenWorld(ctx, "demo", "1.0", nil)
 	if err != nil || w.ID == 0 || w.PackID != "demo" || w.PackVersion != "1.0" {
 		t.Fatalf("OpenWorld = %+v, %v", w, err)
 	}
-	again, err := s.OpenWorld(ctx, "demo", "1.1")
-	if err != nil || again.ID != w.ID || again.PackVersion != "1.1" {
-		t.Errorf("OpenWorld again = %+v, %v; want world %d at 1.1", again, err, w.ID)
+	// OpenWorld leaves the version as it is: the hub records the version
+	// a world runs when it loads.
+	again, err := s.OpenWorld(ctx, "demo", "1.1", nil)
+	if err != nil || again.ID != w.ID || again.PackVersion != "1.0" {
+		t.Errorf("OpenWorld again = %+v, %v; want world %d at 1.0", again, err, w.ID)
+	}
+	if err := s.SetPackVersion(ctx, w.ID, "1.1"); err != nil {
+		t.Fatal(err)
 	}
 	var v string
 	if err := s.db.QueryRowContext(ctx, `SELECT pack_version FROM worlds WHERE id = ?`, w.ID).Scan(&v); err != nil || v != "1.1" {
 		t.Errorf("stored version = %q, %v", v, err)
 	}
-	other, err := s.OpenWorld(ctx, "other", "")
+	if err := s.SetPackVersion(ctx, 999, "1.1"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("SetPackVersion of no world: %v", err)
+	}
+	other, err := s.OpenWorld(ctx, "other", "", nil)
 	if err != nil || other.ID == w.ID {
 		t.Errorf("another pack = %+v, %v; want its own world", other, err)
 	}
@@ -239,8 +247,8 @@ func TestFinishWorld(t *testing.T) {
 	ctx := context.Background()
 	s := fresh(t)
 	a := mustAccount(t, s, "Mira", store.RolePlayer)
-	w, _ := s.OpenWorld(ctx, "demo", "")
-	other, _ := s.OpenWorld(ctx, "other", "")
+	w, _ := s.OpenWorld(ctx, "demo", "", nil)
+	other, _ := s.OpenWorld(ctx, "other", "", nil)
 	c, err := s.Character(ctx, w.ID, a.ID, "Mira")
 	if err != nil {
 		t.Fatal(err)
@@ -292,7 +300,7 @@ func TestFinishWorld(t *testing.T) {
 		t.Errorf("FinishWorld(unknown) = %v, want ErrNotFound", err)
 	}
 
-	next, err := s.OpenWorld(ctx, "demo", "")
+	next, err := s.OpenWorld(ctx, "demo", "", nil)
 	if err != nil || next.ID <= other.ID || next.ID == w.ID {
 		t.Fatalf("OpenWorld after finish = %+v, %v; want a new id after %d", next, err, other.ID)
 	}
@@ -312,7 +320,7 @@ func TestMembers(t *testing.T) {
 	ctx := context.Background()
 	s := fresh(t)
 	a := mustAccount(t, s, "Mira", store.RolePlayer)
-	w, _ := s.OpenWorld(ctx, "demo", "")
+	w, _ := s.OpenWorld(ctx, "demo", "", nil)
 	if _, err := s.Member(ctx, w.ID, a.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("Member before AddMember = %v, want ErrNotFound", err)
 	}
@@ -335,7 +343,7 @@ func TestMembers(t *testing.T) {
 func TestRedeemInvite(t *testing.T) {
 	ctx := context.Background()
 	s := fresh(t)
-	w, _ := s.OpenWorld(ctx, "demo", "")
+	w, _ := s.OpenWorld(ctx, "demo", "", nil)
 	gm := mustAccount(t, s, "Gwen", store.RolePlayer)
 	p1 := mustAccount(t, s, "Ann", store.RolePlayer)
 	p2 := mustAccount(t, s, "Bob", store.RolePlayer)
@@ -398,7 +406,7 @@ func TestRedeemInvite(t *testing.T) {
 	}
 
 	// A code joins its own world, never another.
-	other, _ := s.OpenWorld(ctx, "other", "")
+	other, _ := s.OpenWorld(ctx, "other", "", nil)
 	if err := s.CreateInvite(ctx, store.Invite{CodeHash: hashOf("there"), WorldID: other.ID, Role: store.MemberPlayer, Uses: 1, Expires: now.Add(time.Hour)}, now); err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +428,7 @@ func TestRedeemInvite(t *testing.T) {
 func TestCreateInvitePrunes(t *testing.T) {
 	ctx := context.Background()
 	s := fresh(t)
-	w, _ := s.OpenWorld(ctx, "demo", "")
+	w, _ := s.OpenWorld(ctx, "demo", "", nil)
 	a := mustAccount(t, s, "Ann", store.RolePlayer)
 	for _, inv := range []store.Invite{
 		{CodeHash: hashOf("old"), WorldID: w.ID, Role: store.MemberPlayer, Uses: 1, Expires: time.Now().Add(-time.Minute)},
@@ -458,7 +466,7 @@ func TestCreateInvitePrunes(t *testing.T) {
 func TestRedeemInviteConcurrent(t *testing.T) {
 	ctx := context.Background()
 	s := fresh(t)
-	w, _ := s.OpenWorld(ctx, "demo", "")
+	w, _ := s.OpenWorld(ctx, "demo", "", nil)
 	const n = 8
 	var accs []store.Account
 	for i := range n {
@@ -504,7 +512,7 @@ func TestRedeemInviteConcurrent(t *testing.T) {
 func TestCharacter(t *testing.T) {
 	ctx := context.Background()
 	s := fresh(t)
-	w, _ := s.OpenWorld(ctx, "demo", "")
+	w, _ := s.OpenWorld(ctx, "demo", "", nil)
 	a := mustAccount(t, s, "Mira", store.RolePlayer)
 	b := mustAccount(t, s, "Zed", store.RolePlayer)
 	c, err := s.Character(ctx, w.ID, a.ID, "Mira")
@@ -538,7 +546,7 @@ func TestCharacter(t *testing.T) {
 func TestSave(t *testing.T) {
 	ctx := context.Background()
 	s := fresh(t)
-	w, _ := s.OpenWorld(ctx, "demo", "")
+	w, _ := s.OpenWorld(ctx, "demo", "", nil)
 	a := mustAccount(t, s, "Mira", store.RolePlayer)
 	c, _ := s.Character(ctx, w.ID, a.ID, "Mira")
 	room := func() string {

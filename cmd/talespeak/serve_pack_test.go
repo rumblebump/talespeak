@@ -64,7 +64,7 @@ func TestServeRefusesBadConfig(t *testing.T) {
 }
 
 // TALESPEAK_PACK runs that folder's main world instead of the demo's, and
-// its images are served under /packs/<id>/assets/.
+// its images are served under /packs/<id>/1.0.0/assets/.
 func TestServeRunsTalespeakPack(t *testing.T) {
 	integration(t)
 	dir, err := filepath.Abs("../../content/test-pack")
@@ -89,7 +89,7 @@ func TestServeRunsTalespeakPack(t *testing.T) {
 		}
 	}
 
-	resp, err := http.Get("http://" + addr + "/packs/test-pack/assets/square.png")
+	resp, err := http.Get("http://" + addr + "/packs/test-pack/1.0.0/assets/square.png")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestServeRunsTalespeakPack(t *testing.T) {
 		t.Errorf("square.png = %d %q, %d bytes", resp.StatusCode, resp.Header.Get("Content-Type"), len(body))
 	}
 	// The demo stays installed, for new worlds.
-	if resp, err := http.Get("http://" + addr + "/packs/demo/assets/wall-map-clear.png"); err != nil || resp.StatusCode != http.StatusOK {
+	if resp, err := http.Get("http://" + addr + "/packs/demo/1.0.0/assets/wall-map-clear.png"); err != nil || resp.StatusCode != http.StatusOK {
 		t.Errorf("the demo's image next to TALESPEAK_PACK: %v %v", resp.Status, err)
 	} else {
 		resp.Body.Close()

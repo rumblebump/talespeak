@@ -49,7 +49,7 @@ An item is `{"id": "straw", "label": "heap of straw"}`. `speak`, `hide` and `fro
 
 A question's `id` is valid until it is answered: an answer with an older `id`, the wrong kind of answer, an option out of range, or a number of choices outside `min` to `max` gets an `error` and the question stays open; an option or answer the open question refuses (or one sent while the address used up its script time) gets an `error` with that question's `id`. An `error` without `id` after an answer means the question is gone, for example because the script failed. While a question is open, `input` and `click` get an `error` ("Answer the open question first."). `input` and `answer` take at most 500 bytes; control characters become spaces and the text is trimmed. When the room has no `on_input` or `on_click`, the answer is the text "Nothing happens.".
 
-Text fields are plain text: clients show them with `textContent` or `x-text`, never as HTML. An image `url` always has the form `/packs/<pack id>/assets/<file>` on the same server; the client refuses any other.
+Text fields are plain text: clients show them with `textContent` or `x-text`, never as HTML. An image `url` always has the form `/packs/<pack id>/<version>/assets/<file>` on the same server; the client refuses any other.
 
 Playing the demo:
 
@@ -74,14 +74,14 @@ Playing the demo:
 < {"type":"text","text":"You step back from the door. The guard yawns."}
 > {"type":"click","item":"scratches"}
 < {"type":"text","text":"You roll 14: in the dim light the scratches turn into a map."}
-< {"type":"image","text":"A map scratched into the wall. An X marks the end of the corridor.","url":"/packs/demo/assets/wall-map-clear.png"}
+< {"type":"image","text":"A map scratched into the wall. An X marks the end of the corridor.","url":"/packs/demo/1.0.0/assets/wall-map-clear.png"}
 ```
 
 The demo's exchange is checked byte for byte by `TestDemoMatchesProtocolDoc` (the dice roll aside).
 
 ## Pack images
 
-`GET /packs/<pack id>/assets/<file>` serves a pack's images (PNG, JPEG, GIF, WebP) with their checked media type, an `ETag`, `Cache-Control: public, max-age=300` and `Content-Security-Policy: default-src 'none'; sandbox`. Anything else under `/packs/` is 404.
+`GET /packs/<pack id>/<version>/assets/<file>` serves a pack's images (PNG, JPEG, GIF, WebP) with their checked media type, an `ETag`, `Cache-Control: public, max-age=300` and `Content-Security-Policy: default-src 'none'; sandbox`. Anything else under `/packs/` is 404.
 
 When the server shuts down it closes connections with 1001 (going away); the client reconnects with backoff (1 s doubling to 30 s), and asks `/api/me` first, so a sign-in that ended shows the sign-in page instead of retrying.
 

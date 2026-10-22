@@ -29,7 +29,7 @@ func roomsWorld(t *testing.T, a, b string) *World {
 // roomsFS is the pack of roomsWorld.
 func roomsFS(a, b string) fstest.MapFS {
 	return fstest.MapFS{
-		"pack.yaml":     {Data: []byte("id: t\ntitle: T\nstart: a\n")},
+		"pack.yaml":     {Data: []byte("id: t\nversion: 1.0.0\ntitle: T\nstart: a\n")},
 		"rooms/a.yaml":  {Data: []byte("id: a\ntitle: A\ndescription: Room A.\nscript: a.lua\nitems:\n  - {id: box, label: a box}\n")},
 		"rooms/b.yaml":  {Data: []byte("id: b\ntitle: B\ndescription: Room B.\nscript: b.lua\nitems:\n  - {id: rope, label: a rope}\n")},
 		"rooms/c.yaml":  {Data: []byte("id: c\ntitle: C\ndescription: Room C.\nitems:\n  - {id: key, label: a key}\n")},

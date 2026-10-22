@@ -96,39 +96,76 @@ func openData(ctx context.Context, dir string) (*sqlite.Store, error) {
 	return sqlite.Open(ctx, filepath.Join(dir, "talespeak.db"))
 }
 
-// packs are the packs a server has: the main world's (the demo, or the
-// folder in TALESPEAK_PACK) and every pack worlds can be created from.
+// packs are the packs a server has: any number of versions of each pack
+// id. The main world plays the main pack id (the one in TALESPEAK_PACK,
+// or the demo).
 type packs struct {
-	main *pack.Pack
-	all  []*pack.Pack // main first, then the others by id
+	mainID string
+	cat    *pack.Catalog
+	all    []*pack.Pack // the main pack id's versions first, then the others by id; newest first
 }
 
-// byID returns the packs by id.
-func (ps packs) byID() map[string]*pack.Pack {
-	m := map[string]*pack.Pack{}
-	for _, p := range ps.all {
-		m[p.ID] = p
-	}
-	return m
-}
+// main is the version of the main pack new main worlds start on.
+func (ps packs) main() *pack.Pack { return ps.cat.Newest(ps.mainID) }
 
-// lobby returns the packs as the lobby shows them.
+// lobby returns the packs as the lobby shows them: the version new worlds
+// start on of each pack id, the main one first.
 func (ps packs) lobby() []account.Pack {
 	var l []account.Pack
-	for _, p := range ps.all {
-		l = append(l, account.Pack{ID: p.ID, Title: p.Title, Description: p.Description, Version: packVersion})
+	for _, id := range ps.ids() {
+		l = append(l, lobbyPack(ps.cat.Newest(id)))
 	}
 	return l
+}
+
+// ids are the pack ids, the main one first, then the others sorted.
+func (ps packs) ids() []string {
+	ids := []string{ps.mainID}
+	for _, id := range ps.cat.IDs() {
+		if id != ps.mainID {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func lobbyPack(p *pack.Pack) account.Pack {
+	return account.Pack{ID: p.ID, Title: p.Title, Description: p.Description, Version: p.Version}
+}
+
+// installed lists the packs as the store records them.
+func (ps packs) installed() []store.InstalledPack {
+	var l []store.InstalledPack
+	for _, p := range ps.all {
+		l = append(l, store.InstalledPack{ID: p.ID, Version: p.Version, Hash: p.Hash})
+	}
+	return l
+}
+
+// keepHome reports whether a main world that recorded version should stay
+// the main world: when it runs the version new main worlds start on. One
+// on an older major version keeps running as a world of its own while
+// that version is installed, and a new main world starts.
+func (ps packs) keepHome(recorded string) bool {
+	p, err := ps.cat.Pick(ps.mainID, recorded)
+	return err == nil && p == ps.main()
+}
+
+// openHome returns the main world, starting a new one when the one before
+// runs an older major version of the main pack.
+func openHome(ctx context.Context, db store.Store, ps packs) (store.World, error) {
+	return db.OpenWorld(ctx, ps.mainID, ps.main().Version, ps.keepHome)
 }
 
 // maxPacks bounds the pack folders in TALESPEAK_PACKS.
 const maxPacks = 100
 
-// loadPacks loads the pack in TALESPEAK_PACK, which runs the main world
-// (the demo without it), every folder with a pack.yaml in TALESPEAK_PACKS,
-// and the built-in demo unless one of those has its id. Two packs with one
-// id are an error, except that the main pack may be in TALESPEAK_PACKS
-// too: the main one is kept.
+// loadPacks loads the pack in TALESPEAK_PACK, which names the main
+// world's pack (the demo without it), every folder with a pack.yaml in
+// TALESPEAK_PACKS, and the built-in demo unless one of those is the same
+// version of it. Two packs with one id and version are an error, except
+// that the main pack may be in TALESPEAK_PACKS too: the main one is kept.
+// Other versions of one pack are all installed (docs/pack-versions.md).
 func loadPacks(getenv func(string) string, lim pack.Limits) (packs, error) {
 	load := func(name string, fsys fs.FS) (*pack.Pack, error) {
 		p, err := pack.LoadLimits(fsys, lim)
@@ -137,10 +174,10 @@ func loadPacks(getenv func(string) string, lim pack.Limits) (packs, error) {
 		}
 		return p, nil
 	}
-	var ps packs
+	var main *pack.Pack
 	var err error
 	if dir := getenv("TALESPEAK_PACK"); dir != "" {
-		if ps.main, err = load("pack "+dir, os.DirFS(dir)); err != nil {
+		if main, err = load("pack "+dir, os.DirFS(dir)); err != nil {
 			return packs{}, err
 		}
 	}
@@ -177,31 +214,26 @@ func loadPacks(getenv func(string) string, lim pack.Limits) (packs, error) {
 	if err != nil {
 		return packs{}, err
 	}
-	if ps.main == nil {
-		// The demo runs the main world, from TALESPEAK_PACKS when it is
-		// there too.
-		ps.main = demo
-		if i := slices.IndexFunc(others, func(p *pack.Pack) bool { return p.ID == demo.ID }); i >= 0 {
-			ps.main = others[i]
-		}
+	same := func(a, b *pack.Pack) bool { return a.ID == b.ID && a.Version == b.Version }
+	ps := packs{mainID: demo.ID}
+	var all []*pack.Pack
+	if main != nil {
+		ps.mainID = main.ID
+		all = append(all, main)
+		others = slices.DeleteFunc(others, func(p *pack.Pack) bool { return same(p, main) })
 	}
-	others = slices.DeleteFunc(others, func(p *pack.Pack) bool { return p.ID == ps.main.ID })
-	if ps.main.ID != demo.ID && !slices.ContainsFunc(others, func(p *pack.Pack) bool { return p.ID == demo.ID }) {
-		others = append(others, demo)
+	all = append(all, others...)
+	if !slices.ContainsFunc(all, func(p *pack.Pack) bool { return same(p, demo) }) {
+		all = append(all, demo)
 	}
-	slices.SortFunc(others, func(a, b *pack.Pack) int { return strings.Compare(a.ID, b.ID) })
-	ps.all = append([]*pack.Pack{ps.main}, others...)
-	for i := 1; i < len(ps.all); i++ {
-		if ps.all[i].ID == ps.all[i-1].ID {
-			return packs{}, fmt.Errorf("TALESPEAK_PACKS: two packs have the id %q", ps.all[i].ID)
-		}
+	if ps.cat, err = pack.NewCatalog(all...); err != nil {
+		return packs{}, fmt.Errorf("TALESPEAK_PACKS: %w", err)
+	}
+	for _, id := range ps.ids() {
+		ps.all = append(ps.all, ps.cat.Versions(id)...)
 	}
 	return ps, nil
 }
-
-// packVersion is recorded with each world; packs get versions with
-// T-0010.
-const packVersion = ""
 
 // accountCmd runs "talespeak account add|password|role".
 func accountCmd(args []string, stdin io.Reader, stdout io.Writer) error {
@@ -330,7 +362,7 @@ func inviteCmd(args []string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if w, err = db.OpenWorld(ctx, ps.main.ID, packVersion); err != nil {
+		if w, err = openHome(ctx, db, ps); err != nil {
 			return err
 		}
 	} else {

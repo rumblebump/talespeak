@@ -117,7 +117,7 @@ func TestStatePlayerAccounting(t *testing.T) {
 func stateChain(t *testing.T, n int, limits script.Limits) *World {
 	t.Helper()
 	fsys := fstest.MapFS{
-		"pack.yaml": {Data: []byte("id: t\ntitle: T\nstart: r1\n")},
+		"pack.yaml": {Data: []byte("id: t\nversion: 1.0.0\ntitle: T\nstart: r1\n")},
 	}
 	for i := 1; i <= n; i++ {
 		id := fmt.Sprintf("r%d", i)

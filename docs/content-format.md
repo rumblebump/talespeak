@@ -1,6 +1,6 @@
 # Story pack format
 
-A story pack is a folder of YAML and Lua files. The engine ships one, `content/demo`; installing other packs comes with T-0010.
+A story pack is a folder of YAML and Lua files. The engine ships one, `content/demo`; admins install others with `TALESPEAK_PACKS` ([accounts.md](accounts.md)).
 
 ```text
 pack.yaml
@@ -14,6 +14,7 @@ assets/<name>.png       # optional images: .png, .jpg, .jpeg, .gif, .webp
 
 ```yaml
 id: demo              # 1 to 64 of a-z, 0-9, _ and -
+version: 1.0.0        # a semantic version, MAJOR.MINOR.PATCH: see pack-versions.md
 title: The damp cell  # one line, 1 to 120 characters
 description: >-       # optional: what the lobby shows about the pack, at most 300 bytes
   Wake up in a cell and talk, trick or puzzle your way out.
@@ -57,7 +58,7 @@ How `require` behaves: [lua-sandbox.md](lua-sandbox.md).
 
 ## assets/
 
-Images a script shows with `ui.image`. The engine serves them itself at `/packs/<pack id>/assets/<file>`, so a pack never needs another server.
+Images a script shows with `ui.image`. The engine serves them itself at `/packs/<pack id>/<version>/assets/<file>`, so a pack never needs another server.
 
 | Rule | |
 | --- | --- |
