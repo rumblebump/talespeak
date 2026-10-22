@@ -9,6 +9,7 @@ import (
 
 	"github.com/rumblebump/talespeak/internal/account"
 	"github.com/rumblebump/talespeak/internal/game"
+	"github.com/rumblebump/talespeak/internal/hub"
 	"github.com/rumblebump/talespeak/internal/pack"
 	"github.com/rumblebump/talespeak/internal/script"
 	"github.com/rumblebump/talespeak/internal/ws"
@@ -32,6 +33,10 @@ type limits struct {
 	messageBurst                int
 	idleTimeout                 time.Duration
 	signInBurst                 int
+
+	worldsPerAccount, maxWorlds, loadedWorlds int
+	worldsPerClient                           int
+	worldIdle                                 time.Duration
 }
 
 // loadLimits reads the limits from getenv. An empty or unset variable keeps
@@ -52,6 +57,11 @@ func loadLimits(getenv func(string) string) (limits, error) {
 		messageBurst:      ws.DefaultBurst,
 		idleTimeout:       ws.DefaultIdleTimeout,
 		signInBurst:       account.DefaultAddressBurst,
+		worldsPerAccount:  account.DefaultWorldsPerAccount,
+		maxWorlds:         account.DefaultMaxWorlds,
+		loadedWorlds:      hub.DefaultMaxLoaded,
+		worldsPerClient:   hub.DefaultWorldsPerClient,
+		worldIdle:         hub.DefaultIdle,
 	}
 	var errs []error
 	duration := func(key string, dst *time.Duration, lo, hi time.Duration) {
@@ -131,6 +141,11 @@ func loadLimits(getenv func(string) string) (limits, error) {
 	// The client pings every 30 s, so less than 45 s would drop idle players.
 	duration("TALESPEAK_IDLE_TIMEOUT", &l.idleTimeout, 45*time.Second, 24*time.Hour)
 	count("TALESPEAK_SIGNIN_BURST", &l.signInBurst, 1, 1_000_000)
+	count("TALESPEAK_WORLDS_PER_ACCOUNT", &l.worldsPerAccount, 1, 1000)
+	count("TALESPEAK_MAX_WORLDS", &l.maxWorlds, 1, 1_000_000)
+	count("TALESPEAK_LOADED_WORLDS", &l.loadedWorlds, 1, 10_000)
+	count("TALESPEAK_WORLDS_PER_ADDRESS", &l.worldsPerClient, 1, 10_000)
+	duration("TALESPEAK_WORLD_IDLE", &l.worldIdle, 10*time.Second, 24*time.Hour)
 
 	if l.script.StateMemory < l.script.PlayerMemory {
 		errs = append(errs, fmt.Errorf("TALESPEAK_LUA_STATE_MEMORY (%s) is smaller than TALESPEAK_LUA_PLAYER_MEMORY (%s)", formatBytes(l.script.StateMemory), formatBytes(l.script.PlayerMemory)))

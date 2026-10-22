@@ -274,7 +274,7 @@ func TestFinishWorld(t *testing.T) {
 	if vals, err := s.PlayerState(ctx, c.ID); err != nil || len(vals) != 0 {
 		t.Errorf("player state after finish = %v, %v", vals, err)
 	}
-	if err := s.RedeemInvite(ctx, hashOf("code"), w.ID, a.ID, time.Now()); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.RedeemInvite(ctx, hashOf("code"), a.ID, time.Now()); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("invite after finish: %v, want ErrNotFound", err)
 	}
 	// The other pack's world is untouched.
@@ -352,7 +352,11 @@ func TestRedeemInvite(t *testing.T) {
 	}
 	redeem := func(code string, acc store.Account, at time.Time) error {
 		t.Helper()
-		return s.RedeemInvite(ctx, hashOf(code), w.ID, acc.ID, at)
+		world, err := s.RedeemInvite(ctx, hashOf(code), acc.ID, at)
+		if err == nil && world != w.ID {
+			t.Errorf("RedeemInvite(%q) joined world %d, want %d", code, world, w.ID)
+		}
+		return err
 	}
 	role := func(acc store.Account) string {
 		r, _ := s.Member(ctx, w.ID, acc.ID)
@@ -393,14 +397,13 @@ func TestRedeemInvite(t *testing.T) {
 		t.Errorf("used up: %v, role %q", err, role(p3))
 	}
 
-	// A code is for its world only: trying it for another uses nothing.
+	// A code joins its own world, never another.
 	other, _ := s.OpenWorld(ctx, "other", "")
-	invite("here", store.MemberPlayer, 1, now.Add(time.Hour))
-	if err := s.RedeemInvite(ctx, hashOf("here"), other.ID, p3.ID, now); !errors.Is(err, store.ErrNotFound) || uses("here") != 1 {
-		t.Errorf("code of another world: %v, uses left %d", err, uses("here"))
+	if err := s.CreateInvite(ctx, store.Invite{CodeHash: hashOf("there"), WorldID: other.ID, Role: store.MemberPlayer, Uses: 1, Expires: now.Add(time.Hour)}, now); err != nil {
+		t.Fatal(err)
 	}
-	if r, err := s.Member(ctx, other.ID, p3.ID); err == nil {
-		t.Errorf("a code of another world made a %s", r)
+	if world, err := s.RedeemInvite(ctx, hashOf("there"), p3.ID, now); err != nil || world != other.ID || role(p3) != "" {
+		t.Errorf("code of another world: world %d, %v, role here %q; want world %d", world, err, role(p3), other.ID)
 	}
 
 	invite("soon", store.MemberPlayer, 5, now.Add(time.Minute))
@@ -427,7 +430,7 @@ func TestCreateInvitePrunes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := s.RedeemInvite(ctx, hashOf("used"), w.ID, a.ID, time.Now()); err != nil {
+	if _, err := s.RedeemInvite(ctx, hashOf("used"), a.ID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CreateInvite(ctx, store.Invite{CodeHash: hashOf("new"), WorldID: w.ID, Role: store.MemberGM, Uses: 3, Expires: time.Now().Add(time.Hour)}, time.Now()); err != nil {
@@ -471,7 +474,8 @@ func TestRedeemInviteConcurrent(t *testing.T) {
 		for _, a := range accs {
 			go func() {
 				<-start
-				errs <- s.RedeemInvite(ctx, code, w.ID, a.ID, time.Now())
+				_, err := s.RedeemInvite(ctx, code, a.ID, time.Now())
+				errs <- err
 			}()
 		}
 		close(start)

@@ -225,3 +225,15 @@ function on_leave(p) state.player.set("nail", {n = 9}) end`))
 		t.Errorf("after the store is back: %q, want room b with on_leave's nail", got)
 	}
 }
+
+// A world with a store that closed refuses players before it reads or
+// writes their character: it may have been finished meanwhile.
+func TestClosedWorldRefusesWithStore(t *testing.T) {
+	st, world, who := openStore(t, filepath.Join(t.TempDir(), "t.db"))
+	w := storeWorld(t, st, world)
+	w.Close()
+	s, ms := w.NewSession("", who[0])
+	if s != nil || len(ms) != 1 || ms[0].Message != ErrClosedMessage {
+		t.Fatalf("NewSession = %v, %+v", s, ms)
+	}
+}

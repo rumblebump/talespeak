@@ -61,6 +61,7 @@ test("multiple choice with the keyboard and by typing", async ({ page }) => {
   await expect(story(page)).toContainText("Took: key (4)");
 
   await page.getByRole("button", { name: "chest" }).click();
+  await expect(page.getByRole("group", { name: "Take what?" })).toBeVisible(); // typed before it opens, it is a command
   const input = page.getByRole("textbox");
   await input.fill("3, 1");
   await input.press("Enter");
