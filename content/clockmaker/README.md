@@ -12,6 +12,6 @@ Every player sees only their own clues, so the players have to talk to each othe
 | 4. The Diogenes Club | club | Each player learns another player's hat peg. Try it without speaking! |
 | 5. Scotland Yard | yard | Each player holds some evidence cards; everyone must accuse the same suspect |
 
-The door or cab at the end of each level is a **save spot**: when every player waits there, the level is done, and everyone's satchel is saved. When everyone leaves the game in the middle of a level, the level starts again from its save spot the next time. The lead (the first player, later the world's game master) can go on without players who left. The mechanics are in `lib/case.lua`; how they work is described in `docs/pack-patterns.md`.
+The door or cab at the end of each level is a **save spot**: when every player waits there, the level is done, and everyone's satchel is saved. When everyone leaves the game in the middle of a level, the level starts again from its save spot the next time. The lead (the world's game master, else the first player online) can go on without players who left. The mechanics are in `lib/case.lua`; how they work is described in `docs/pack-patterns.md`.
 
 The map pictures are drawn by `scripts/clockmaker-maps.py`.

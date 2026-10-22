@@ -606,7 +606,7 @@ func TestClockmakerGoOnWithout(t *testing.T) {
 	text, got := g.click(a, "cab")
 	want(t, "lead asked", text, "Still to come: traveler 3.")
 	d := lastOf(got, "dialog")
-	if d == nil || !strings.Contains(d.Title, "traveler 3 is not here. Go on without them?") {
+	if d == nil || !strings.Contains(d.Title, "traveler 3 left the game. Go on without them?") {
 		t.Fatalf("dialog = %+v", d)
 	}
 	text, _ = g.choose(a, got, 1)

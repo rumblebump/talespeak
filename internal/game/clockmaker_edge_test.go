@@ -236,11 +236,9 @@ func TestClockmakerTelegramFreesSeat(t *testing.T) {
 	g.choose(d, got, 2)
 }
 
-// The save spot goes by who is in its room: a member still in the shop
-// counts as not here, and when the lead goes on without them, they find
-// themselves outside on the pavement, where the free seat lets them knock
-// and join again.
-func TestClockmakerGoOnWithoutOneInAnotherRoom(t *testing.T) {
+// A member still playing in another room is waited for at the save spot:
+// nobody is asked to go on without them.
+func TestClockmakerWaitsForOneInAnotherRoom(t *testing.T) {
 	g := newCase(t)
 	ss := g.joinN(3)
 	g.upTo(ss, 2)
@@ -250,17 +248,40 @@ func TestClockmakerGoOnWithoutOneInAnotherRoom(t *testing.T) {
 	g.click(b, "cab")
 	text, got := g.click(a, "cab")
 	want(t, "c not here", text, "Still to come: traveler 3.")
-	d := lastOf(got, "dialog")
-	if d == nil || !strings.HasPrefix(d.Title, "traveler 3 ") {
-		t.Fatalf("dialog: %s", text)
+	if d := lastOf(got, "dialog"); d != nil {
+		t.Fatalf("the lead is asked to drop a player who is online: %s", d.Title)
 	}
-	text, _ = g.choose(a, got, 1)
-	want(t, "on", text, "room:wharf")
-	want(t, "c outside", g.hear(c), "room:pavement", "knock=")
-	text, _ = g.click(a, "satchel")
-	want(t, "c's lantern came to a", text, "storm lantern")
-	text, _ = g.click(c, "knock")
-	want(t, "c back in", text, "room:wharf")
+	text, _ = g.click(c, "lane")
+	want(t, "c back", text, "room:lane")
+	text, _ = g.click(c, "cab")
+	want(t, "all here", text, "room:wharf")
+}
+
+// A server restart while the party plays: on_leave never ran, but the
+// save spot knows from world.players() who is really there, so the lead
+// can go on without a player who never came back.
+func TestClockmakerRestartWithPlayersConnected(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "case.db")
+	g, who, stop := storeCase(t, path)
+	mira, _ := g.join(who[0])
+	zed, _ := g.join(who[1])
+	g.startCase(mira, 2)
+	g.level1([]ws.Session{mira, zed})
+	stop() // the world closes with both connected: no on_leave
+	g, who, stop = storeCase(t, path)
+	defer stop()
+	mira, first := g.join(who[0])
+	want(t, "mira back", first, "room:study")
+	text, got := g.click(mira, "cab")
+	want(t, "waits for zed", text, "Still to come: Zed.")
+	d := lastOf(got, "dialog")
+	if d == nil || !strings.Contains(d.Title, "Zed left the game. Go on without them?") {
+		t.Fatalf("the lead is not asked after a restart: %s", text)
+	}
+	text, _ = g.choose(mira, got, 1)
+	want(t, "on alone", text, "room:lane")
+	text, _ = g.click(mira, "satchel")
+	want(t, "zed's key came to mira", text, "brass key to the clock shop")
 }
 
 // The Irregular locked in the workshop leaves the game: the lock opens
@@ -736,4 +757,30 @@ func TestClockmakerStripLost(t *testing.T) {
 	left.Store(-1)
 	text, _ = g.click(ss[0], "bookshelf")
 	want(t, "found once the world has room", text, "Strip 1 of 2 reads:")
+}
+
+// The world's game master leads the party, not the first player: only
+// the GM is asked whether to go on without a player who left.
+func TestClockmakerGMLeads(t *testing.T) {
+	g := newCase(t)
+	a, _ := g.join(ws.Who{})
+	gm, _ := g.join(ws.Who{GM: true})
+	c, _ := g.join(ws.Who{})
+	g.startCase(a, 3)
+	g.level1([]ws.Session{a, gm, c})
+	c.Close()
+	text, got := g.click(a, "cab")
+	want(t, "a waits", text, "Still to come: traveler 2, traveler 3.")
+	if lastOf(got, "dialog") != nil {
+		t.Fatal("the first player was asked, not the GM")
+	}
+	text, got = g.click(gm, "casebook")
+	want(t, "status", text, "traveler 2 (you) (lead)")
+	g.choose(gm, got, 2)
+	text, got = g.click(gm, "cab")
+	if d := lastOf(got, "dialog"); d == nil || !strings.Contains(d.Title, "traveler 3 left the game.") {
+		t.Fatalf("the GM is not asked: %s", text)
+	}
+	text, _ = g.choose(gm, got, 1)
+	want(t, "on", text, "room:lane")
 }

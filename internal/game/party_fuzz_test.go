@@ -1,6 +1,7 @@
 package game
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -16,7 +17,8 @@ var partyFuzzInputs = []string{"start x", "secret x", "cancel x", "left x", "sta
 // starts a room timer). Whatever the order: no panic, known messages,
 // players have unique ids and names, at most MaxRoomTimers per room and no
 // empty timer maps, and once everyone left and the clock ran on, no room
-// timer and no clock timer is left.
+// timer and no clock timer is left. world.players lists the players in
+// the order they (last) joined, with player 1 as the GM (T-0036).
 func FuzzPartyOps(f *testing.F) {
 	f.Add([]byte{0, 32, 64, 13, 6, 38, 14, 15, 18, 19})
 	f.Add([]byte{5, 37, 6, 16, 17, 16, 18, 69, 19})
@@ -29,10 +31,12 @@ func FuzzPartyOps(f *testing.F) {
 		w, c := edgeWorld(t, WithClientBudget(time.Second, time.Second))
 		clients := []string{"", "192.0.2.1", "192.0.2.2"}
 		players := make([]*fuzzPlayer, 3)
+		var order []ws.Session // by join
 		join := func(i int) *fuzzPlayer {
-			s, first := w.NewSession(clients[i], ws.Who{})
+			s, first := w.NewSession(clients[i], ws.Who{GM: i == 1})
 			p := &fuzzPlayer{s: s, shown: map[string]bool{}}
 			p.see(t, first)
+			order = append(order, s)
 			return p
 		}
 		for i := range players {
@@ -65,6 +69,7 @@ func FuzzPartyOps(f *testing.F) {
 				}
 			case code == 18:
 				p.s.Close()
+				order = slices.DeleteFunc(order, func(s ws.Session) bool { return s == p.s })
 				players[i] = join(i)
 			default:
 				c.Advance(0)
@@ -78,6 +83,7 @@ func FuzzPartyOps(f *testing.F) {
 				q.see(t, ms)
 			}
 			checkParty(t, w)
+			checkWorldPlayers(t, w, order, players[1].s)
 		}
 		for _, p := range players {
 			p.s.Close()
@@ -123,6 +129,27 @@ func checkParty(t *testing.T, w *World) {
 	for room, ts := range w.roomTimers {
 		if len(ts) == 0 || len(ts) > MaxRoomTimers {
 			t.Fatalf("room %s has %d timers", room, len(ts))
+		}
+	}
+}
+
+// checkWorldPlayers checks that world.players lists order, each player's
+// room, and gm only for the GM's session.
+func checkWorldPlayers(t *testing.T, w *World, order []ws.Session, gm ws.Session) {
+	t.Helper()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	online := w.online()
+	list := players(online)
+	if len(online) != len(order) {
+		t.Fatalf("world.players lists %d, %d joined", len(online), len(order))
+	}
+	for i, s := range online {
+		if ws.Session(s) != order[i] {
+			t.Fatalf("world.players[%d] = %s, out of join order", i, s.id)
+		}
+		if list[i].ID != s.id || list[i].Room != s.room || list[i].GM != (ws.Session(s) == gm) {
+			t.Fatalf("world.players[%d] = %+v for %s in %s", i, list[i], s.id, s.room)
 		}
 	}
 }

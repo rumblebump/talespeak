@@ -395,7 +395,7 @@ func (s *Service) Auth(r *http.Request) (ws.Who, int) {
 		}
 		return ws.Who{}, http.StatusForbidden
 	}
-	return ws.Who{Account: a.ID, Name: a.Name, World: wd.ID}, 0
+	return ws.Who{Account: a.ID, Name: a.Name, World: wd.ID, GM: role == store.MemberGM}, 0
 }
 
 type credentials struct {

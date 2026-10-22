@@ -80,6 +80,9 @@ type Who struct {
 	Account int64
 	Name    string
 	World   int64
+	// GM is set when the account is a game master of World
+	// (world_members.role), for player.gm.
+	GM bool
 }
 
 // Game is what a connection plays once it is welcomed.

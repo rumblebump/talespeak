@@ -9,14 +9,13 @@
 -- What lasts, all in state.world so that one player's hook can move the
 -- whole party:
 --
---   case        { level, run, done, members = {id = {name, gm}}, order,
+--   case        { level, run, done, members = {id = {name}}, order,
 --                 active = {id = true} }; order is who joined first
 --   lv          the progress of the current level; empty again at each
 --               save spot. lv.n is how many Irregulars the level is made
 --               for, lv.ready who waits at the save spot
 --   bag_<id>    what player id carries, a list of item ids
 --   save_<id>   their bag as it was when the level began
---   online      { id = true } for the players in the world now
 --   secret      what this world picked: words, times, the thief
 --   news        a line for the other players, heard in on_change
 --
@@ -27,9 +26,9 @@
 -- were there. Coming back, a player finds the party's level.
 --
 -- The lead decides for the party (go on without someone, play the level
--- with fewer; both free those players' seats): a GM of the world once the engine tells scripts
--- (player.gm), until then the first Irregular who joined, or the earliest
--- one online.
+-- with fewer; both free those players' seats): a GM of the world who is
+-- online and on the case (player.gm), else the first Irregular online.
+-- Who is online is world.players(), which is right after a restart too.
 --
 -- Only functions and locals at the top level: a module also runs at
 -- world start, for no player.
@@ -110,8 +109,13 @@ function case.level_of(room_id)
   return LEVEL_OF[room_id]
 end
 
+-- online is the players in the world now, by id: {id = {name, room, gm}}.
 function case.online()
-  return state.world.get("online") or {}
+  local out = {}
+  for _, p in ipairs(world.players()) do
+    out[p.id] = p
+  end
+  return out
 end
 
 function case.name(c, id)
@@ -146,7 +150,7 @@ end
 function case.lead_id(c, online)
   online = online or case.online()
   for _, id in ipairs(c.order) do
-    if online[id] and c.members[id].gm then
+    if online[id] and online[id].gm then
       return id
     end
   end
@@ -452,8 +456,7 @@ end
 -- Arriving and leaving -------------------------------------------------
 
 -- arrive runs first in every room's on_enter. It makes the player an
--- Irregular (up to four), marks them online and moves them to where the
--- party is. Returns false when the player moves on, then the room does
+-- Irregular (up to four) and moves them to where the party is. Returns false when the player moves on, then the room does
 -- nothing more.
 function case.arrive(player)
   local here = player.room
@@ -462,23 +465,15 @@ function case.arrive(player)
     local m = v.members[player.id]
     if m then
       m.name = player.name
-      m.gm = player.gm == true
       v.active[player.id] = true
     elseif #v.order < case.MAX then
-      v.members[player.id] = { name = player.name, gm = player.gm == true }
+      v.members[player.id] = { name = player.name }
       v.order[#v.order + 1] = player.id
       v.active[player.id] = true
     end
     return v
   end)
   local c = case.get()
-  if c.members[player.id] then
-    state.world.update("online", function(v)
-      v = v or {}
-      v[player.id] = true
-      return v
-    end)
-  end
   -- the news so far is old news for this room
   local nws = state.world.get("news")
   news_seen = nws and nws.n or 0
@@ -504,20 +499,21 @@ function case.arrive(player)
   return true
 end
 
--- leave runs in every room's on_leave: the player is no longer online,
--- no longer waits at the save spot, and when they were the last one, the
--- level starts again from its save spot.
+-- leave runs in every room's on_leave: the player no longer waits at the
+-- save spot, and when they were the last Irregular in the world, the
+-- level starts again from its save spot. (on_leave does not run when the
+-- server stops: after a restart, the level goes on where it was.)
 function case.leave(player)
-  if not case.get().members[player.id] then
+  local c = case.get()
+  if not c.members[player.id] then
     return
   end
-  local last = false
-  state.world.update("online", function(v)
-    v = v or {}
-    v[player.id] = nil
-    last = next(v) == nil
-    return v
-  end)
+  local last = true
+  for _, p in ipairs(world.players()) do
+    if c.members[p.id] then
+      last = false
+    end
+  end
   local lv = case.lv()
   if lv.ready and lv.ready[player.id] then
     state.world.update("lv", function(v)
@@ -645,49 +641,15 @@ function case.drop(lead, ids)
     v.order = order
     return v
   end)
-  state.world.update("online", function(v)
-    v = v or {}
-    for id in pairs(gone) do
-      v[id] = nil
-    end
-    return v
-  end)
 end
 
--- here_ids is the members in the player's room now.
-local function here_ids()
-  local out = {}
-  for _, p in ipairs(room.players()) do
-    out[p.id] = true
-  end
-  return out
-end
-
--- decider is who decides at a save spot: the lead when they are in this
--- room, else the first Irregular here. (A player who was in the world
--- when the server restarted can stay in "online" for good, so the room
--- decides here, not "online".)
-local function decider(c)
-  local here = here_ids()
-  local lead = case.lead_id(c)
-  if lead and here[lead] then
-    return lead
-  end
-  for _, id in ipairs(c.order) do
-    if here[id] then
-      return id
-    end
-  end
-  return nil
-end
-
--- missing is who the save spot waits for and is not in this room.
+-- missing is who the save spot waits for and is not in the world.
 local function missing(c)
   local lv = case.lv()
-  local here = here_ids()
+  local online = case.online()
   local out = {}
   for _, id in ipairs(case.active_ids(c)) do
-    if not (lv.ready or {})[id] and not here[id] then
+    if not (lv.ready or {})[id] and not online[id] then
       out[#out + 1] = id
     end
   end
@@ -722,9 +684,8 @@ local function advance(player)
 end
 
 -- ready is the save spot: the player waits there, and when every active
--- Irregular waits, the level is done. The lead (or, without them, the
--- first Irregular here) may go on without those who are not in this
--- room. Returns true when the party moved on.
+-- Irregular waits, the level is done. The lead may go on without those
+-- who left the game. Returns true when the party moved on.
 function case.ready(player)
   local c = case.get()
   if not c.active[player.id] then
@@ -756,8 +717,8 @@ function case.ready(player)
   end
   say("You wait here. Still to come: " .. case.names(c, waiting) .. ".")
   local away = missing(c)
-  if #away > 0 and decider(c) == player.id then
-    local choice = ui.dialog(case.names(c, away) .. " is not here. Go on without them? Their seat is freed, and what they carry comes to you.", {
+  if #away > 0 and case.lead_id(c) == player.id then
+    local choice = ui.dialog(case.names(c, away) .. " left the game. Go on without them? Their seat is freed, and what they carry comes to you.", {
       "Go on without them",
       "Wait for them",
     }, { from = "Wiggins" })
@@ -766,7 +727,7 @@ function case.ready(player)
     end
     -- things may have changed while the dialog was open
     c = case.get()
-    if decider(c) ~= player.id then
+    if case.lead_id(c) ~= player.id then
       return false
     end
     local still = {}

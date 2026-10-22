@@ -1,7 +1,7 @@
-# 2026-10-22: The Clockmaker's Silence, a co-op case pack (T-0036)
+# 2026-10-22: The Clockmaker's Silence, a co-op case pack (T-0037)
 
 **Result:** a second story pack, `content/clockmaker`, for 2 to 4 players in five levels with save spots, written in Lua on `state.world`; shipped in the image for the lobby. All checks green; both review agents' findings fixed.
-**Task:** T-0036
+**Task:** T-0037
 **Environment:** local container, Go 1.26.10, branch `claude/project-thread-8nfiqj` on top of dev `bd1b1de`; Node 22 for the black-box check. Docker is not available in this container, so the image itself was not built here (CI builds it).
 
 ## Steps
@@ -85,8 +85,19 @@ bob hears: The case begins for 2 Irregulars. Search the room: each of you can fi
 
 Checked and fine: world state is bounded (at most 13 keys: 4 members), typed text never reaches other players or a key, names are validated account names shown as text, `from` names are story speakers, the pack has no URLs, the worst case uses 28 of 50 writes per hook.
 
+## After T-0036 (player.gm, world.players()) reached dev
+
+The core thread's PR #42 added `player.gm` and `world.players()` and took the number T-0036, so this task became T-0037, and the branch merged dev. The pack now counts who is online with `world.players()` instead of its own `online` key (on_leave does not run on a restart), and the world's GM leads the party. The save spot is back to "left the game" (not "not in this room"), so a player still playing in another room is waited for, not dropped. New tests: `TestClockmakerGMLeads`, `TestClockmakerRestartWithPlayersConnected` (the lead can go on without a player who never came back after a restart), `TestClockmakerWaitsForOneInAnotherRoom`.
+
+```text
+gofmt -l . / go vet ./...: clean
+go test -race -count=1 ./...: all ok (internal/game 60.940s)
+go test ./internal/game/ -run Clockmaker -count=20 -shuffle=on: ok
+e2e (Playwright, before the merge): 87 passed, 3 skipped
+```
+
 ## Findings
 
 - Players talk outside the game (Carl's decision); no chat between players is added.
-- Open, as a core task (thread "GM role and online players in Lua"): `player.gm` so the world's GM leads (`lib/case.lua` reads it already), and `world.players()`.
+- A restart is not everyone leaving: after one, the level goes on where it was (documented in docs/pack-patterns.md).
 - The image build (Dockerfile) is checked by CI, not here.
