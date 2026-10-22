@@ -214,7 +214,7 @@ func TestAuthAccess(t *testing.T) {
 	if code := admin.get(inv.ws(0), nil); code != 200 {
 		t.Errorf("admin, not a member, ws = %d", code)
 	}
-	if code := kid.get(inv.ws(0), nil); code != 403 {
+	if code := kid.get(inv.ws(0), nil); code != 404 { // as if it did not exist
 		t.Errorf("player, not a member, ws = %d", code)
 	}
 	for _, path := range []string{"/ws", "/ws?world=", "/ws?world=0", "/ws?world=-1", "/ws?world=x", "/ws?world=9999"} {

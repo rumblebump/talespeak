@@ -35,6 +35,7 @@ type limits struct {
 	signInBurst                 int
 
 	worldsPerAccount, maxWorlds, loadedWorlds int
+	worldsPerClient                           int
 	worldIdle                                 time.Duration
 }
 
@@ -59,6 +60,7 @@ func loadLimits(getenv func(string) string) (limits, error) {
 		worldsPerAccount:  account.DefaultWorldsPerAccount,
 		maxWorlds:         account.DefaultMaxWorlds,
 		loadedWorlds:      hub.DefaultMaxLoaded,
+		worldsPerClient:   hub.DefaultWorldsPerClient,
 		worldIdle:         hub.DefaultIdle,
 	}
 	var errs []error
@@ -142,6 +144,7 @@ func loadLimits(getenv func(string) string) (limits, error) {
 	count("TALESPEAK_WORLDS_PER_ACCOUNT", &l.worldsPerAccount, 1, 1000)
 	count("TALESPEAK_MAX_WORLDS", &l.maxWorlds, 1, 1_000_000)
 	count("TALESPEAK_LOADED_WORLDS", &l.loadedWorlds, 1, 10_000)
+	count("TALESPEAK_WORLDS_PER_ADDRESS", &l.worldsPerClient, 1, 10_000)
 	duration("TALESPEAK_WORLD_IDLE", &l.worldIdle, 10*time.Second, 24*time.Hour)
 
 	if l.script.StateMemory < l.script.PlayerMemory {

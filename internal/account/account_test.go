@@ -65,6 +65,9 @@ func newFixtureVisibility(t *testing.T, cfg Config, visibility string) *fixture 
 	w.Visibility = visibility
 	f := &fixture{t: t, st: st, world: w, now: time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)}
 	cfg.Store, cfg.Log, cfg.Now = st, quiet, func() time.Time { return f.now }
+	if cfg.Home == 0 {
+		cfg.Home = w.ID
+	}
 	if cfg.Registration == "" {
 		cfg.Registration = RegistrationSelf
 	}
@@ -316,12 +319,12 @@ func TestInviteOnlyWorld(t *testing.T) {
 	if c, ok := kid.card(0); ok {
 		t.Fatalf("a private world in the lobby of a new account: %+v", c)
 	}
-	if code := kid.get(f.ws(0), nil); code != 403 {
+	if code := kid.get(f.ws(0), nil); code != 404 { // as if it did not exist
 		t.Errorf("ws auth before the invite = %d", code)
 	}
 	var e map[string]string
 	home := `"world":` + strconv.FormatInt(f.world.ID, 10)
-	if code := kid.post("/api/invites", `{`+home+`}`, &e); code != 403 {
+	if code := kid.post("/api/invites", `{`+home+`}`, &e); code != 404 {
 		t.Errorf("a player made an invite: %d %v", code, e)
 	}
 

@@ -316,3 +316,84 @@ func TestRun(t *testing.T) {
 		t.Fatal("Run did not stop")
 	}
 }
+
+// The main world stays loaded and does not count against the cap.
+func TestHomePinned(t *testing.T) {
+	f := newFixture(t, 1)
+	f.hub.cfg.Home = 1
+	a, _ := f.join(t, 1)
+	b, msg := f.join(t, 2)
+	if b == nil {
+		t.Fatalf("one other world with the main one loaded: %q", msg)
+	}
+	a.Close()
+	b.Close()
+	f.now = f.now.Add(time.Hour)
+	f.hub.Reap()
+	if f.hub.Loaded() != 1 || f.loads.Load() != 2 {
+		t.Fatalf("after the idle time: %d loaded", f.hub.Loaded())
+	}
+	c, _ := f.join(t, 3)
+	loads := f.loads.Load()
+	d, _ := f.join(t, 1)
+	if f.loads.Load() != loads {
+		t.Error("the main world was unloaded")
+	}
+	c.Close()
+	d.Close()
+}
+
+// One address plays at most PerClient worlds besides the main one at
+// once; closing a session gives its world back.
+func TestPerClient(t *testing.T) {
+	f := newFixture(t, 0)
+	f.hub.cfg.Home = 1
+	f.hub.cfg.PerClient = 1
+	f.st.m[4] = store.World{ID: 4, PackID: "test-pack"}
+	join := func(client string, world int64) (ws.Session, []ws.Message) {
+		return f.hub.NewSession(client, ws.Who{World: world})
+	}
+	a, _ := join("192.0.2.1", 2)
+	b, _ := join("192.0.2.1", 2) // the same world again is fine
+	h, _ := join("192.0.2.1", 1) // and the main world
+	if a == nil || b == nil || h == nil {
+		t.Fatal("refused within the limit")
+	}
+	if s, ms := join("192.0.2.1", 3); s != nil || ms[0].Message != errBusy.Error() {
+		t.Errorf("second world: %+v", ms)
+	}
+	if s, _ := join("2001:db8:1:2::/64", 3); s == nil {
+		t.Error("another address was refused")
+	} else if s2, ms := join("2001:db8:1:3::/64", 4); s2 != nil {
+		t.Errorf("the same /48 played a second world: %+v", ms)
+	} else {
+		s.Close()
+	}
+	a.Close()
+	if s, _ := join("192.0.2.1", 3); s != nil {
+		t.Error("refused while the other world still had a session open")
+	}
+	b.Close()
+	b.Close() // twice is harmless
+	c, ms := join("192.0.2.1", 3)
+	if c == nil {
+		t.Fatalf("after leaving the other world: %+v", ms)
+	}
+	c.Close()
+	h.Close()
+	f.hub.mu.Lock()
+	n := len(f.hub.playing)
+	f.hub.mu.Unlock()
+	if n != 0 {
+		t.Errorf("%d clients still counted after every session closed", n)
+	}
+	// A refused join counts nothing.
+	if s, _ := join("192.0.2.1", 404); s != nil {
+		t.Fatal("joined a world that does not exist")
+	}
+	if s, _ := join("192.0.2.1", 4); s == nil {
+		t.Error("a refused join still counted")
+	} else {
+		s.Close()
+	}
+}

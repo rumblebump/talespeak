@@ -78,6 +78,13 @@ var (
 	ErrServerWorlds  = errors.New("store: too many worlds on the server")
 )
 
+// MaxLiveInvites is how many invites one world may have that still work.
+// CreateInvite refuses more with ErrInvites.
+const MaxLiveInvites = 100
+
+// ErrInvites refuses an invite to a world with MaxLiveInvites already.
+var ErrInvites = errors.New("store: too many invites to the world")
+
 // Character is one account's player in one world.
 type Character struct {
 	ID   int64 // never used twice, also after a restart
@@ -171,9 +178,10 @@ type Worlds interface {
 	CreateWorld(ctx context.Context, w NewWorld) (World, error)
 	// World returns the world, finished or not, or ErrNotFound.
 	World(ctx context.Context, world int64) (World, error)
-	// ListWorlds returns the unfinished worlds account may see, the newest
-	// first, at most limit: the public ones and those it is a member of,
-	// or with all every one.
+	// ListWorlds returns the unfinished worlds account may see, at most
+	// limit: the public ones and those it is a member of, or with all
+	// every one. Those it is a member of come first, then the others; the
+	// newest first in each.
 	ListWorlds(ctx context.Context, account int64, all bool, limit int) ([]WorldInfo, error)
 	// IsGM reports whether the account is a game master of an unfinished
 	// world.
@@ -188,7 +196,7 @@ type Worlds interface {
 	AddMember(ctx context.Context, world, account int64, role string) error
 
 	// CreateInvite stores an invite, and drops those expired at now or
-	// used up.
+	// used up. It returns ErrInvites when the world has MaxLiveInvites.
 	CreateInvite(ctx context.Context, inv Invite, now time.Time) error
 	// RedeemInvite uses one use of the invite with the code's hash: the
 	// account becomes a member of its world with its role, unless it has

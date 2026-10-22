@@ -27,4 +27,6 @@ An account holds several profiles; each profile is bound to a ruleset and versio
 
 T-0034 (2026-10-18) added accounts, worlds (one per pack for now, `OpenWorld`), world members and one character per account and world in SQLite. Profiles bound to a ruleset, pack versions (`worlds.pack_version` is recorded empty until pack.yaml has one), several worlds per process and migrations are still open here.
 
+T-0035 (2026-10-22): several worlds per process (`internal/hub`: load on the first player, unload when idle, `TALESPEAK_LOADED_WORLDS`, `TALESPEAK_WORLDS_PER_ADDRESS`), a pack catalog (`TALESPEAK_PACKS`) and worlds created from it in the lobby. The Lua time and memory budgets per address are still counted per world; a budget shared by all worlds would belong here or with the hub.
+
 Design: "Accounts, profiles and pack compatibility" in the Talespeak Engine Design doc, https://claude.ai/code/artifact/15bc0469-681c-4afa-b7b9-5d227560ebc6

@@ -68,7 +68,7 @@ func TestCreateWorldAndJoin(t *testing.T) {
 	if c, ok := bob.card(w.ID); ok {
 		t.Errorf("a private world in another player's lobby: %+v", c)
 	}
-	if code := bob.get(f.ws(w.ID), nil); code != 403 {
+	if code := bob.get(f.ws(w.ID), nil); code != 404 { // as if it did not exist
 		t.Errorf("ws without the code = %d", code)
 	}
 	var me Me
@@ -266,7 +266,7 @@ func TestEduWorlds(t *testing.T) {
 	if c, ok := other.card(old.ID); ok {
 		t.Errorf("an old public world in an edu lobby: %+v", c)
 	}
-	if code := other.get(f.ws(old.ID), nil); code != 403 {
+	if code := other.get(f.ws(old.ID), nil); code != 404 {
 		t.Errorf("ws to an old public world in edu mode = %d", code)
 	}
 	if c, ok := admin.card(old.ID); !ok || c.Visibility != "private" || !c.Play {
@@ -347,14 +347,78 @@ func TestWorldWithoutPack(t *testing.T) {
 	}
 }
 
+// A main world of a pack the server played before is not the main world
+// any more: admins end it from the lobby.
+func TestFormerMainWorld(t *testing.T) {
+	f := newFixture(t, Config{})
+	ctx := context.Background()
+	now, err := f.st.OpenWorld(ctx, "test-pack", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.svc.cfg.Home = now.ID // the server plays test-pack now
+	admin := f.admin("root")
+	if c, ok := admin.card(f.world.ID); !ok || c.Main || !c.Finish {
+		t.Errorf("former main world's card = %+v, %v", c, ok)
+	}
+	if c, ok := admin.card(now.ID); !ok || !c.Main || c.Finish {
+		t.Errorf("main world's card = %+v, %v", c, ok)
+	}
+	if code := admin.post("/api/finish", `{"world":`+strconv.FormatInt(f.world.ID, 10)+`}`, nil); code != 200 {
+		t.Errorf("admin ends the former main world: %d", code)
+	}
+}
+
+// Join codes are limited per account and per world.
+func TestCodeLimits(t *testing.T) {
+	f := newFixture(t, Config{})
+	ann := f.signUp("ann")
+	made, _ := ann.create(`{"pack":"demo"}`)
+	body := `{"world":` + strconv.FormatInt(made.World.ID, 10) + `}`
+	n := 0
+	for ; n < 30; n++ {
+		if code := ann.post("/api/invites", body, nil); code != 200 {
+			if code != 429 {
+				t.Fatalf("code %d = %d", n, code)
+			}
+			break
+		}
+	}
+	if n != 20 {
+		t.Errorf("%d codes at once, want 20", n)
+	}
+	// The world has 21 codes now; one a minute after that, up to
+	// MaxLiveInvites.
+	var e map[string]any
+	for range store.MaxLiveInvites {
+		f.now = f.now.Add(time.Minute) // one more code a minute
+		if code := ann.post("/api/invites", body, &e); code != 200 {
+			if code != 409 {
+				t.Fatalf("past the cap = %d %v", code, e)
+			}
+			break
+		}
+		n++
+	}
+	if n+1 != store.MaxLiveInvites {
+		t.Errorf("%d codes before the cap, want %d", n+1, store.MaxLiveInvites)
+	}
+}
+
 func TestCleanTitle(t *testing.T) {
 	for in, want := range map[string]string{
-		"":                       "",
-		"  Our   game ":          "Our game",
-		"a\tb":                   "a b",
-		"x‮y​z⁦":                 "xyz",
-		" lead":                  "lead",
-		strings.Repeat("ab", 20): strings.Repeat("ab", 20),
+		"":                          "",
+		"  Our   game ":             "Our game",
+		"a\tb":                      "a b",
+		"x‮y​z⁦":                    "xyz",
+		" lead":                     "lead",
+		strings.Repeat("ab", 20):    strings.Repeat("ab", 20),
+		"Cafe\u0301 e\u0301\u0300":  "Cafe\u0301 e\u0301\u0300",
+		"Z\u0301\u0302\u0303\u0304": "Z\u0301\u0302", // stacked marks draw over other cards
+		"\u0301\u0301lead":          "lead",
+		"a \u0301b":                 "a b",
+		"\u3164\u2800 x\u3164y":     "x y", // blank-looking letters are spaces
+		"\u115F\u1160\uFFA0":        "",
 	} {
 		if got, ok := cleanTitle(in); !ok || got != want {
 			t.Errorf("cleanTitle(%q) = %q, %v; want %q", in, got, ok, want)

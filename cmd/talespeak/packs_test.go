@@ -1,12 +1,15 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/rumblebump/talespeak/internal/account"
 	"github.com/rumblebump/talespeak/internal/pack"
+	"github.com/rumblebump/talespeak/internal/store"
 )
 
 // writePack writes a one-room pack with id into dir/name.
@@ -112,5 +115,65 @@ func TestLoadPacksRefuses(t *testing.T) {
 				t.Errorf("err = %v, want %q", err, tt.want)
 			}
 		})
+	}
+}
+
+// More edges of the pack catalog: too many folders, a broken main pack,
+// TALESPEAK_PACKS naming a file, and a folder with the demo's id beside
+// another main pack.
+func TestLoadPacksEdges(t *testing.T) {
+	many := t.TempDir()
+	for i := range maxPacks + 1 {
+		writePack(t, many, fmt.Sprintf("p%03d", i), fmt.Sprintf("p%03d", i))
+	}
+	if _, err := loadPacks(env(map[string]string{"TALESPEAK_PACKS": many}), pack.DefaultLimits); err == nil || !strings.Contains(err.Error(), "more than") {
+		t.Errorf("%d packs: %v", maxPacks+1, err)
+	}
+	if err := os.RemoveAll(filepath.Join(many, "p000")); err != nil {
+		t.Fatal(err)
+	}
+	if ps, err := loadPacks(env(map[string]string{"TALESPEAK_PACKS": many}), pack.DefaultLimits); err != nil || len(ps.all) != maxPacks+1 {
+		t.Errorf("exactly %d packs and the demo: %d, %v", maxPacks, len(ps.all), err)
+	}
+
+	broken := t.TempDir()
+	if err := os.WriteFile(filepath.Join(broken, "pack.yaml"), []byte("id: x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadPacks(env(map[string]string{"TALESPEAK_PACK": broken}), pack.DefaultLimits); err == nil || !strings.Contains(err.Error(), "pack "+broken) {
+		t.Errorf("broken main pack: %v", err)
+	}
+	if _, err := loadPacks(env(map[string]string{"TALESPEAK_PACK": filepath.Join(broken, "nope")}), pack.DefaultLimits); err == nil {
+		t.Error("a main pack folder that does not exist loaded")
+	}
+	if _, err := loadPacks(env(map[string]string{"TALESPEAK_PACKS": filepath.Join(broken, "pack.yaml")}), pack.DefaultLimits); err == nil || !strings.Contains(err.Error(), "TALESPEAK_PACKS") {
+		t.Errorf("TALESPEAK_PACKS naming a file: %v", err)
+	}
+
+	dir := t.TempDir()
+	main := writePack(t, t.TempDir(), "main", "main")
+	writePack(t, dir, "mydemo", "demo")
+	ps, err := loadPacks(env(map[string]string{"TALESPEAK_PACK": main, "TALESPEAK_PACKS": dir}), pack.DefaultLimits)
+	if err != nil || ids(ps) != "main demo" || ps.byID()["demo"].Title != "Pack demo" {
+		t.Errorf("own demo beside another main pack: %q, %v", ids(ps), err)
+	}
+	// A folder with the main pack's id but elsewhere: the main one wins.
+	writePack(t, dir, "main-copy", "main")
+	ps, err = loadPacks(env(map[string]string{"TALESPEAK_PACK": main, "TALESPEAK_PACKS": dir}), pack.DefaultLimits)
+	if err != nil || ids(ps) != "main demo" {
+		t.Errorf("main id twice: %q, %v", ids(ps), err)
+	}
+}
+
+// The main world's visibility follows TALESPEAK_WORLD_ACCESS.
+func TestAccessVisibility(t *testing.T) {
+	for _, tt := range []struct{ world, want string }{
+		{account.AccessOpen, store.VisibilityPublic},
+		{account.AccessInvite, store.VisibilityPrivate},
+		{"", store.VisibilityPrivate},
+	} {
+		if got := (access{world: tt.world}).visibility(); got != tt.want {
+			t.Errorf("visibility(%q) = %q, want %q", tt.world, got, tt.want)
+		}
 	}
 }

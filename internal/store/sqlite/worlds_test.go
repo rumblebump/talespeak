@@ -173,6 +173,15 @@ func TestListWorlds(t *testing.T) {
 	if l, _ := s.ListWorlds(ctx, cat.ID, true, 1); len(l) != 1 || l[0].ID != priv.ID {
 		t.Errorf("limit 1 = %v, want the newest", ids(l))
 	}
+	// The account's own worlds come first, so newer public ones never push
+	// them out of a short list.
+	later := mk(cat, store.VisibilityPublic)
+	if l, _ := s.ListWorlds(ctx, bob.ID, false, 1); len(l) != 1 || l[0].ID != priv.ID {
+		t.Errorf("Bob's list of 1 = %v, want his own world %d", ids(l), priv.ID)
+	}
+	if got := ids(list(cat, false)); fmt.Sprint(got) != fmt.Sprint([]int64{later.ID, pub.ID, home.ID}) {
+		t.Errorf("Cat sees %v, want hers first", got)
+	}
 	// A deleted creator leaves the world without one.
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM accounts WHERE id = ?`, ann.ID); err != nil {
 		t.Fatal(err)
@@ -277,5 +286,40 @@ func TestMigrateWorldsToLobby(t *testing.T) {
 	}
 	if vals, _ := s.WorldState(ctx, 1); len(vals) != 1 {
 		t.Errorf("old world's state = %v", vals)
+	}
+}
+
+// A world keeps at most MaxLiveInvites invites that work; used up and
+// expired ones make room again.
+func TestInviteCap(t *testing.T) {
+	ctx := context.Background()
+	s := fresh(t)
+	w, _ := s.OpenWorld(ctx, "demo", "")
+	other, err := s.CreateWorld(ctx, store.NewWorld{PackID: "test-pack", Visibility: store.VisibilityPrivate, CreatedBy: mustAccount(t, s, "Ann", store.RolePlayer).ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	add := func(world int64, n int, expires time.Time) error {
+		inv := store.Invite{CodeHash: []byte(fmt.Sprintf("%d-%d-%d", world, n, expires.Unix())), WorldID: world, Role: store.MemberPlayer, Uses: 1, Expires: expires}
+		return s.CreateInvite(ctx, inv, now)
+	}
+	for i := range store.MaxLiveInvites - 1 {
+		if err := add(w.ID, i, now.Add(time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := add(w.ID, 999, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := add(w.ID, 1000, now.Add(time.Hour)); !errors.Is(err, store.ErrInvites) {
+		t.Fatalf("one past the cap = %v", err)
+	}
+	if err := add(other.ID, 0, now.Add(time.Hour)); err != nil {
+		t.Errorf("another world's invite = %v", err)
+	}
+	now = now.Add(2 * time.Minute) // the short one expired
+	if err := add(w.ID, 1001, now.Add(time.Hour)); err != nil {
+		t.Errorf("after one expired = %v", err)
 	}
 }

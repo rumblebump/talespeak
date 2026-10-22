@@ -25,6 +25,10 @@ const endedMessage = "This session has ended. Reload the page to play here."
 // replacedMessage is the last message of a session the player replaced.
 const replacedMessage = "You are playing in another window or on another device now."
 
+// ErrClosedMessage is what a player joining a world with a store that
+// closed meanwhile is told.
+const ErrClosedMessage = "This world is not running any more. Try again."
+
 // joinError is what a player who could not join is told.
 func joinError(err error) string {
 	if errors.Is(err, errNoAccount) {

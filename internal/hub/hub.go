@@ -1,13 +1,15 @@
 // Package hub runs the worlds of one server: it loads a world when its
 // first player arrives, unloads it when nobody has played it for a while,
-// and caps how many are loaded at once. It is the ws.Game every connection
-// plays: the connection's ws.Who names its world.
+// and caps how many are loaded at once and how many one network plays. It
+// is the ws.Game every connection plays: the connection's ws.Who names its
+// world.
 package hub
 
 import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -26,6 +28,11 @@ const (
 	// DefaultIdle is how long a world stays loaded after its last player
 	// left.
 	DefaultIdle = 5 * time.Minute
+	// DefaultWorldsPerClient is how many worlds besides the main one the
+	// players of one address (an IPv6 /48) may play at once. Each world
+	// counts their Lua time and memory on its own, so this also bounds
+	// what one network can use.
+	DefaultWorldsPerClient = 4
 )
 
 // Loader makes the running game of a world from its pack.
@@ -40,9 +47,14 @@ type Config struct {
 	// Packs are the installed packs by id.
 	Packs map[string]*pack.Pack
 	Load  Loader
-	// MaxLoaded and Idle: 0 is DefaultMaxLoaded and DefaultIdle.
+	// Home is the server's main world: it stays loaded once it is, and
+	// counts against neither MaxLoaded nor PerClient.
+	Home int64
+	// MaxLoaded, Idle and PerClient: 0 is DefaultMaxLoaded, DefaultIdle
+	// and DefaultWorldsPerClient.
 	MaxLoaded int
 	Idle      time.Duration
+	PerClient int
 	Log       *slog.Logger
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
@@ -52,9 +64,10 @@ type Config struct {
 type Hub struct {
 	cfg Config
 
-	mu        sync.Mutex // guards loaded and finishing; held before a world's own lock, never after
+	mu        sync.Mutex // guards loaded, finishing, playing and closed; never held while waiting for a world
 	loaded    map[int64]*entry
-	finishing map[int64]bool // worlds that are ending: they do not load
+	finishing map[int64]bool           // worlds that are ending: they do not load
+	playing   map[string]map[int64]int // client key -> world -> its sessions there, and joins under way
 	closed    bool
 }
 
@@ -83,13 +96,16 @@ func New(cfg Config) *Hub {
 	if cfg.Idle <= 0 {
 		cfg.Idle = DefaultIdle
 	}
+	if cfg.PerClient <= 0 {
+		cfg.PerClient = DefaultWorldsPerClient
+	}
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	return &Hub{cfg: cfg, loaded: map[int64]*entry{}, finishing: map[int64]bool{}}
+	return &Hub{cfg: cfg, loaded: map[int64]*entry{}, finishing: map[int64]bool{}, playing: map[string]map[int64]int{}}
 }
 
 // What a player who cannot join is told.
@@ -99,6 +115,7 @@ var (
 	errFull   = errors.New("The server has too many worlds open right now. Try again in a few minutes.")
 	errLoad   = errors.New("This world could not be loaded. Try again later.")
 	errClosed = errors.New("The server is shutting down.")
+	errBusy   = errors.New("Your network plays too many worlds at once. Leave one of them first.")
 )
 
 // EndedMessage is what the players of a world that ends are told.
@@ -107,41 +124,122 @@ const EndedMessage = "This world has ended. Go back to the lobby to pick another
 // NewSession implements ws.Game: it places the player in the world who
 // names, loading it first when needed.
 func (h *Hub) NewSession(client string, who ws.Who) (ws.Session, []ws.Message) {
+	key := game.ClientKey(client)
+	if err := h.reserve(key, who.World); err != nil {
+		return nil, []ws.Message{{Type: "error", Message: err.Error()}}
+	}
+	release := func() { h.release(key, who.World) }
 	for range 2 {
 		w, err := h.get(who.World)
 		if err != nil {
+			release()
 			return nil, []ws.Message{{Type: "error", Message: err.Error()}}
 		}
 		s, ms := w.NewSession(client, who)
 		if !w.Closed() {
-			return s, ms
+			if s == nil {
+				release()
+				return s, ms
+			}
+			gs, ok := s.(session)
+			if !ok {
+				release()
+				return s, ms
+			}
+			return &tracked{session: gs, release: release}, ms
 		}
-		// Unloaded since get (a closed world hands out sessions that do
-		// nothing): load it again.
+		// Unloaded since get (a closed world refuses players, or hands out
+		// sessions that do nothing): load it again.
 		if s != nil {
 			s.Close()
 		}
 		h.drop(who.World, w)
 	}
+	release()
 	return nil, []ws.Message{{Type: "error", Message: errLoad.Error()}}
+}
+
+// session is what package game hands out.
+type session interface {
+	ws.Session
+	ws.Pusher
+	ws.Replacer
+}
+
+// tracked is a session the hub counts for its client until it closes.
+type tracked struct {
+	session
+	once    sync.Once
+	release func()
+}
+
+func (t *tracked) Close() {
+	t.session.Close()
+	t.once.Do(t.release)
+}
+
+// reserve counts a join of world by client key, or refuses it when the
+// client plays as many other worlds as it may. The main world and players
+// without an address ("", tests and local tools) are not limited.
+func (h *Hub) reserve(key string, world int64) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	worlds := h.playing[key]
+	if worlds[world] == 0 && key != "" && world != h.cfg.Home {
+		n := len(worlds)
+		if worlds[h.cfg.Home] > 0 {
+			n--
+		}
+		if n >= h.cfg.PerClient {
+			return errBusy
+		}
+	}
+	if worlds == nil {
+		worlds = map[int64]int{}
+		h.playing[key] = worlds
+	}
+	worlds[world]++
+	return nil
+}
+
+// release undoes one reserve.
+func (h *Hub) release(key string, world int64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	worlds := h.playing[key]
+	if worlds[world]--; worlds[world] <= 0 {
+		delete(worlds, world)
+	}
+	if len(worlds) == 0 {
+		delete(h.playing, key)
+	}
 }
 
 // get returns the running world id, loading it when it is not loaded.
 func (h *Hub) get(id int64) (*game.World, error) {
-	h.mu.Lock()
-	switch {
-	case h.closed:
-		h.mu.Unlock()
-		return nil, errClosed
-	case h.finishing[id]:
-		h.mu.Unlock()
-		return nil, errEnded
-	}
-	e := h.loaded[id]
-	if e == nil {
-		if len(h.loaded) >= h.cfg.MaxLoaded && !h.evictLocked() {
+	for try := 0; ; try++ {
+		h.mu.Lock()
+		switch {
+		case h.closed:
 			h.mu.Unlock()
-			return nil, errFull
+			return nil, errClosed
+		case h.finishing[id]:
+			h.mu.Unlock()
+			return nil, errEnded
+		}
+		e := h.loaded[id]
+		if e != nil {
+			h.mu.Unlock()
+			<-e.ready
+			return e.w, e.err
+		}
+		if id != h.cfg.Home && h.countLocked() >= h.cfg.MaxLoaded {
+			idle := h.snapshotLocked()
+			h.mu.Unlock()
+			if try >= 2 || !h.evict(idle) {
+				return nil, errFull
+			}
+			continue
 		}
 		e = &entry{ready: make(chan struct{})}
 		h.loaded[id] = e
@@ -155,11 +253,44 @@ func (h *Hub) get(id int64) (*game.World, error) {
 			}
 			h.mu.Unlock()
 		}
-	} else {
-		h.mu.Unlock()
+		return e.w, e.err
 	}
-	<-e.ready
-	return e.w, e.err
+}
+
+// countLocked is how many worlds count against MaxLoaded. The caller
+// holds h.mu.
+func (h *Hub) countLocked() int {
+	n := len(h.loaded)
+	if h.loaded[h.cfg.Home] != nil {
+		n--
+	}
+	return n
+}
+
+// loadedWorld is a loaded world with its id.
+type loadedWorld struct {
+	id int64
+	w  *game.World
+}
+
+// snapshotLocked lists the loaded worlds that may unload: all but the
+// main world, the ones still loading and the ones a player is joining (a
+// world just loaded for its first player is empty until they enter). The
+// caller holds h.mu.
+func (h *Hub) snapshotLocked() []loadedWorld {
+	joining := map[int64]bool{}
+	for _, worlds := range h.playing {
+		for id := range worlds {
+			joining[id] = true
+		}
+	}
+	var list []loadedWorld
+	for id, e := range h.loaded {
+		if id != h.cfg.Home && e.done() && e.w != nil && !joining[id] {
+			list = append(list, loadedWorld{id, e.w})
+		}
+	}
+	return list
 }
 
 // load makes the running game of world id.
@@ -196,36 +327,41 @@ func (h *Hub) drop(id int64, w *game.World) {
 	}
 }
 
-// evictLocked unloads the world that has been empty longest, and reports
-// whether there was one. The caller holds h.mu.
-func (h *Hub) evictLocked() bool {
-	var oldest int64
-	var since time.Time
-	for id, e := range h.loaded {
-		if !e.done() || e.w == nil {
-			continue
-		}
-		if t, ok := e.w.IdleSince(); ok && (oldest == 0 || t.Before(since)) {
-			oldest, since = id, t
+// evict unloads the world of list that has been empty longest, and
+// reports whether there was one.
+func (h *Hub) evict(list []loadedWorld) bool {
+	type idle struct {
+		loadedWorld
+		since time.Time
+	}
+	var empty []idle
+	for _, lw := range list {
+		if t, ok := lw.w.IdleSince(); ok {
+			empty = append(empty, idle{lw, t})
 		}
 	}
-	if oldest == 0 || !h.loaded[oldest].w.CloseIfEmpty() {
-		return false
+	slices.SortFunc(empty, func(a, b idle) int { return a.since.Compare(b.since) })
+	for _, e := range empty {
+		if e.w.CloseIfEmpty() { // a player may have come meanwhile
+			h.drop(e.id, e.w)
+			h.cfg.Log.Info("world unloaded for another", "world", e.id)
+			return true
+		}
 	}
-	delete(h.loaded, oldest)
-	h.cfg.Log.Info("world unloaded for another", "world", oldest)
-	return true
+	return false
 }
 
-// Reap unloads the worlds nobody has played for the idle time.
+// Reap unloads the worlds nobody has played for the idle time. The main
+// world stays.
 func (h *Hub) Reap() {
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	list := h.snapshotLocked()
+	h.mu.Unlock()
 	cutoff := h.cfg.Now().Add(-h.cfg.Idle)
-	for id, e := range h.loaded {
-		if e.done() && e.w != nil && e.w.CloseIfIdle(cutoff) {
-			delete(h.loaded, id)
-			h.cfg.Log.Info("world unloaded", "world", id)
+	for _, lw := range list {
+		if lw.w.CloseIfIdle(cutoff) {
+			h.drop(lw.id, lw.w)
+			h.cfg.Log.Info("world unloaded", "world", lw.id)
 		}
 	}
 }

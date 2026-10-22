@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/rumblebump/talespeak/internal/clientip"
 	"github.com/rumblebump/talespeak/internal/store"
 )
 
@@ -50,7 +51,10 @@ type noLive struct{}
 func (noLive) Online(int64) int                          { return 0 }
 func (noLive) Finish(_ int64, finish func() error) error { return finish() }
 
-var errNoWorld = fail(http.StatusNotFound, "That world does not exist or has ended.")
+var (
+	errNoWorld      = fail(http.StatusNotFound, "That world does not exist or has ended.")
+	errTooManyCodes = fail(http.StatusConflict, "This world has as many codes as it can keep. Wait until some run out or are used up.")
+)
 
 // get wraps a JSON GET handler.
 func (s *Service) get(h func(w http.ResponseWriter, r *http.Request) (any, error)) http.HandlerFunc {
@@ -111,7 +115,7 @@ func (s *Service) lobby(ctx context.Context, a *store.Account) (Lobby, error) {
 		return Lobby{}, err
 	}
 	l := Lobby{Worlds: []Card{}, Packs: []Pack{}}
-	for _, wi := range list {
+	for _, wi := range list { // the account's own worlds first: none drop off the end for others
 		if s.cfg.Edu && wi.Role == "" && !admin {
 			continue // edu worlds are for their members only, whatever they were before
 		}
@@ -130,7 +134,7 @@ func (s *Service) lobby(ctx context.Context, a *store.Account) (Lobby, error) {
 // card is wi as a sees it.
 func (s *Service) card(a *store.Account, wi store.WorldInfo) Card {
 	c := Card{ID: wi.ID, Title: wi.Title, Pack: wi.PackID, PackTitle: wi.PackID, Visibility: wi.Visibility, GM: wi.Creator,
-		Players: wi.Players, Online: s.cfg.Live.Online(wi.ID), Role: wi.Role, Main: wi.Home, Created: wi.Created}
+		Players: wi.Players, Online: s.cfg.Live.Online(wi.ID), Role: wi.Role, Main: wi.ID == s.cfg.Home, Created: wi.Created}
 	if s.cfg.Edu {
 		c.Visibility = store.VisibilityPrivate
 	}
@@ -177,6 +181,12 @@ func (s *Service) mayPlay(a *store.Account, w store.World, role string) bool {
 	return a.Role == store.RoleAdmin || role != "" || (!s.cfg.Edu && w.Visibility == store.VisibilityPublic)
 }
 
+// mayKnow reports whether a may learn that w exists: whoever may see it
+// in the lobby. Everyone else is answered as if it did not exist.
+func (s *Service) mayKnow(a *store.Account, w store.World, role string) bool {
+	return a.Role == store.RoleAdmin || role != "" || (!s.cfg.Edu && w.Visibility == store.VisibilityPublic)
+}
+
 // mayInvite reports whether a may make join codes to w: admins and the
 // world's game masters.
 func (s *Service) mayInvite(a *store.Account, w store.World, role string) bool {
@@ -184,9 +194,10 @@ func (s *Service) mayInvite(a *store.Account, w store.World, role string) bool {
 }
 
 // mayFinish reports whether a may end w: its game masters and admins; the
-// server's main world never ends from the lobby.
+// server's main world never ends from the lobby (a former one, of a pack
+// the server played before, does).
 func (s *Service) mayFinish(a *store.Account, w store.World, role string) bool {
-	return !w.Home && s.mayInvite(a, w, role)
+	return w.ID != s.cfg.Home && s.mayInvite(a, w, role)
 }
 
 // mayCreate reports whether a may create worlds.
@@ -198,8 +209,12 @@ func (s *Service) mayCreate(ctx context.Context, a *store.Account) (bool, error)
 	return gm && len(s.cfg.Packs) > 0, err
 }
 
-// worldParam reads a world id from a query parameter.
+// worldParam reads a world id from a query parameter: digits only, as
+// the lobby writes them (no sign, no leading zero).
 func worldParam(v string) (int64, bool) {
+	if v == "" || v[0] < '1' || v[0] > '9' || strings.TrimLeft(v, "0123456789") != "" {
+		return 0, false
+	}
 	id, err := strconv.ParseInt(v, 10, 64)
 	return id, err == nil && id > 0
 }
@@ -250,7 +265,7 @@ func (s *Service) createWorld(w http.ResponseWriter, r *http.Request) (any, erro
 	if s.cfg.Edu {
 		q.Visibility = store.VisibilityPrivate
 	}
-	if !s.create.allow(s.client(r)) || !s.makeAcc.allow(a.Name) {
+	if !s.create.allow(clientip.Wide(s.client(r))) || !s.makeAcc.allow(a.Name) {
 		return nil, errSlowDown
 	}
 	perAccount := s.cfg.WorldsPerAccount
@@ -268,6 +283,7 @@ func (s *Service) createWorld(w http.ResponseWriter, r *http.Request) (any, erro
 		return nil, err
 	}
 	code, expires, err := CreateInvite(r.Context(), s.cfg.Store, wd.ID, a.ID, store.MemberPlayer, JoinCodeUses, s.now(), s.now().Add(defaultInviteTTL))
+	// A new world has no codes yet: the cap of live codes cannot refuse this one.
 	if err != nil {
 		return nil, err
 	}
@@ -296,6 +312,9 @@ func (s *Service) finish(w http.ResponseWriter, r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !s.mayKnow(&a, wd, role) {
+		return nil, errNoWorld
+	}
 	if !s.mayFinish(&a, wd, role) {
 		return nil, fail(http.StatusForbidden, "Only the world's game masters and admins end it; the server's main world cannot be ended here.")
 	}
@@ -314,9 +333,10 @@ func (s *Service) finish(w http.ResponseWriter, r *http.Request) (any, error) {
 	return s.lobby(r.Context(), &a)
 }
 
-// cleanTitle reads a world title as typed: one line, control and
-// direction characters removed, spaces collapsed, at most MaxWorldTitle
-// characters. "" is fine: the card shows the pack's title.
+// cleanTitle reads a world title as typed: one line, control, direction
+// and blank-looking characters removed, at most 2 combining marks on a
+// letter, spaces collapsed, at most MaxWorldTitle characters. "" is fine:
+// the card shows the pack's title.
 func cleanTitle(s string) (string, bool) {
 	if !utf8.ValidString(s) || len(s) > 4*MaxWorldTitle {
 		return "", false
@@ -326,14 +346,22 @@ func cleanTitle(s string) (string, bool) {
 	}
 	var b strings.Builder
 	space := false
+	marks := 0 // combining marks on the last letter
 	for _, r := range s {
 		switch {
-		case unicode.IsSpace(r):
+		case unicode.IsSpace(r), blank(r):
 			space = true
 			continue
 		case unicode.IsControl(r), unicode.Is(unicode.Cf, r): // format characters: bidi overrides, zero-width
 			continue
+		case unicode.In(r, unicode.Mn, unicode.Me):
+			if marks++; marks > 2 || b.Len() == 0 || space {
+				continue // stacked marks draw over the cards around
+			}
+			b.WriteRune(r)
+			continue
 		}
+		marks = 0
 		if space && b.Len() > 0 {
 			b.WriteByte(' ')
 		}
@@ -342,4 +370,14 @@ func cleanTitle(s string) (string, bool) {
 	}
 	t := b.String()
 	return t, utf8.RuneCountInString(t) <= MaxWorldTitle
+}
+
+// blank reports whether r is a letter that shows as empty space: Hangul
+// fillers and the empty Braille pattern.
+func blank(r rune) bool {
+	switch r {
+	case '\u115F', '\u1160', '\u3164', '\uFFA0', '\u2800':
+		return true
+	}
+	return false
 }

@@ -118,14 +118,15 @@ func serve(args []string) error {
 	if err != nil {
 		return fmt.Errorf("main world of %s: %w", ps.main.ID, err)
 	}
-	worlds := hub.New(hub.Config{Store: db, Packs: ps.byID(), MaxLoaded: lim.loadedWorlds, Idle: lim.worldIdle, Log: log,
+	worlds := hub.New(hub.Config{Store: db, Packs: ps.byID(), Home: home.ID, MaxLoaded: lim.loadedWorlds, Idle: lim.worldIdle,
+		PerClient: lim.worldsPerClient, Log: log,
 		Load: func(w store.World, p *pack.Pack) (*game.World, error) {
 			return game.NewWorld(p, lim.script, log.With("world", w.ID), game.WithClientBudget(lim.luaClientRate, lim.luaClientBurst),
 				game.WithClientMemory(lim.luaClientMemory), game.WithStore(db, w.ID))
 		}})
 	defer worlds.Close()
 	go worlds.Run(ctx)
-	accounts := account.New(account.Config{Store: db, Registration: acc.registration, Edu: acc.mode == modeEdu, Create: acc.create,
+	accounts := account.New(account.Config{Store: db, Registration: acc.registration, Edu: acc.mode == modeEdu, Create: acc.create, Home: home.ID,
 		Packs: ps.lobby(), Live: worlds, WorldsPerAccount: lim.worldsPerAccount, MaxWorlds: lim.maxWorlds,
 		ClientIP: proxies.IP, HTTPS: proxies.HTTPS, AddressBurst: lim.signInBurst, Log: log})
 	sockets := ws.New(version, log, ws.WithClientIP(proxies.IP), ws.WithGame(worlds), ws.WithAuth(accounts.Auth),

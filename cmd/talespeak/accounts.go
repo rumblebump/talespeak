@@ -73,6 +73,9 @@ func loadAccess(getenv func(string) string) (access, error) {
 		}
 		a.world = v
 	}
+	if a.world == account.AccessInvite {
+		a.create = account.CreateGM // a server kept closed stays closed
+	}
 	if v := getenv("TALESPEAK_CREATE_WORLDS"); v != "" {
 		switch {
 		case v != account.CreateEveryone && v != account.CreateGM:

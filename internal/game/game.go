@@ -266,6 +266,11 @@ func (w *World) NewSession(client string, who ws.Who) (ws.Session, []ws.Message)
 		s.id = "p" + strconv.Itoa(w.players)
 		s.name = w.freeName()
 	} else {
+		if w.closed {
+			// Ended or unloaded: loading the character would write to a
+			// world that may be finished.
+			return nil, []ws.Message{{Type: "error", Message: ErrClosedMessage}}
+		}
 		var err error
 		if room, err = s.load(who); err != nil {
 			if !errors.Is(err, errNoAccount) {
@@ -346,6 +351,10 @@ func (w *World) End(msg string) {
 	}
 	w.closeLocked()
 }
+
+// ClientKey is the key the Lua time and memory budgets count client by:
+// its address, or for IPv6 its /48.
+func ClientKey(client string) string { return budgetKey(client) }
 
 // budgetKey widens an IPv6 key to budgetPrefix bits.
 func budgetKey(client string) string {

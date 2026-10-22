@@ -245,8 +245,8 @@ footer { padding: 0.75rem 1rem; text-align: center; color: var(--muted); font-si
   border-radius: 4px;
 }
 .card[data-main="true"] { border-color: var(--accent); }
-.card h3 { color: var(--accent); unicode-bidi: isolate; }
-.card p { margin: 0; }
+.card h3 { color: var(--accent); unicode-bidi: isolate; overflow-wrap: anywhere; overflow: hidden; }
+.card p { margin: 0; overflow-wrap: anywhere; }
 .card-pack, .card-meta, .card-note { color: var(--muted); font-size: 0.85rem; }
 .card-desc { font-size: 0.9rem; }
 .badges { display: flex; flex-wrap: wrap; gap: 0.35rem; }

@@ -81,6 +81,8 @@ type Config struct {
 	// Create is who may create worlds: CreateEveryone or CreateGM; edu
 	// mode is always CreateGM.
 	Create string
+	// Home is the server's main world, which the lobby never ends.
+	Home int64
 	// Packs are the packs worlds can be created from, and the packs of the
 	// worlds that can be played.
 	Packs []Pack
@@ -119,6 +121,7 @@ type Service struct {
 	guessAcc *limiter // invite codes, per account
 	create   *limiter // new worlds, per client address
 	makeAcc  *limiter // new worlds, per account
+	codesAcc *limiter // new invites and join codes, per account
 	packs    map[string]Pack
 }
 
@@ -174,6 +177,7 @@ func New(cfg Config) *Service {
 		guessAcc: newLimiter(10, time.Minute, now),
 		create:   newLimiter(cfg.AddressBurst, time.Minute, now),
 		makeAcc:  newLimiter(3, 10*time.Minute, now),
+		codesAcc: newLimiter(20, time.Minute, now),
 		packs:    packs,
 	}
 }
@@ -373,6 +377,9 @@ func (s *Service) Auth(r *http.Request) (ws.Who, int) {
 		return ws.Who{}, http.StatusServiceUnavailable
 	}
 	if !s.mayPlay(&a, wd, role) {
+		if !s.mayKnow(&a, wd, role) {
+			return ws.Who{}, http.StatusNotFound // as if it did not exist
+		}
 		return ws.Who{}, http.StatusForbidden
 	}
 	return ws.Who{Account: a.ID, Name: a.Name, World: wd.ID}, 0
@@ -397,7 +404,7 @@ func (s *Service) registerAccount(w http.ResponseWriter, r *http.Request) (any, 
 	if err := ValidPassword(c.Password); err != nil {
 		return nil, fail(http.StatusBadRequest, err.Error())
 	}
-	if !s.register.allow(s.client(r)) {
+	if !s.register.allow(clientip.Wide(s.client(r))) {
 		return nil, errSlowDown
 	}
 	hash, err := Hash(r.Context(), c.Password)
@@ -539,6 +546,9 @@ func (s *Service) invite(w http.ResponseWriter, r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !s.mayKnow(&a, wd, role) {
+		return nil, errNoWorld
+	}
 	if !s.mayInvite(&a, wd, role) || (q.GM && a.Role != store.RoleAdmin) {
 		return nil, fail(http.StatusForbidden, "Only admins and the world's game masters make invites; only admins make game masters.")
 	}
@@ -556,7 +566,13 @@ func (s *Service) invite(w http.ResponseWriter, r *http.Request) (any, error) {
 	if q.GM {
 		role = store.MemberGM
 	}
+	if !s.codesAcc.allow(a.Name) {
+		return nil, errSlowDown
+	}
 	code, expires, err := CreateInvite(r.Context(), s.cfg.Store, wd.ID, a.ID, role, q.Uses, s.now(), s.now().Add(ttl))
+	if errors.Is(err, store.ErrInvites) {
+		return nil, errTooManyCodes
+	}
 	if err != nil {
 		return nil, err
 	}

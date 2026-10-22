@@ -132,7 +132,7 @@ func (s *Store) ListWorlds(ctx context.Context, account int64, all bool, limit i
 		LEFT JOIN world_members m ON m.world_id = w.id AND m.account_id = ?
 		LEFT JOIN accounts a ON a.id = w.created_by
 		WHERE w.finished_at IS NULL AND (? OR w.visibility = 'public' OR m.role IS NOT NULL)
-		ORDER BY w.id DESC LIMIT ?`, account, all, limit)
+		ORDER BY m.role IS NULL, w.id DESC LIMIT ?`, account, all, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -211,6 +211,13 @@ func (s *Store) CreateInvite(ctx context.Context, inv store.Invite, now time.Tim
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `DELETE FROM invites WHERE expires_at <= ? OR uses_left = 0`, now.Unix()); err != nil {
 		return err
+	}
+	var live int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM invites WHERE world_id = ?`, inv.WorldID).Scan(&live); err != nil {
+		return err
+	}
+	if live >= store.MaxLiveInvites {
+		return store.ErrInvites
 	}
 	var by any
 	if inv.CreatedBy != 0 {

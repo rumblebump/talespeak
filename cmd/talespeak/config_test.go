@@ -43,6 +43,7 @@ func defaults() limits {
 		worldsPerAccount:  account.DefaultWorldsPerAccount,
 		maxWorlds:         account.DefaultMaxWorlds,
 		loadedWorlds:      hub.DefaultMaxLoaded,
+		worldsPerClient:   hub.DefaultWorldsPerClient,
 		worldIdle:         hub.DefaultIdle,
 	}
 }
@@ -107,6 +108,8 @@ func TestLoadLimitsSets(t *testing.T) {
 		{"TALESPEAK_WORLDS_PER_ACCOUNT", "1000", func(l limits) bool { return l.worldsPerAccount == 1000 }},
 		{"TALESPEAK_MAX_WORLDS", "1", func(l limits) bool { return l.maxWorlds == 1 }},
 		{"TALESPEAK_LOADED_WORLDS", "10000", func(l limits) bool { return l.loadedWorlds == 10000 }},
+		{"TALESPEAK_WORLDS_PER_ADDRESS", "1", func(l limits) bool { return l.worldsPerClient == 1 }},
+		{"TALESPEAK_WORLDS_PER_ADDRESS", "10000", func(l limits) bool { return l.worldsPerClient == 10000 }},
 		{"TALESPEAK_WORLD_IDLE", "10s", func(l limits) bool { return l.worldIdle == 10*time.Second }},
 		{"TALESPEAK_WORLD_IDLE", "24h", func(l limits) bool { return l.worldIdle == 24*time.Hour }},
 	}

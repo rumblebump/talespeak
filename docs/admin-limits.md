@@ -24,7 +24,8 @@ An unset or empty variable keeps the default. A value that does not parse or is 
 | `TALESPEAK_IDLE_TIMEOUT` | `2m` | `45s` to `24h` | Silence before a connection is closed (clients ping every 30 s) |
 | `TALESPEAK_WORLDS_PER_ACCOUNT` | `3` | 1 to 1000 | Unfinished worlds one account may have created (admins have no limit); the lobby also lets one account create 3 at once, then one every 10 minutes, and one address one a minute after `TALESPEAK_SIGNIN_BURST` |
 | `TALESPEAK_MAX_WORLDS` | `1000` | 1 to 1000000 | Unfinished worlds on the server, the main world included; past it nobody creates one until a world ends |
-| `TALESPEAK_LOADED_WORLDS` | `20` | 1 to 10000 | Worlds loaded at once. A world loads when its first player arrives; when the limit is reached, the world empty the longest unloads for it, and with none empty the player is told to try again in a few minutes |
+| `TALESPEAK_LOADED_WORLDS` | `20` | 1 to 10000 | Worlds loaded at once. A world loads when its first player arrives; when the limit is reached, the world empty the longest unloads for it, and with none empty the player is told to try again in a few minutes. The main world counts against neither this nor the next limit, and stays loaded once it is |
+| `TALESPEAK_WORLDS_PER_ADDRESS` | `4` | 1 to 10000 | Worlds besides the main one that the players of one address (an IPv6 /48) play at once. Each world counts the Lua time and memory budgets below on its own, so this caps what one network can use and keeps one network from holding every loaded world. A school behind one address whose classes play more worlds at once needs it higher |
 | `TALESPEAK_WORLD_IDLE` | `5m` | `10s` to `24h` | How long a world stays loaded after its last player left. Unloading ends its timers, as a restart does (T-0012) |
 | `TALESPEAK_SIGNIN_BURST` | `40` | 1 to 1000000 | Accounts one address may register, sign-ins it may try and invite codes it may enter at once; after that one registration every 30 s, one sign-in every 5 s and one code every 30 s. Each account name also gets 10 sign-in tries at once, then one a minute ([accounts.md](accounts.md)) |
 
@@ -32,7 +33,7 @@ Durations are Go durations (`250ms`, `2s`, `5m`). Sizes are bytes or a number wi
 
 **What to change when:**
 
-- A school behind one NAT address with many players: raise `TALESPEAK_MAX_CONNS_PER_CLIENT`, `TALESPEAK_CONNECT_BURST` and, for classes larger than 40, `TALESPEAK_SIGNIN_BURST`, and with a heavy pack `TALESPEAK_LUA_CLIENT_RATE` (the whole class shares it).
+- A school behind one NAT address with many players: raise `TALESPEAK_MAX_CONNS_PER_CLIENT`, `TALESPEAK_CONNECT_BURST` and, for classes larger than 40, `TALESPEAK_SIGNIN_BURST`, and with a heavy pack `TALESPEAK_LUA_CLIENT_RATE` (the whole class shares it). When the classes behind that address play more than 4 worlds at once, raise `TALESPEAK_WORLDS_PER_ADDRESS` too.
 - Many worlds on a small server: every loaded world keeps its pack's compiled scripts and up to `TALESPEAK_LUA_STATE_MEMORY` of script state, so the worst case is `TALESPEAK_LOADED_WORLDS` × that. With the defaults a world with a few players keeps a few MiB; lower `TALESPEAK_LOADED_WORLDS` or `TALESPEAK_LUA_STATE_MEMORY` on a 1 GB box with heavy packs, and `TALESPEAK_WORLD_IDLE` to free memory sooner. Pack images are kept once per pack, not per world.
 - Packs with large pictures: raise `TALESPEAK_PACK_IMAGE_MAX`, and keep `TALESPEAK_PACK_IMAGES_TOTAL` within the server's memory.
 - Heavy rule packs that hit "script hit its limits": raise `TALESPEAK_LUA_TIME` a little (a slow hook delays the other players of its world), or `TALESPEAK_LUA_PLAYER_MEMORY` for packs with large word lists.

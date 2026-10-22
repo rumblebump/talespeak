@@ -11,3 +11,4 @@ CREATE INDEX worlds_home ON worlds (pack_id, home, finished_at);
 CREATE INDEX worlds_open ON worlds (finished_at, visibility);
 CREATE INDEX worlds_creator ON worlds (created_by, finished_at);
 CREATE INDEX world_members_account ON world_members (account_id, role);
+CREATE INDEX invites_world ON invites (world_id);
