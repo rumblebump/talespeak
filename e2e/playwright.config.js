@@ -21,6 +21,8 @@ function server(url, name, pack, extra = {}, before = "") {
     TALESPEAK_CONNECT_BURST: "100000",
     // Every test registers its own account, from the same address.
     TALESPEAK_SIGNIN_BURST: "100000",
+    // Tests side by side play many worlds at once, all from 127.0.0.1.
+    TALESPEAK_WORLDS_PER_ADDRESS: "10000",
   };
   if (pack) env.TALESPEAK_PACK = pack;
   Object.assign(env, extra);

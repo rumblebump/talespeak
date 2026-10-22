@@ -1,6 +1,6 @@
 // The lobby: a card per world, creating a world from a pack, its join code,
 // and ending it.
-import { test, expect, card, play, signUp } from "./fixtures.js";
+import { test, expect, card, play, signUp, status } from "./fixtures.js";
 
 const story = (page) => page.locator(".story");
 const uniqueTitle = () => "World " + Math.random().toString(36).slice(2, 8);
@@ -21,7 +21,7 @@ async function createWorld(page, title, pack, visibility) {
 test("a private world: its creator gets a code, a friend joins with it", async ({ page, browser }) => {
   await signUp(page);
   await page.goto("/");
-  await expect(page.getByRole("status")).toHaveText("pick a world");
+  await expect(status(page)).toHaveText("pick a world");
   await expect(card(page)).toContainText("main world");
   await expect(card(page)).toContainText("public");
 
@@ -44,7 +44,7 @@ test("a private world: its creator gets a code, a friend joins with it", async (
     const join = friend.getByRole("form", { name: "Join with a code" });
     await join.getByLabel("join code").fill(code.replaceAll("-", " ").toLowerCase());
     await join.getByRole("button", { name: "join" }).click();
-    await expect(friend.getByRole("status")).toContainText("connected · engine");
+    await expect(status(friend)).toContainText("connected · engine");
     await expect(story(friend).locator(".room-title")).toHaveText("Test hall"); // the test pack's start room
     expect(friend.url()).toMatch(/#world=\d+$/);
 
@@ -53,7 +53,7 @@ test("a private world: its creator gets a code, a friend joins with it", async (
 
     // Back in the lobby, the friend's card shows the world with both.
     await friend.getByRole("button", { name: "worlds" }).click();
-    await expect(friend.getByRole("status")).toHaveText("pick a world");
+    await expect(status(friend)).toHaveText("pick a world");
     const theirs = card(friend, title);
     await expect(theirs).toContainText("you are a member");
     // The server may not have seen the friend's connection close yet.
@@ -86,7 +86,7 @@ test("a public world is listed for everyone, and its game master can end it", as
 
     // The player in it is sent back to the lobby.
     await expect(story(other)).toContainText("This world has ended.");
-    await expect(other.getByRole("status")).toHaveText("pick a world");
+    await expect(status(other)).toHaveText("pick a world");
     await expect(other.getByRole("region", { name: "Worlds" }).getByRole("alert")).toHaveText("That world has ended, or you may no longer play it.");
     await expect(card(other, title)).toHaveCount(0);
   } finally {
@@ -102,13 +102,13 @@ test("a reload stays in the world, the lobby button leaves it", async ({ page })
   await play(page, title);
   const url = page.url();
   await page.reload();
-  await expect(page.getByRole("status")).toContainText("connected · engine");
+  await expect(status(page)).toContainText("connected · engine");
   await expect(story(page).locator(".room-title")).toHaveText("Test hall");
   expect(page.url()).toBe(url);
 
   await page.getByRole("button", { name: "worlds" }).click();
-  await expect(page.getByRole("status")).toHaveText("pick a world");
+  await expect(status(page)).toHaveText("pick a world");
   expect(page.url()).not.toContain("#world=");
   await page.reload();
-  await expect(page.getByRole("status")).toHaveText("pick a world"); // no world in the address: the lobby
+  await expect(status(page)).toHaveText("pick a world"); // no world in the address: the lobby
 });

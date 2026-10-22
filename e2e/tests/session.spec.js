@@ -1,6 +1,6 @@
 // Connection loss, keyboard-only play, themes, and the client staying in
 // step with the engine when it refuses an answer.
-import { test, expect, open } from "./fixtures.js";
+import { test, expect, open, status } from "./fixtures.js";
 
 const story = (page) => page.locator(".story");
 
@@ -23,7 +23,7 @@ test("reconnects after the connection drops and starts a new session", async ({ 
   // The retry timer runs on the fake clock, so the test does not wait.
   await page.clock.install();
   await sockets[0].close();
-  await expect(page.getByRole("status")).toHaveText("offline · retrying in 1 s");
+  await expect(status(page)).toHaveText("offline · retrying in 1 s");
   await expect(page.getByRole("group", { name: "Light the lamp?" })).toBeHidden();
   const input = page.getByRole("textbox");
   await expect(input).toHaveAttribute("placeholder", "waiting for the server…");
@@ -34,7 +34,7 @@ test("reconnects after the connection drops and starts a new session", async ({ 
   await expect(story(page).locator(".you")).not.toContainText(["hello?"]);
 
   await page.clock.runFor(1000);
-  await expect(page.getByRole("status")).toContainText("connected · engine");
+  await expect(status(page)).toContainText("connected · engine");
   expect(sockets).toHaveLength(2);
   // A new session: the story starts again and the room's own items are back.
   await expect(story(page).locator(".room-title")).toHaveText(["Test hall"]);
