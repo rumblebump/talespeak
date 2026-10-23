@@ -76,7 +76,7 @@ func readCommands(globals *lua.LTable) []Command {
 			continue
 		}
 		c := Command{Name: string(name), GM: lua.LVAsBool(spec.RawGetString("gm"))}
-		if help, ok := spec.RawGetString("help").(lua.LString); ok && validLabel(string(help)) && len(help) <= MaxCommandHelpBytes {
+		if help, ok := spec.RawGetString("help").(lua.LString); ok && ValidLabel(string(help)) && len(help) <= MaxCommandHelpBytes {
 			c.Help = strings.TrimSpace(string(help))
 		}
 		list = append(list, c)

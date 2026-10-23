@@ -114,6 +114,8 @@ type World struct {
 	lost      map[int64]store.Save // character -> what a failed save of a player who left did not write
 	lostOrder []int64              // the characters of lost, the oldest first
 
+	timerSaves map[timerKey]store.Timer // timer changes the next save writes (lasting.go)
+
 	world       script.State // state.world, shared by every player
 	changed     []string     // world keys the running hook changed
 	delivering  bool         // a delivery of on_change is due
@@ -141,7 +143,7 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Opti
 	w := &World{log: log, pack: p, rt: script.New(limits), scripts: map[string]*script.Script{}, sessions: map[*session]struct{}{},
 		budgets: map[string]*budget{}, now: time.Now, after: afterFunc, clientMemory: DefaultClientMemory, clientEnvs: map[string]map[*script.Env]struct{}{},
 		clientState: map[string]int64{}, roomTimers: map[string]map[string]*roomTimer{}, timerNews: map[roomTimerKey]struct{}{},
-		timerDue: map[roomTimerKey]*session{}, chars: map[int64]*session{}, lost: map[int64]store.Save{}}
+		timerDue: map[roomTimerKey]*session{}, chars: map[int64]*session{}, lost: map[int64]store.Save{}, timerSaves: map[timerKey]store.Timer{}}
 	w.world = script.State{World: true, Reserve: w.reserveWorld, Changed: w.change}
 	WithClientBudget(DefaultClientRate, DefaultClientBurst)(w)
 	for _, o := range opts {
@@ -151,14 +153,19 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Opti
 	if w.store != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), saveTimeout)
 		vals, err := w.store.WorldState(ctx, w.worldID)
-		cancel()
 		if err == nil {
 			err = w.world.Load(vals)
 		}
+		var timers []store.Timer
+		if err == nil {
+			timers, err = w.store.RoomTimers(ctx, w.worldID)
+		}
+		cancel()
 		if err != nil {
 			w.rt.Close()
 			return nil, fmt.Errorf("world state: %w", err)
 		}
+		w.restoreRoomTimers(timers)
 	}
 	for _, name := range slices.Sorted(maps.Keys(p.Modules)) {
 		sc, err := w.rt.Compile("lib/"+name+".lua", p.Modules[name])

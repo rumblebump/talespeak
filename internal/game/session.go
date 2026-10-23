@@ -41,8 +41,10 @@ type session struct {
 	visited  []string      // rooms entered, the latest last
 	moves    int           // room.go moves done for the current message
 
-	timers      map[string]*timer // the player's timers, by name
-	dialogTimer func() bool       // stops the open question's timeout, if it has one
+	timers      map[string]*timer         // the player's timers, by name
+	dialogTimer func() bool               // stops the open question's timeout, if it has one
+	questions   map[questionKey]time.Time // deadlines of questions asked, with a store (lasting.go)
+	asked       questionKey               // the open question's entry in questions, if any
 
 	out        []ws.Message // collects output during one hook call
 	queue      []ws.Message // pushed output waiting for Pending
@@ -111,8 +113,10 @@ func (s *session) Close() {
 	}
 }
 
-// end is Close. The caller holds w.mu.
+// end is Close. The open question's deadline stays with the character.
+// The caller holds w.mu.
 func (s *session) end() {
+	s.asked = questionKey{}
 	s.leave()
 	s.closed = true
 	delete(s.w.sessions, s)
@@ -241,9 +245,10 @@ func (s *session) drop() {
 	s.unpend()
 }
 
-// unpend forgets the pending hook and stops its question's timeout. The
-// caller holds w.mu.
+// unpend forgets the pending hook, stops its question's timeout and
+// forgets its deadline. The caller holds w.mu.
 func (s *session) unpend() {
+	s.forgetQuestion()
 	if s.dialogTimer != nil {
 		s.dialogTimer()
 		s.dialogTimer = nil
