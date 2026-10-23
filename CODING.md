@@ -90,7 +90,8 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `internal/game/session.go` | `session` (one player, its fields), `Handle` dispatching `choose`/`input`/`click`/`answer`, `Close`, the player's room script instances (`env`, `start`, `free`, `victim`), pending questions |
 | `internal/game/input.go` | Entering rooms (`enterLocked`, `place`), answering questions, typed lines and clicks, running hooks (`run`, `after`) and the error text players read |
 | `internal/game/host.go` | The session as `script.Host`: `flush`, `Say`, `DescribeRoom`, `Items`, `Go`, `Image`, state access |
-| `internal/game/commands.go` | Slash commands: a line starting with `/` never reaches `on_input`; engine commands (`/help` and the GM tools `/players`, `/rooms`, `/go`, `/say`, `/reset`, `/audit`), room script commands via `on_command`, notices a pack cannot fake, the audit log, broadcast rate limit, `RoleChanged` |
+| `internal/game/commands.go` | Slash commands: a line starting with `/` never reaches `on_input`; dispatch to the engine's commands or the room script's (`on_command`), notices a pack cannot fake, the audit log, the broadcast rate limit, `/help` |
+| `internal/game/gmtools.go` | The GM commands `/players`, `/rooms`, `/go`, `/say`, `/reset` (`resetRoom`, `restart`) and `/audit`; `RoleChanged` |
 | `internal/game/party.go` | What a room's players share: unique names, `room.players`/`world.players`, leaving (`on_leave`), room timers |
 | `internal/game/push.go` | Output nobody asked for: the push queue (`ws.Pusher`), player timers, question timeouts |
 | `internal/game/world.go` | `state.world` and `on_change` delivery to other players |
