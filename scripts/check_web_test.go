@@ -123,6 +123,8 @@ func TestCheckWeb(t *testing.T) {
 		{"picture src allowed", html(`<img :src="picture.url">`), ""},
 		{"src assignment", js("export function f(img, u) { img.src = u; }\n"), assigns},
 		{"fetch", js("export const f = () => fetch(\"/x\");\n"), assigns},
+		{"account API fetch in api.js", map[string]string{"web/static/api.js": "const apiPath = \"/api/me\";\nlet resp;\n  resp = await fetch(apiPath, {});\nexport { resp };\n"}, ""},
+		{"account API fetch outside api.js", js("const apiPath = \"/api/me\";\nlet resp;\n  resp = await fetch(apiPath, {});\nexport { resp };\n"), assigns},
 		{"location", js("export function f(u) { location = u; }\n"), assigns},
 		{"syntax error", js("export const = ;\n"), "does not parse"},
 	}

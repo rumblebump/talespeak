@@ -3,4 +3,3 @@
 # past its count; remove its line once it is split.
 internal/game/demo_test.go 1180
 internal/ws/ws_test.go 816
-web/static/app.js 1112

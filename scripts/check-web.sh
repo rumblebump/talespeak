@@ -7,8 +7,8 @@
 #     checksums instead (scripts/vendor.sh)
 #   - no HTML sinks: server text is only shown with x-text or textContent
 #   - no URL bindings or URL assignments other than the picture's src,
-#     which app.js validates, and no style bindings
-#   - no fetch other than the account API's, in app.js, whose path it
+#     which view.js validates (clean.js imageURL), and no style bindings
+#   - no fetch other than the account API's, in api.js, whose path it
 #     checks
 set -eu
 cd "$(dirname "$0")/.."
@@ -53,14 +53,14 @@ report "HTML sinks in web/ (above): show untrusted text with x-text or textConte
 $(grep -rnIE 'x-html|innerHTML|outerHTML|insertAdjacentHTML|setHTMLUnsafe|createContextualFragment|DOMParser|srcdoc|document\.write|\beval\(|new Function|setAttribute\(' "$tmp/web" || true)
 EOF2
 
-report "URL bindings in web/ (above): only the picture's src is allowed, and app.js validates it" <<EOF2
+report "URL bindings in web/ (above): only the picture's src is allowed, and view.js validates it" <<EOF2
 $(grep -rnIE '(:|x-bind:)(href|src|action|formaction|srcset|data|poster|style)=' "$tmp/web" | sed 's/:src="picture\.url"//g' |
 	grep -E '^[^:]+:[0-9]+:.*(:|x-bind:)(href|src|action|formaction|srcset|data|poster|style)=' || true)
 EOF2
 
 report "URL assignments in web/ (above): the client never loads or opens a URL from script" <<EOF2
 $(grep -rnIE '\.(src|href|srcset|action|formAction|poster|data)[[:space:]]*=[^=]|location[[:space:]]*=[^=]|location\.(href|assign|replace)|window\.open|\.style\.|setProperty\(|new (Image|Audio|Worker|SharedWorker|EventSource)\(|importScripts|import\(|fetch\(' "$tmp/web" |
-	grep -vE '^[^:]*/static/app\.js:[0-9]+:[[:space:]]*resp = await fetch\(apiPath, ' || true)
+	grep -vE '^[^:]*/static/api\.js:[0-9]+:[[:space:]]*resp = await fetch\(apiPath, ' || true)
 EOF2
 
 scripts/vendor.sh check || fail=1

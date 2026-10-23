@@ -132,7 +132,13 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | File | What it does |
 | --- | --- |
 | `web/web.go` | Embeds `web/static/` into the binary |
-| `web/static/app.js` | The `game` Alpine component: clean helpers for server data, settings, sign-in, the lobby and its cards, starting a game, `receive` for every engine message, lines, timers, dialogs and typed answers, keys, pictures, read aloud and large text |
+| `web/static/app.js` | The `game` Alpine component: its state and `init`; merges the parts below with `Object.defineProperties` (keeps getters) |
+| `web/static/lobby.js` | Part: sign-in, the account, the lobby and its world cards, join codes, invites, creating and ending worlds |
+| `web/static/play.js` | Part: starting and stopping a game, `receive` for every engine message, story lines and scrolling, timers, items |
+| `web/static/dialog.js` | Part: dialogs, multiple choice, typed answers, the input line with its history and keys |
+| `web/static/view.js` | Part: pictures, read aloud, large text and their labels |
+| `web/static/clean.js` | Limits that match the engine, cleaning server data (`cleanCard`, `cleanItems`, `imageURL`, ...), settings, the page hash, clock text |
+| `web/static/api.js` | `api`: the only `fetch`, to the account API's fixed paths (`scripts/check-web.sh` allows no other) |
 | `web/static/storylog.js` | The story log kept in the browser per account and world (`loadLog`, `saveLog`, `forgetLogs`); session storage in edu mode |
 | `web/static/net.js` | The WebSocket to one world: reconnect with backoff, pings, close codes |
 | `web/static/speech.js` | Read aloud with local voices only |
@@ -175,7 +181,7 @@ Pack format: docs/content-format.md; patterns for pack authors: docs/pack-patter
 ## Where to change what
 
 - **A new Lua function for packs:** register it in `openSandbox` (`internal/script/sandbox.go`, or the file of its library, such as `timer.go`); if it needs the game, add a method to `Host` or `Party` (`script.go`) and implement it on `session` in `internal/game`. Document it in docs/lua-sandbox.md. Ask first whether it is a core primitive or belongs in pack Lua (CLAUDE.md).
-- **A new WebSocket message:** fields in `ws.Message` (`internal/ws/ws.go`), client to engine in `session.handle` (`internal/game/game.go`), engine to client in `receive` (`web/static/app.js`); document it in docs/websocket-protocol.md.
+- **A new WebSocket message:** fields in `ws.Message` (`internal/ws/ws.go`), client to engine in `session.handle` (`internal/game/session.go`), engine to client in `receive` (`web/static/play.js`); document it in docs/websocket-protocol.md.
 - **A new `/api/` route:** `Service.Handler` (`internal/account/account.go`) with `s.post` (`api.go`) or `s.get` (`worlds.go`); check edu mode and world visibility with the `may...` helpers in `internal/account/worlds.go`; the client's `fetch` paths are checked by `scripts/check-web.sh`; document it in docs/accounts.md.
 - **A new setting:** env var in `cmd/talespeak/config.go` or `accounts.go`, passed down through a `Config` or `WithX` option; document it in docs/admin-limits.md or docs/setup-server.md and `deploy/.env.example`.
 - **A database change:** a new migration file plus the `store` interface method and its SQLite implementation.
@@ -244,7 +250,7 @@ This is how to run them; what they found goes in `protocol/`, never here.
 
 - Plain ES modules, no build step; the only library is the vendored Alpine CSP build.
 - Server text reaches the page only through `x-text` or `textContent`; no `x-html`, `eval` or inline scripts. HTML attributes hold only simple expressions.
-- Every field from the server is cleaned and cut to the engine's limits before use (the `clean...` helpers in `app.js`).
+- Every field from the server is cleaned and cut to the engine's limits before use (the helpers in `clean.js`).
 - `fetch` only the server's own `/api/` paths.
 
 ### Lua (packs)
