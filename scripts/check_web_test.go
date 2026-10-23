@@ -29,6 +29,12 @@ var cleanWeb = map[string]string{
 	"web/web.go":           "package web\n\n//go:embed static\nvar Static embed.FS\n",
 }
 
+// apiFetch is api.js's one allowed fetch line, in a module that parses.
+const apiFetch = "const apiPath = \"/api/me\";\nconst init = {};\nlet resp;\nexport async function f() {\n    resp = await fetch(apiPath, { ...init, credentials: \"same-origin\", cache: \"no-store\" });\n}\n"
+
+// netSocket is net.js's one allowed WebSocket line.
+const netSocket = "const scheme = \"ws://\";\nexport function f(world) {\n    const ws = new WebSocket(scheme + location.host + \"/ws?world=\" + world);\n  return ws;\n}\n"
+
 // runCheckWeb runs a copy of scripts/check-web.sh on a temporary tree made
 // of cleanWeb with the given files replaced, and returns its output and
 // whether it passed. scripts/vendor.sh is a stub: the checksums have their
@@ -123,8 +129,16 @@ func TestCheckWeb(t *testing.T) {
 		{"picture src allowed", html(`<img :src="picture.url">`), ""},
 		{"src assignment", js("export function f(img, u) { img.src = u; }\n"), assigns},
 		{"fetch", js("export const f = () => fetch(\"/x\");\n"), assigns},
-		{"account API fetch in api.js", map[string]string{"web/static/api.js": "const apiPath = \"/api/me\";\nlet resp;\n  resp = await fetch(apiPath, {});\nexport { resp };\n"}, ""},
-		{"account API fetch outside api.js", js("const apiPath = \"/api/me\";\nlet resp;\n  resp = await fetch(apiPath, {});\nexport { resp };\n"), assigns},
+		{"account API fetch in api.js", map[string]string{"web/static/api.js": apiFetch}, ""},
+		{"account API fetch outside api.js", js(apiFetch), assigns},
+		{"account API fetch in a nested api.js", map[string]string{"web/static/x/static/api.js": apiFetch}, assigns},
+		{"second call after the allowed fetch", map[string]string{"web/static/api.js": strings.Replace(apiFetch, "});\n}", "}); fetch(location.hash);\n}", 1)}, assigns},
+		{"other fetch options", map[string]string{"web/static/api.js": strings.Replace(apiFetch, "same-origin", "include", 1)}, assigns},
+		{"the WebSocket in net.js", map[string]string{"web/static/net.js": netSocket}, ""},
+		{"a WebSocket elsewhere", js(netSocket), assigns},
+		{"another WebSocket in net.js", map[string]string{"web/static/net.js": "export const ws = new WebSocket(\"ws://evil/\");\n"}, external},
+		{"XMLHttpRequest", js("export const x = new XMLHttpRequest();\n"), assigns},
+		{"sendBeacon", js("export const f = () => navigator.sendBeacon(\"/x\");\n"), assigns},
 		{"location", js("export function f(u) { location = u; }\n"), assigns},
 		{"syntax error", js("export const = ;\n"), "does not parse"},
 	}

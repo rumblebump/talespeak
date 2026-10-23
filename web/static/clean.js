@@ -4,6 +4,7 @@
 
 // Limits that match the engine (docs/websocket-protocol.md).
 export const MAX_LINES = 500; // older story lines are dropped
+export const MAX_TEXT = 4000; // characters of one story line, title or notice
 export const MAX_INPUT = 500; // bytes the engine accepts in one typed line
 export const MAX_HISTORY = 50; // typed lines kept for arrow up and down
 export const MAX_TIMERS = 20; // shown timers: 10 of the player and 10 of the room
@@ -90,7 +91,7 @@ export function cleanItems(v) {
   return v
     .filter((it) => it && typeof it === "object" && typeof it.id === "string")
     .slice(0, 20)
-    .map((it) => ({ id: it.id, label: text(it.label) }));
+    .map((it) => ({ id: it.id.slice(0, 64), label: text(it.label).slice(0, 100) }));
 }
 
 /** msLeft reads a server duration in milliseconds: 0 when it is missing,

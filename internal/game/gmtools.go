@@ -14,7 +14,9 @@ import (
 
 // The game master's commands (T-0011): /players, /rooms, /go, /say,
 // /reset and /audit, and what happens when an account's role in the world
-// changes.
+// changes. The commands do not check player.gm themselves: runCore only
+// calls them after command has checked it (commands.go). Like every
+// session method here, they run with w.mu held.
 
 func (s *session) playersCommand() []ws.Message {
 	list := s.w.online()

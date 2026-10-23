@@ -12,7 +12,7 @@ export function view(speaker) {
     showPicture(msg) {
       const url = imageURL(msg.url);
       if (url === "") return;
-      const caption = text(msg.text);
+      const caption = text(msg.text).slice(0, 200);
       if (url !== this.picture.url) this.pixelArt = false;
       this.picture = { url, caption };
       if (caption) this.addLine("[picture] " + caption, "picture-note");

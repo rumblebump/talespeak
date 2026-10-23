@@ -13,7 +13,8 @@ import (
 
 // Player input to hooks: entering rooms, answering questions, typed lines
 // and clicks, running a hook and turning its errors into what the player
-// reads.
+// reads. Everything here runs with w.mu held: Handle (session.go) and the
+// timer goroutines (push.go, party.go) take it.
 
 // enterLocked moves the player into room and runs its on_enter hook; without
 // moved, the player has just joined. The caller holds w.mu. After room.go

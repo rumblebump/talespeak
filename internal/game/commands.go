@@ -151,8 +151,10 @@ func (s *session) runCore(name, args string) []ws.Message {
 		return s.sayCommand(args)
 	case "reset":
 		return s.resetCommand(args)
-	default: // "audit"
+	case "audit":
 		return s.auditCommand()
+	default:
+		return unknownCommand(name)
 	}
 }
 

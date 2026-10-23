@@ -12,13 +12,13 @@ export function dialog(speaker) {
 
     openDialog(msg) {
       const ask = msg.type === "ask";
-      const options = ask || !Array.isArray(msg.options) ? [] : msg.options.slice(0, 9).map(text);
+      const options = ask || !Array.isArray(msg.options) ? [] : msg.options.slice(0, 9).map((o) => text(o).slice(0, 200));
       if (options.length === 0 && !ask) return;
       const multiple = msg.type === "select";
       const max = Number.isInteger(msg.max) ? msg.max : options.length;
       this.dialog = {
         id: text(msg.id),
-        title: text(msg.title),
+        title: text(msg.title).slice(0, 200),
         options,
         multiple,
         min: Number.isInteger(msg.min) ? msg.min : 0,

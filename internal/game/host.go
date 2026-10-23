@@ -8,7 +8,8 @@ import (
 )
 
 // The session as script.Host: what a hook sends to the player while it
-// runs, collected until the hook ends.
+// runs, collected until the hook ends. Lua calls these during a hook, so
+// w.mu is held.
 
 // flush returns the output of the call, and tells the other players what
 // the call changed in state.world. The caller holds w.mu.

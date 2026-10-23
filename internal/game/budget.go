@@ -111,7 +111,8 @@ func (w *World) charged(client string, f func() error) error {
 	return w.charge(b, now, f)
 }
 
-// charge runs f, which starts at now, and takes its time from b.
+// charge runs f, which starts at now, and takes its time from b. The
+// caller holds w.mu.
 func (w *World) charge(b *budget, now time.Time, f func() error) error {
 	err := f()
 	end := w.now()

@@ -2,7 +2,7 @@
 // story lines and their scrolling, timers and clickable items. A part of
 // the game component; app.js merges it in.
 
-import { MAX_LINES, MAX_TIMERS, NEAR_BOTTOM, cleanItems, cleanLine, clockText, msLeft, speakerName, text } from "/clean.js";
+import { MAX_LINES, MAX_TEXT, MAX_TIMERS, NEAR_BOTTOM, cleanItems, cleanLine, clockText, msLeft, speakerName, text } from "/clean.js";
 import { api } from "/api.js";
 import { connect } from "/net.js";
 import { loadLog, saveLog } from "/storylog.js";
@@ -166,7 +166,7 @@ export function play(speaker) {
     // voice.from names who says it, such as the guide: the line shows the
     // name and is read in the guide's voice.
     addLine(value, kind, silent, voice) {
-      const s = text(value);
+      const s = text(value).slice(0, MAX_TEXT);
       if (s === "") return;
       const from = voice && voice.from ? voice.from : "";
       const spoken = !!voice && voice.speak && this.canSpeak;

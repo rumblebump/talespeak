@@ -18,7 +18,9 @@ const LOG_PREFIX = "talespeak.log.";
 
 function logStorage(edu) {
   try {
-    return edu ? sessionStorage : localStorage;
+    // Only edu === false keeps the log past the tab, so a caller that
+    // passes nothing never leaves a kid's story on a shared computer.
+    return edu === false ? localStorage : sessionStorage;
   } catch {
     return null; // storage refused: nothing is kept
   }
