@@ -48,7 +48,11 @@ browser (web/static)  --HTTP-->  internal/server  --/api-->  internal/account  -
 | File | What it does |
 | --- | --- |
 | `internal/account/password.go` | Package doc; argon2id `Hash` and `Verify` |
-| `internal/account/account.go` | Settings, `Config`, `Service`, `Handler` (all `/api/` routes); JSON and same-origin helpers; `/api/me`; `Auth` for the WebSocket; register, login, logout, session cookies; join codes and invites |
+| `internal/account/account.go` | Settings, `Config`, `Service`, `New`, `Handler` (all `/api/` routes) |
+| `internal/account/api.go` | API plumbing: `apiError` and `fail`, the `post` wrapper (same origin, JSON, size, timeout), `writeJSON`, `decode` |
+| `internal/account/me.go` | `GET /api/me`, the signed-in account, and `Auth` for the WebSocket (`ws.Who`) |
+| `internal/account/login.go` | Register, login, logout, the session cookie and token hashes |
+| `internal/account/join.go` | `POST /api/join` with a code, `POST /api/invites` for admins and GMs |
 | `internal/account/worlds.go` | The lobby (`GET /api/worlds`, cards), who may play, see, invite, finish and create worlds, creating and ending worlds |
 | `internal/account/names.go` | `ValidName`, `ValidPassword`, `CreateInvite` |
 | `internal/account/members.go` | `POST /api/members`: admins change an account's role in a world or take it out; live players reconnect with the new role |
@@ -167,7 +171,7 @@ Pack format: docs/content-format.md; patterns for pack authors: docs/pack-patter
 
 - **A new Lua function for packs:** register it in `openSandbox` (`internal/script/sandbox.go`, or the file of its library, such as `timer.go`); if it needs the game, add a method to `Host` or `Party` (`script.go`) and implement it on `session` in `internal/game`. Document it in docs/lua-sandbox.md. Ask first whether it is a core primitive or belongs in pack Lua (CLAUDE.md).
 - **A new WebSocket message:** fields in `ws.Message` (`internal/ws/ws.go`), client to engine in `session.handle` (`internal/game/game.go`), engine to client in `receive` (`web/static/app.js`); document it in docs/websocket-protocol.md.
-- **A new `/api/` route:** `Service.Handler` (`internal/account/account.go`) with `s.post` or `s.get`; check edu mode and world visibility with the `may...` helpers in `internal/account/worlds.go`; the client's `fetch` paths are checked by `scripts/check-web.sh`; document it in docs/accounts.md.
+- **A new `/api/` route:** `Service.Handler` (`internal/account/account.go`) with `s.post` (`api.go`) or `s.get` (`worlds.go`); check edu mode and world visibility with the `may...` helpers in `internal/account/worlds.go`; the client's `fetch` paths are checked by `scripts/check-web.sh`; document it in docs/accounts.md.
 - **A new setting:** env var in `cmd/talespeak/config.go` or `accounts.go`, passed down through a `Config` or `WithX` option; document it in docs/admin-limits.md or docs/setup-server.md and `deploy/.env.example`.
 - **A database change:** a new migration file plus the `store` interface method and its SQLite implementation.
 - **A pack room or module:** `content/<pack>/rooms/*.yaml`, `scripts/*.lua`, `lib/*.lua`; tests in `internal/game/*_test.go` drive the pack through a `World`.
