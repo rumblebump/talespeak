@@ -81,7 +81,11 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 
 | File | What it does |
 | --- | --- |
-| `internal/game/game.go` | `World` (fields and the `w.mu` lock), options, `NewWorld`, `NewSession`, `Close`, idle and `End`; per-client Lua time and memory budgets; `session` (one player): `Handle` dispatches `choose`/`input`/`click`/`answer`, room script instances, entering rooms, running hooks and their errors; the `script.Host` methods (`Say`, `Items`, `Go`, `Image`) |
+| `internal/game/game.go` | Package doc; `World` (fields and the `w.mu` lock), options, `NewWorld`, `NewSession`, `Close`, idle checks and `End` |
+| `internal/game/budget.go` | Per-client Lua time and script memory budgets: `ClientKey`, `timed`, `charged`, `release`; `ErrBusy`, `ErrClientFull` |
+| `internal/game/session.go` | `session` (one player, its fields), `Handle` dispatching `choose`/`input`/`click`/`answer`, `Close`, the player's room script instances (`env`, `start`, `free`, `victim`), pending questions |
+| `internal/game/input.go` | Entering rooms (`enterLocked`, `place`), answering questions, typed lines and clicks, running hooks (`run`, `after`) and the error text players read |
+| `internal/game/host.go` | The session as `script.Host`: `flush`, `Say`, `DescribeRoom`, `Items`, `Go`, `Image`, state access |
 | `internal/game/commands.go` | Slash commands: a line starting with `/` never reaches `on_input`; engine commands (`/help` and the GM tools `/players`, `/rooms`, `/go`, `/say`, `/reset`, `/audit`), room script commands via `on_command`, notices a pack cannot fake, the audit log, broadcast rate limit, `RoleChanged` |
 | `internal/game/party.go` | What a room's players share: unique names, `room.players`/`world.players`, leaving (`on_leave`), room timers |
 | `internal/game/push.go` | Output nobody asked for: the push queue (`ws.Pusher`), player timers, question timeouts |
