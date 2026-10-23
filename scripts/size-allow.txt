@@ -1,7 +1,6 @@
 # Files over the size limit of scripts/check-codemap.sh, waiting for their
 # split (CODING.md, Style guide): "path lines". A listed file may not grow
 # past its count; remove its line once it is split.
-content/clockmaker/lib/case.lua 867
 internal/game/demo_test.go 1180
 internal/ws/ws_test.go 816
 web/static/app.js 1112

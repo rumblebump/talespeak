@@ -212,7 +212,7 @@ Call `items.visible` again in `on_change`: the other players' takes change the w
 
 ## Save spots for a party
 
-A game in levels that a party plays together, saved at the end of each level, is written in Lua on `state.world` alone, so that one player's hook can move the whole party. The clockmaker pack (`content/clockmaker/lib/case.lua`) does it:
+A game in levels that a party plays together, saved at the end of each level, is written in Lua on `state.world` alone, so that one player's hook can move the whole party. The clockmaker pack (`content/clockmaker/lib/case.lua` and its parts `case_*.lua`) does it:
 
 | World key | Holds |
 | --- | --- |
@@ -226,3 +226,32 @@ A game in levels that a party plays together, saved at the end of each level, is
 - **The lead decides:** going on without players who left the game (what they carried goes to the lead), or playing the level again with only those here. Both free those players' seats, so a fifth player waiting outside can join; a player who comes back later joins again when a seat is free. The lead is a game master of the world who is online and on the case (`player.gm`), else the first player online. Who is online is always `world.players()`, never a list kept with `on_enter` and `on_leave`, because `on_leave` does not run when the server stops.
 
 A restart is not everyone leaving: after one, the level goes on where it was.
+
+## One module in several files
+
+A module that grows past about 500 lines can be split by function and still be one module to the rooms. The clockmaker's `case.lua` installs its parts at the end of its top level:
+
+```lua
+for _, name in ipairs({ "case_secrets", "case_bags", "case_spots", "case_input" }) do
+  require(name)(case)
+end
+return case
+```
+
+Each part defines its functions on a table of its own whose `__index` is the main module, and returns the function that copies them there, so `case.x` inside a part finds everything:
+
+```lua
+local case, main = {}, nil
+setmetatable(case, { __index = function(_, k) return main[k] end })
+
+function case.bag(id) ... end
+
+return function(m)
+  main = m
+  for k, f in pairs(case) do
+    m[k] = f
+  end
+end
+```
+
+A part never requires the main module itself: a module that requires itself through others is a script error.

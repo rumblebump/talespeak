@@ -149,7 +149,11 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `content/demo/lib/round.lua` | Free and turn-based rounds in a room, for any pack to copy |
 | `content/demo/lib/items.lua` | Shared, split and used-up items and effects, for any pack to copy |
 | `content/clockmaker/scripts/` | The co-op case "The Clockmaker's Silence": one script per location |
-| `content/clockmaker/lib/case.lua` | The party, five levels with save spots, per-world secrets, satchels, the casebook and typed input |
+| `content/clockmaker/lib/case.lua` | The case module the rooms require: the party, the five levels, arriving and leaving, rewinding a level; installs its parts below |
+| `content/clockmaker/lib/case_secrets.lua` | What each world picks once (desk word, clock times, map, crate, thief, evidence cards) and reading those items |
+| `content/clockmaker/lib/case_bags.lua` | The satchels: carrying, giving and showing items |
+| `content/clockmaker/lib/case_spots.lua` | Save spots: the door at the end of a level, going on without players who left |
+| `content/clockmaker/lib/case_input.lua` | The casebook and the hooks every room shares: items, clicks, typed input |
 | `content/test-pack/scripts/` | The tiny pack the browser tests run: every renderer once |
 | `content/test-pack/lib/visits.lua` | A module to test `require` |
 
