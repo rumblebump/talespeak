@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
   <meta name="color-scheme" content="dark light">
   <title>Talespeak</title>
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/app.js"></script>
 </head>
-<body x-data="game" @keydown.window="onKey">
+<body x-data="game" @keydown.window="onKey" :data-view="view">
   <header class="bar">
     <span class="brand">talespeak</span>
     <span class="status" :data-state="state" x-text="statusText" role="status">loading…</span>
@@ -23,7 +23,7 @@
   </header>
 
   <main>
-    <pre class="banner" aria-hidden="true">
+    <pre class="banner" aria-hidden="true" x-show="!showPlay">
  _____     _
 |_   _|_ _| | ___  ___ _ __   ___  __ _| | __
   | |/ _` | |/ _ \/ __| '_ \ / _ \/ _` | |/ /
@@ -74,6 +74,7 @@
           </li>
         </template>
       </ul>
+      <p class="actions more" x-show="more"><button type="button" :disabled="busy" @click="moreWorlds">more worlds</button></p>
 
       <form class="account" @submit.prevent="join" aria-label="Join with a code">
         <h3>Join with a code</h3>
@@ -109,11 +110,13 @@
       <p class="actions"><button type="button" @click="playHere">play here</button></p>
     </div>
 
-    <section class="story" x-show="showPlay" x-ref="story" aria-live="polite" aria-label="Story">
+    <section class="story" x-show="showPlay" x-ref="story" @scroll="onStoryScroll" aria-live="polite" aria-label="Story">
       <template x-for="line in lines" :key="line.n">
-        <p :class="line.kind"><template x-if="line.from"><span class="from" x-text="line.from"></span></template><span x-text="line.text"></span><template x-if="line.speech"><button type="button" class="replay" @click="replay(line)">listen again</button></template></p>
+        <p :class="line.cls"><template x-if="line.from"><span class="from" x-text="line.from"></span></template><span x-text="line.text"></span><template x-if="line.speech"><button type="button" class="replay" @click="replay(line)">listen again</button></template></p>
       </template>
     </section>
+
+    <button type="button" class="new-below" x-cloak x-show="newBelow" @click="jumpToEnd">new lines below</button>
 
     <nav class="items" x-cloak x-show="showItems" aria-label="Things you can click">
       <span class="muted">you see:</span>

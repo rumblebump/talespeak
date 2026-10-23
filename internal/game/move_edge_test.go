@@ -453,10 +453,11 @@ func TestConcurrentMovesAndClose(t *testing.T) {
 }
 
 // FuzzRoomGoSession sends any typed line to a room that goes where it is
-// told: a room of the pack moves the player there with its items first;
-// anything else is an error that leaves the player where they were.
+// told: a room of the pack moves the player there with its items first; a
+// slash command gets the engine's answer; anything else is an error that
+// leaves the player where they were.
 func FuzzRoomGoSession(f *testing.F) {
-	for _, s := range []string{"a", "b", "c", " b ", "attic", "", "\x00b", "b\n", strings.Repeat("a", 65), "B", "../b"} {
+	for _, s := range []string{"a", "b", "c", " b ", "attic", "", "\x00b", "b\n", strings.Repeat("a", 65), "B", "../b", "/0", "/b", "/help"} {
 		f.Add(s)
 	}
 	p, err := pack.Load(fstest.MapFS{
@@ -484,6 +485,10 @@ func FuzzRoomGoSession(f *testing.F) {
 		case len(text) > MaxInputBytes || line == "":
 			if roomOf(s) != "a" {
 				t.Fatalf("%q moved the player to %q", text, roomOf(s))
+			}
+		case isCommand(line): // a slash command never reaches on_input (T-0011)
+			if roomOf(s) != "a" || len(got) != 1 || got[0].Type != "notice" {
+				t.Fatalf("%q: room %q, out %q", text, roomOf(s), texts(got))
 			}
 		case p.Rooms[line] != nil:
 			if roomOf(s) != line || len(got) == 0 || got[0].Type != "items" {

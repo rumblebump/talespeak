@@ -148,7 +148,7 @@ func TestListWorlds(t *testing.T) {
 	}
 	list := func(a store.Account, all bool) []store.WorldInfo {
 		t.Helper()
-		l, err := s.ListWorlds(ctx, a.ID, all, 100)
+		l, err := s.ListWorlds(ctx, a.ID, all, 0, 100)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -170,13 +170,13 @@ func TestListWorlds(t *testing.T) {
 	if got := ids(list(cat, true)); fmt.Sprint(got) != fmt.Sprint([]int64{priv.ID, pub.ID, home.ID}) {
 		t.Errorf("all = %v, want every unfinished world", got)
 	}
-	if l, _ := s.ListWorlds(ctx, cat.ID, true, 1); len(l) != 1 || l[0].ID != priv.ID {
+	if l, _ := s.ListWorlds(ctx, cat.ID, true, 0, 1); len(l) != 1 || l[0].ID != priv.ID {
 		t.Errorf("limit 1 = %v, want the newest", ids(l))
 	}
 	// The account's own worlds come first, so newer public ones never push
 	// them out of a short list.
 	later := mk(cat, store.VisibilityPublic)
-	if l, _ := s.ListWorlds(ctx, bob.ID, false, 1); len(l) != 1 || l[0].ID != priv.ID {
+	if l, _ := s.ListWorlds(ctx, bob.ID, false, 0, 1); len(l) != 1 || l[0].ID != priv.ID {
 		t.Errorf("Bob's list of 1 = %v, want his own world %d", ids(l), priv.ID)
 	}
 	if got := ids(list(cat, false)); fmt.Sprint(got) != fmt.Sprint([]int64{later.ID, pub.ID, home.ID}) {

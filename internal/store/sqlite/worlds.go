@@ -176,14 +176,14 @@ func parseTime(s string) time.Time {
 
 // ListWorlds returns the unfinished worlds account may see, the newest
 // first: the public ones and its own, or with all every one.
-func (s *Store) ListWorlds(ctx context.Context, account int64, all bool, limit int) ([]store.WorldInfo, error) {
+func (s *Store) ListWorlds(ctx context.Context, account int64, all bool, offset, limit int) ([]store.WorldInfo, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+worldColumns+`, coalesce(a.name, ''), coalesce(m.role, ''),
 			(SELECT count(*) FROM characters c WHERE c.world_id = w.id)
 		FROM worlds w
 		LEFT JOIN world_members m ON m.world_id = w.id AND m.account_id = ?
 		LEFT JOIN accounts a ON a.id = w.created_by
 		WHERE w.finished_at IS NULL AND (? OR w.visibility = 'public' OR m.role IS NOT NULL)
-		ORDER BY m.role IS NULL, w.id DESC LIMIT ?`, account, all, limit)
+		ORDER BY m.role IS NULL, w.id DESC LIMIT ? OFFSET ?`, account, all, limit, max(offset, 0))
 	if err != nil {
 		return nil, err
 	}
@@ -251,6 +251,65 @@ func (s *Store) AddMember(ctx context.Context, world, account int64, role string
 	_, err := s.db.ExecContext(ctx, `INSERT INTO world_members (world_id, account_id, role) VALUES (?, ?, ?)
 		ON CONFLICT (world_id, account_id) DO UPDATE SET role = excluded.role`, world, account, role)
 	return err
+}
+
+// RemoveMember ends the account's membership of the world.
+func (s *Store) RemoveMember(ctx context.Context, world, account int64) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM world_members WHERE world_id = ? AND account_id = ?`, world, account)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// AddAudit writes e and drops the world's entries of e's action past
+// store.MaxAuditEntries, in one transaction.
+func (s *Store) AddAudit(ctx context.Context, e store.AuditEntry) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var by any
+	if e.Account != 0 {
+		by = e.Account
+	}
+	e.Detail = store.AuditDetail(e.Detail)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO audit_log (world_id, account_id, name, action, detail, at) VALUES (?, ?, ?, ?, ?, ?)`,
+		e.World, by, e.Name, e.Action, e.Detail, e.At.UnixMilli()); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM audit_log WHERE world_id = ? AND action = ? AND id <= (
+			SELECT id FROM audit_log WHERE world_id = ? AND action = ? ORDER BY id DESC LIMIT 1 OFFSET ?)`,
+		e.World, e.Action, e.World, e.Action, store.MaxAuditEntries); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// AuditLog returns the world's latest audit entries, the newest first.
+func (s *Store) AuditLog(ctx context.Context, world int64, limit int) ([]store.AuditEntry, error) {
+	if limit <= 0 {
+		return nil, nil // SQLite reads LIMIT -1 as no limit
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, world_id, coalesce(account_id, 0), name, action, detail, at
+		FROM audit_log WHERE world_id = ? ORDER BY id DESC LIMIT ?`, world, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []store.AuditEntry
+	for rows.Next() {
+		var e store.AuditEntry
+		var at int64
+		if err := rows.Scan(&e.ID, &e.World, &e.Account, &e.Name, &e.Action, &e.Detail, &at); err != nil {
+			return nil, err
+		}
+		e.At = time.UnixMilli(at).UTC()
+		list = append(list, e)
+	}
+	return list, rows.Err()
 }
 
 // CreateInvite stores an invite, and drops expired ones.

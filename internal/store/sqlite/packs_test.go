@@ -61,7 +61,7 @@ func TestOpenWorldKeep(t *testing.T) {
 	}
 	// The former main world is still a world of its own, listed and
 	// playable while its version is installed.
-	list, err := s.ListWorlds(ctx, 0, true, 10)
+	list, err := s.ListWorlds(ctx, 0, true, 0, 10)
 	if err != nil || len(list) != 2 {
 		t.Errorf("ListWorlds = %+v, %v", list, err)
 	}

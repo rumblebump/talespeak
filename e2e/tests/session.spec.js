@@ -36,8 +36,10 @@ test("reconnects after the connection drops and starts a new session", async ({ 
   await page.clock.runFor(1000);
   await expect(status(page)).toContainText("connected · engine");
   expect(sockets).toHaveLength(2);
-  // A new session: the story starts again and the room's own items are back.
-  await expect(story(page).locator(".room-title")).toHaveText(["Test hall"]);
+  // A new session: below a divider the story starts again, and the room's
+  // own items are back; what came before stays above it.
+  await expect(story(page).locator(".divider")).toHaveCount(1);
+  await expect(story(page).locator(".divider ~ .room-title")).toHaveText(["Test hall"]);
   await expect(story(page)).not.toContainText("Lamp answer");
   await expect(page.getByRole("navigation").getByRole("button")).toHaveCount(9);
   await input.press("Enter");

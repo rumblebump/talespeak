@@ -130,7 +130,7 @@ local function advance(player, st, gone)
     names[id] = ids[id]
   end
   local ended = st.round
-  st.order, st.names, st.turn, st.round, st.skipped = order, names, 1, st.round + 1, nil
+  st.order, st.names, st.turn, st.round, st.skipped, st.why = order, names, 1, st.round + 1, nil, nil
   local ok, why = save(player, st)
   if not ok then
     return nil, why
@@ -215,19 +215,20 @@ function round.done(player)
   if st.order[st.turn] ~= player.id then
     return nil, "not your turn"
   end
-  st.skipped = nil
+  st.skipped, st.why = nil, nil
   return advance(player, st)
 end
 
--- round.next(player) ends the current turn, whoever's it is: the script
--- (or later the GM) skips a player. round.status says so until the next
--- turn ends.
-function round.next(player)
+-- round.next(player [, why]) ends the current turn, whoever's it is: the
+-- script or the game master skips a player. round.status says so until
+-- the next turn ends, with why ("took too long" when not given).
+function round.next(player, why)
   local st = load(player)
   if not st then
     return nil, "no turns here"
   end
   st.skipped = st.names[st.order[st.turn]]
+  st.why = why
   return advance(player, st)
 end
 
@@ -247,7 +248,7 @@ function round.leave(player)
   if not j then
     return true
   end
-  st.skipped = nil
+  st.skipped, st.why = nil, nil
   if j == st.turn then
     st.turn = j - 1
     table.remove(st.order, j)
@@ -309,7 +310,7 @@ function round.status(player)
   end
   local line = "Round " .. st.round .. ". Order: " .. table.concat(names, ", ") .. "."
   if st.skipped then
-    line = st.skipped .. " took too long. " .. line
+    line = st.skipped .. " " .. (st.why or "took too long") .. ". " .. line
   end
   return line
 end
@@ -351,6 +352,77 @@ function round.timeout(player, name, kind)
     on_turn_timeout(player, id, st.names[id])
   else
     round.next(player)
+  end
+  return true
+end
+
+-- Game master commands (T-0011). A room offers them with
+--
+--   commands = round.commands
+--   function on_command(player, name, args)
+--     round.command(player, name, args)
+--   end
+--
+-- The engine lets only the world's game masters use them (gm = true),
+-- shows the others a mark when they do, and writes them to the audit log.
+round.commands = {
+  skip = { help = "end the turn of whoever is acting now", gm = true },
+  turns = { help = "start turns for everyone here; names after it set the order", gm = true },
+  free = { help = "end the turns: everyone acts at once", gm = true },
+}
+
+-- split cuts a line at commas, or at spaces when it has no comma.
+local function split(line)
+  local sep = " "
+  if string.find(line, ",", 1, true) then
+    sep = ","
+  end
+  local parts, i = {}, 1
+  while i <= #line + 1 do
+    local j = string.find(line, sep, i, true) or (#line + 1)
+    local part = words.normalize(string.sub(line, i, j - 1))
+    if part ~= "" then
+      parts[#parts + 1] = part
+    end
+    i = j + 1
+  end
+  return parts
+end
+
+-- round.command(player, name, args) runs one of round.commands for the
+-- game master player and tells them what happened. Returns whether name
+-- was one of them.
+function round.command(player, name, args)
+  if not round.commands[name] then
+    return false
+  end
+  local ok, why
+  if name == "skip" then
+    ok, why = round.next(player, "was skipped by the game master")
+  elseif name == "free" then
+    ok, why = round.free(player)
+  else
+    local order = nil
+    if args and args ~= "" then
+      local ids = {}
+      for _, p in ipairs(room.players()) do
+        ids[words.normalize(p.name)] = p.id
+      end
+      order = {}
+      for _, n in ipairs(split(args)) do
+        if ids[n] then
+          order[#order + 1] = ids[n]
+        else
+          say("Not here: " .. n)
+        end
+      end
+    end
+    ok, why = round.turns(player, order)
+  end
+  if not ok then
+    say("That did not work: " .. tostring(why or "the game cannot remember it right now") .. ".")
+  else
+    say(round.status(player) or "Everyone acts at once now.")
   end
   return true
 end

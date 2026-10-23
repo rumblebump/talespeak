@@ -422,6 +422,20 @@ func (h *Hub) Online(id int64) int {
 	return w.Online() // outside h.mu: it may wait for the world's running hook
 }
 
+// RoleChanged tells world id, when it is loaded, that the account's role
+// in it is role now ("" for no member): game.World.RoleChanged.
+func (h *Hub) RoleChanged(id, account int64, role string) {
+	h.mu.Lock()
+	var w *game.World
+	if e := h.loaded[id]; e != nil && e.done() {
+		w = e.w
+	}
+	h.mu.Unlock()
+	if w != nil {
+		w.RoleChanged(account, role) // outside h.mu, as Online
+	}
+}
+
 // Loaded is how many worlds are loaded or loading.
 func (h *Hub) Loaded() int {
 	h.mu.Lock()

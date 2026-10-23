@@ -172,7 +172,7 @@ test("typed answer to a riddle", async ({ page }) => {
   await expect(question).toContainText("Type your answer below.");
   const input = page.getByRole("textbox");
   await expect(input).toBeFocused();
-  await expect(input).toHaveAttribute("placeholder", "type your answer, then Enter");
+  await expect(input).toHaveAttribute("placeholder", ""); // no typing hints: players find out
   await expect(input).toHaveAttribute("autocorrect", "on");
   await expect(page.getByRole("navigation")).toBeVisible(); // not strict: items stay
   await input.pressSequentially("2 Piano"); // digits are typed, not taken as a choice

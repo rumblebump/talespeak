@@ -181,7 +181,7 @@ func TestClosedStoreWorldRefuses(t *testing.T) {
 			t.Errorf("online %d", w.Online())
 		}
 	}
-	list, err := st.ListWorlds(context.Background(), who[0].Account, true, 10)
+	list, err := st.ListWorlds(context.Background(), who[0].Account, true, 0, 10)
 	if err != nil {
 		t.Fatal(err)
 	}

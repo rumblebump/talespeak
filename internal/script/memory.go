@@ -151,3 +151,100 @@ func stackValues(co *lua.LState) []lua.LValue {
 	}
 	return out
 }
+
+// checkState measures what env keeps once its calls allocated enough
+// since the last measurement for it to have grown past PlayerMemory, and
+// what the world keeps once the sum of what every Instance may keep is past
+// StateMemory.
+func (r *Runtime) checkState(env *lua.LTable) error {
+	st := r.envs[env]
+	if st == nil {
+		return nil
+	}
+	if st.sinceWalk >= r.limits.PlayerMemory/8 {
+		var paused []*Thread
+		for th := range r.paused {
+			if th.env == env {
+				paused = append(paused, th)
+			}
+		}
+		r.measure(env, st, paused)
+		if st.kept > r.limits.PlayerMemory {
+			st.broken = true
+			return ErrStateMemory
+		}
+	}
+	if r.full() {
+		return ErrFull
+	}
+	return nil
+}
+
+// full reports whether the world's Instances and Reserve keep more than
+// StateMemory. It
+// measures the Instances that ran since their last measurement only when
+// the cheap upper bound is past the limit.
+func (r *Runtime) full() bool {
+	if r.total+r.extra <= r.limits.StateMemory {
+		return false
+	}
+	paused := map[*lua.LTable][]*Thread{}
+	for th := range r.paused {
+		paused[th.env] = append(paused[th.env], th)
+	}
+	for env, st := range r.envs {
+		if st.sinceWalk > 0 {
+			r.measure(env, st, paused[env])
+		}
+	}
+	return r.total+r.extra > r.limits.StateMemory
+}
+
+// Reserve counts delta more bytes (or fewer, when negative) toward the
+// world's StateMemory, for what is kept outside any Instance, such as
+// state.player. Growing past the limit, with what the Instances keep, is
+// refused with ErrFull and changes nothing. The caller serializes it with
+// the Runtime's other calls.
+//
+// Called from a hook, it compares the cheap upper bound only: measuring
+// the world there would run on the caller's time and memory budgets, and
+// would miss what the running hook holds in its locals. The check after
+// the call measures and corrects the bound.
+func (r *Runtime) Reserve(delta int64) error {
+	r.extra += delta
+	if delta <= 0 {
+		return nil
+	}
+	if r.cur != nil && r.total+r.extra <= r.limits.StateMemory || r.cur == nil && !r.full() {
+		return nil
+	}
+	r.extra -= delta
+	return ErrFull
+}
+
+// measure walks what env keeps: its globals and the stacks of its paused
+// hooks, without the shared libraries.
+func (r *Runtime) measure(env *lua.LTable, st *envState, paused []*Thread) {
+	roots := []lua.LValue{env}
+	if mods := r.loaded[env]; mods != nil {
+		roots = append(roots, mods)
+	}
+	for _, th := range paused {
+		roots = append(roots, stackValues(th.co)...)
+	}
+	kept := retained(roots, r.shared, r.limits.PlayerMemory)
+	r.total += kept - st.kept - st.sinceWalk
+	st.kept, st.sinceWalk = kept, 0
+	if kept > r.limits.PlayerMemory {
+		st.broken = true // the walk stopped counting: what it keeps is unknown
+	}
+}
+
+// Kept is at least what env keeps: its last measurement plus what its calls
+// allocated since. It is 0 for a released Env.
+func (r *Runtime) Kept(e *Env) int64 {
+	if st := r.envs[e.table]; st != nil {
+		return st.kept + st.sinceWalk
+	}
+	return 0
+}
