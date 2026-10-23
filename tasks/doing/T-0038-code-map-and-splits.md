@@ -19,6 +19,7 @@ A session reads `CODING.md` instead of the whole code: it maps every source file
 - [ ] Map updated for the GM tools work (T-0011) once it is merged
 - [ ] Split, moves only, one commit per file: `internal/game/game.go`, `web/static/app.js`, `internal/script/script.go`, `internal/script/sandbox.go`, `internal/account/account.go`, `content/clockmaker/lib/case.lua`, `internal/game/demo_test.go`, `internal/ws/ws_test.go` (and `ws.go`, `hub.go` if T-0011 grew them past 500)
 - [ ] `scripts/size-allow.txt` is empty
+- [ ] After the splits: both agents run again over every split file (Carl, 2026-10-23: moves can bring in bugs), as the first full pass of CODING.md, logged as `protocol/YYYY-MM-DD-full-review.md`
 
 ## Notes
 
