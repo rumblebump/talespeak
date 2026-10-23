@@ -21,8 +21,10 @@ import (
 const (
 	DefaultWorldsPerAccount = 3
 	DefaultMaxWorlds        = 1000
-	// MaxListed is the most worlds one lobby lists, the newest first.
+	// MaxListed is the most worlds one lobby page lists, the newest
+	// first; MaxPage is the last page an account may ask for.
 	MaxListed = 200
+	MaxPage   = 1000
 	// MaxWorldTitle is the longest world title in characters.
 	MaxWorldTitle = 40
 )
@@ -43,6 +45,11 @@ type Live interface {
 	// cannot load again while finish (which marks it finished in the
 	// store) runs.
 	Finish(world int64, finish func() error) error
+	// RoleChanged tells a loaded world that the account's role in it is
+	// role now ("" when it is no member any more): its sessions there
+	// that play with another role end, and the client connects again
+	// with the new one.
+	RoleChanged(world, account int64, role string)
 }
 
 // noLive is Live when no world is ever loaded.
@@ -50,6 +57,7 @@ type noLive struct{}
 
 func (noLive) Online(int64) int                          { return 0 }
 func (noLive) Finish(_ int64, finish func() error) error { return finish() }
+func (noLive) RoleChanged(int64, int64, string)          {}
 
 var (
 	errNoWorld      = fail(http.StatusNotFound, "That world does not exist or has ended.")
@@ -102,6 +110,10 @@ type Card struct {
 type Lobby struct {
 	Worlds []Card `json:"worlds"`
 	Packs  []Pack `json:"packs"` // what the account may create worlds from; none when it may not
+	// More is set when there are more worlds than this page lists: the
+	// next page is ?page=Page+1.
+	More bool `json:"more,omitempty"`
+	Page int  `json:"page"`
 }
 
 func (s *Service) worlds(w http.ResponseWriter, r *http.Request) (any, error) {
@@ -109,16 +121,32 @@ func (s *Service) worlds(w http.ResponseWriter, r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.lobby(r.Context(), &a)
+	page := 1
+	if v := r.URL.Query().Get("page"); v != "" {
+		n, ok := worldParam(v) // digits only, as for world ids
+		if !ok || n > MaxPage {
+			return nil, errBadRequest
+		}
+		page = int(n)
+	}
+	return s.lobbyPage(r.Context(), &a, page)
 }
 
 func (s *Service) lobby(ctx context.Context, a *store.Account) (Lobby, error) {
+	return s.lobbyPage(ctx, a, 1)
+}
+
+// lobbyPage is page (from 1) of a's lobby: MaxListed worlds each.
+func (s *Service) lobbyPage(ctx context.Context, a *store.Account, page int) (Lobby, error) {
 	admin := a.Role == store.RoleAdmin
-	list, err := s.cfg.Store.ListWorlds(ctx, a.ID, admin, MaxListed)
+	list, err := s.cfg.Store.ListWorlds(ctx, a.ID, admin, (page-1)*MaxListed, MaxListed+1)
 	if err != nil {
 		return Lobby{}, err
 	}
-	l := Lobby{Worlds: []Card{}, Packs: []Pack{}}
+	l := Lobby{Worlds: []Card{}, Packs: []Pack{}, Page: page}
+	if len(list) > MaxListed {
+		l.More, list = true, list[:MaxListed]
+	}
 	for _, wi := range list { // the account's own worlds first: none drop off the end for others
 		if s.cfg.Edu && wi.Role == "" && !admin {
 			continue // edu worlds are for their members only, whatever they were before

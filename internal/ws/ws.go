@@ -66,6 +66,7 @@ type Message struct {
 	Hide    bool     `json:"hide,omitempty"`
 	From    string   `json:"from,omitempty"`
 	Ms      int64    `json:"ms,omitempty"`
+	Role    string   `json:"role,omitempty"`
 }
 
 // Item is something the player can click.
@@ -81,7 +82,7 @@ type Who struct {
 	Name    string
 	World   int64
 	// GM is set when the account is a game master of World
-	// (world_members.role), for player.gm.
+	// (world_members.role), for player.gm and the GM commands.
 	GM bool
 }
 

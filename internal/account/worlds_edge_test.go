@@ -214,6 +214,23 @@ func TestLobbyCap(t *testing.T) {
 			t.Fatalf("not newest first at %d: %d after %d", i, l.Worlds[i].ID, l.Worlds[i-1].ID)
 		}
 	}
+	// The rest on the next page: the oldest own world, then the main one.
+	if !l.More || l.Page != 1 {
+		t.Errorf("page 1: more %v, page %d", l.More, l.Page)
+	}
+	var next Lobby
+	if code := admin.get("/api/worlds?page=2", &next); code != 200 || next.More || next.Page != 2 || len(next.Worlds) != 2 ||
+		next.Worlds[0].ID != l.Worlds[len(l.Worlds)-1].ID-1 || next.Worlds[1].ID != f.world.ID {
+		t.Errorf("page 2 = %d %+v", code, next)
+	}
+	for _, q := range []string{"0", "-1", "01", "x", "1001", "99999999999999999999"} {
+		if code := admin.get("/api/worlds?page="+q, nil); code != 400 {
+			t.Errorf("page=%s: %d, want 400", q, code)
+		}
+	}
+	if code := admin.get("/api/worlds?page=1000", &next); code != 200 || len(next.Worlds) != 0 || next.More {
+		t.Errorf("page 1000 = %d %+v", code, next)
+	}
 }
 
 // brokenStore fails the lobby's lookups it is told to, like a database
@@ -223,11 +240,11 @@ type brokenStore struct {
 	list, world, member, gm bool
 }
 
-func (b brokenStore) ListWorlds(ctx context.Context, account int64, all bool, limit int) ([]store.WorldInfo, error) {
+func (b brokenStore) ListWorlds(ctx context.Context, account int64, all bool, offset, limit int) ([]store.WorldInfo, error) {
 	if b.list {
 		return nil, errDisk
 	}
-	return b.Store.ListWorlds(ctx, account, all, limit)
+	return b.Store.ListWorlds(ctx, account, all, offset, limit)
 }
 
 func (b brokenStore) World(ctx context.Context, id int64) (store.World, error) {
@@ -316,6 +333,7 @@ type liveHub struct{ h *hub.Hub }
 
 func (l *liveHub) Online(w int64) int                        { return l.h.Online(w) }
 func (l *liveHub) Finish(w int64, finish func() error) error { return l.h.Finish(w, finish) }
+func (l *liveHub) RoleChanged(w, account int64, role string) { l.h.RoleChanged(w, account, role) }
 
 // The lobby against a real hub: a player online shows on the card,
 // ending the world sends the player away, and of many requests ending it
@@ -421,6 +439,7 @@ type errLive struct{ err error }
 
 func (errLive) Online(int64) int                   { return 0 }
 func (l errLive) Finish(int64, func() error) error { return l.err }
+func (errLive) RoleChanged(int64, int64, string)   {}
 
 // mustCatalog is the catalog of packs, or fails the test.
 func mustCatalog(t *testing.T, packs ...*pack.Pack) *pack.Catalog {

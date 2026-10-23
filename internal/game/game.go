@@ -95,6 +95,12 @@ func WithStore(st store.Worlds, world int64) Option {
 	return func(w *World) { w.store, w.worldID = st, world }
 }
 
+// WithAudit writes what game masters do (T-0011) to a, for /audit and
+// the admins. Without it, the world keeps the latest entries in memory.
+func WithAudit(a store.Audit) Option {
+	return func(w *World) { w.auditStore = a }
+}
+
 // saveTimeout bounds one write to the store, and loading a player.
 const saveTimeout = 5 * time.Second
 
@@ -160,6 +166,9 @@ type World struct {
 
 	timersDelivering bool      // a delivery of room timers is due
 	lastTimers       time.Time // when the last delivery of room timers started
+
+	auditStore store.Audit        // where game masters' actions go; nil keeps them in auditLog
+	auditLog   []store.AuditEntry // the latest actions without an audit store, the oldest first
 }
 
 // budget is a token bucket of Lua time in seconds. It may go below zero
@@ -256,7 +265,7 @@ func (w *World) closeLocked() {
 // world without a store places a new player without an account in the
 // start room.
 func (w *World) NewSession(client string, who ws.Who) (ws.Session, []ws.Message) {
-	s := &session{w: w, client: budgetKey(client), gm: who.GM}
+	s := &session{w: w, client: budgetKey(client), gm: who.GM, account: who.Account}
 	s.state.Reserve = s.reserve
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -482,7 +491,8 @@ type session struct {
 	id      string // player.id: unique in the world while it runs, and for ever with a store
 	char    int64  // the character in the store; 0 without one
 	name    string
-	gm      bool // a game master of the world: player.gm
+	gm      bool  // a game master of the world: player.gm, and the GM commands
+	account int64 // the signed-in account; 0 without one
 	client  string
 	room    string
 	joined  int64 // when the player joined the world, for world.players
@@ -506,6 +516,9 @@ type session struct {
 
 	timers      map[string]*timer // the player's timers, by name
 	dialogTimer func() bool       // stops the open question's timeout, if it has one
+
+	broadcasts    float64   // how many commands that reach other players the game master may send now
+	lastBroadcast time.Time // when broadcasts was last counted
 
 	out        []ws.Message // collects output during one hook call
 	queue      []ws.Message // pushed output waiting for Pending
@@ -883,7 +896,8 @@ func (s *session) refused(msg string) []ws.Message {
 	return []ws.Message{{Type: "error", ID: s.dialogID, Message: msg}}
 }
 
-// input runs the room's on_input(player, text) hook with a typed line.
+// input runs the room's on_input(player, text) hook with a typed line, or
+// the slash command it is.
 func (s *session) input(m ws.Message) []ws.Message {
 	if len(m.Text) > MaxInputBytes {
 		return []ws.Message{{Type: "error", Message: "That is too long: at most " + strconv.Itoa(MaxInputBytes) + " bytes."}}
@@ -891,6 +905,9 @@ func (s *session) input(m ws.Message) []ws.Message {
 	text := cleanInput(m.Text)
 	if text == "" {
 		return nil
+	}
+	if isCommand(text) {
+		return s.command(text)
 	}
 	return s.run("on_input", text)
 }

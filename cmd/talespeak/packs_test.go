@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rumblebump/talespeak/content"
 	"github.com/rumblebump/talespeak/internal/account"
 	"github.com/rumblebump/talespeak/internal/pack"
 	"github.com/rumblebump/talespeak/internal/store"
@@ -34,6 +35,22 @@ func writePackVersion(t *testing.T, dir, name, id, version string) string {
 		if err := os.WriteFile(filepath.Join(p, f), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	return p
+}
+
+// writeDemo writes a one-room pack with the demo's id and the built-in
+// demo's version, titled "Pack demo": it replaces the built-in one.
+func writeDemo(t *testing.T, dir, name string) string {
+	t.Helper()
+	demo, err := pack.Load(content.Demo())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := writePack(t, dir, name, "demo")
+	body := "id: demo\nversion: " + demo.Version + "\ntitle: Pack demo\ndescription: About demo.\nstart: hall\n"
+	if err := os.WriteFile(filepath.Join(p, "pack.yaml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	return p
 }
@@ -94,7 +111,7 @@ func TestLoadPacks(t *testing.T) {
 
 	// A folder with the demo's id replaces the built-in demo.
 	own := t.TempDir()
-	writePack(t, own, "mydemo", "demo")
+	writeDemo(t, own, "mydemo")
 	ps, err := loadPacks(env(map[string]string{"TALESPEAK_PACKS": own}), pack.DefaultLimits)
 	if err != nil || ids(ps) != "demo" || ps.main().Title != "Pack demo" {
 		t.Errorf("own demo: %q, %v", ids(ps), err)
@@ -164,7 +181,7 @@ func TestLoadPacksEdges(t *testing.T) {
 
 	dir := t.TempDir()
 	main := writePack(t, t.TempDir(), "main", "main")
-	writePack(t, dir, "mydemo", "demo")
+	writeDemo(t, dir, "mydemo")
 	ps, err := loadPacks(env(map[string]string{"TALESPEAK_PACK": main, "TALESPEAK_PACKS": dir}), pack.DefaultLimits)
 	if err != nil || ids(ps) != "main demo" || ps.cat.Newest("demo").Title != "Pack demo" {
 		t.Errorf("own demo beside another main pack: %q, %v", ids(ps), err)

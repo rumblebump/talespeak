@@ -76,7 +76,7 @@ func TestCreateWorldCanceled(t *testing.T) {
 	if _, err := s.CreateWorld(ctx, store.NewWorld{PackID: "demo", Visibility: store.VisibilityPublic, CreatedBy: ann.ID}); err == nil {
 		t.Error("created with a canceled context")
 	}
-	if _, err := s.ListWorlds(ctx, ann.ID, true, 10); err == nil {
+	if _, err := s.ListWorlds(ctx, ann.ID, true, 0, 10); err == nil {
 		t.Error("listed with a canceled context")
 	}
 	if n := count(t, s, `SELECT count(*) FROM worlds`); n != 0 {
@@ -98,7 +98,7 @@ func TestListWorldsFields(t *testing.T) {
 	if err := s.FinishWorld(ctx, gone.ID); err != nil {
 		t.Fatal(err)
 	}
-	l, err := s.ListWorlds(ctx, ann.ID, false, 10)
+	l, err := s.ListWorlds(ctx, ann.ID, false, 0, 10)
 	if err != nil || len(l) != 1 {
 		t.Fatalf("ListWorlds = %+v, %v; want one world", l, err)
 	}
@@ -109,11 +109,11 @@ func TestListWorldsFields(t *testing.T) {
 	if wi.Created.IsZero() || time.Since(wi.Created) > time.Minute || wi.Created.Location() != time.UTC {
 		t.Errorf("created = %v", wi.Created)
 	}
-	if l, err := s.ListWorlds(ctx, ann.ID, true, 0); err != nil || len(l) != 0 {
+	if l, err := s.ListWorlds(ctx, ann.ID, true, 0, 0); err != nil || len(l) != 0 {
 		t.Errorf("limit 0 = %d worlds, %v", len(l), err)
 	}
 	// An unknown account sees the public worlds only.
-	if l, err := s.ListWorlds(ctx, 9999, false, 10); err != nil || len(l) != 1 || l[0].Role != "" {
+	if l, err := s.ListWorlds(ctx, 9999, false, 0, 10); err != nil || len(l) != 1 || l[0].Role != "" {
 		t.Errorf("unknown account = %+v, %v", l, err)
 	}
 }

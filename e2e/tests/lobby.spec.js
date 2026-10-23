@@ -9,7 +9,7 @@ const uniqueTitle = () => "World " + Math.random().toString(36).slice(2, 8);
 // the new world's card.
 async function createWorld(page, title, pack, visibility) {
   const form = page.getByRole("form", { name: "New world" });
-  await form.getByLabel("pack").selectOption({ label: pack + " (1.0.0)" }) // the pack and the version new worlds start on;
+  await form.getByLabel("pack").selectOption({ label: pack + (pack === "The damp cell" ? " (1.1.0)" : " (1.0.0)") }); // the pack and the version new worlds start on
   await form.getByLabel("name (optional)").fill(title);
   await form.getByLabel(visibility).check();
   await form.getByRole("button", { name: "create" }).click();
@@ -103,7 +103,7 @@ test("a reload stays in the world, the lobby button leaves it", async ({ page })
   const url = page.url();
   await page.reload();
   await expect(status(page)).toContainText("connected · engine");
-  await expect(story(page).locator(".room-title")).toHaveText("Test hall");
+  await expect(story(page).locator(".room-title:not(.earlier)")).toHaveText("Test hall");
   expect(page.url()).toBe(url);
 
   await page.getByRole("button", { name: "worlds" }).click();

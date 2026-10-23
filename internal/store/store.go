@@ -136,6 +136,7 @@ type Store interface {
 	Accounts
 	Worlds
 	Packs
+	Audit
 
 	// Close releases the backend's resources.
 	Close() error
@@ -163,6 +164,35 @@ type Accounts interface {
 	LoginAccount(ctx context.Context, tokenHash []byte, now time.Time) (Account, error)
 	// DeleteLogin ends a sign-in session.
 	DeleteLogin(ctx context.Context, tokenHash []byte) error
+}
+
+// AuditEntry is one thing a game master did in a world (T-0011).
+type AuditEntry struct {
+	ID      int64
+	World   int64
+	Account int64  // the game master's account; 0 without one (tests and local tools)
+	Name    string // the game master's name then
+	Action  string // what they did, such as "reset room"
+	Detail  string // what it was done to or said, at most MaxAuditDetail bytes
+	At      time.Time
+}
+
+// MaxAuditDetail bounds an audit entry's Detail; MaxAuditEntries is how
+// many entries one world keeps, the oldest going first.
+const (
+	MaxAuditDetail  = 600
+	MaxAuditEntries = 1000
+)
+
+// Audit is the log of what game masters do in worlds. It outlives the
+// world's game state: finishing a world keeps it.
+type Audit interface {
+	// AddAudit writes e, and drops the world's oldest entries past
+	// MaxAuditEntries.
+	AddAudit(ctx context.Context, e AuditEntry) error
+	// AuditLog returns the world's latest entries, at most limit, the
+	// newest first.
+	AuditLog(ctx context.Context, world int64, limit int) ([]AuditEntry, error)
 }
 
 // InstalledPack is one version of a pack a server has: Hash is a hash of
@@ -196,10 +226,10 @@ type Worlds interface {
 	// World returns the world, finished or not, or ErrNotFound.
 	World(ctx context.Context, world int64) (World, error)
 	// ListWorlds returns the unfinished worlds account may see, at most
-	// limit: the public ones and those it is a member of, or with all
-	// every one. Those it is a member of come first, then the others; the
-	// newest first in each.
-	ListWorlds(ctx context.Context, account int64, all bool, limit int) ([]WorldInfo, error)
+	// limit after skipping offset: the public ones and those it is a
+	// member of, or with all every one. Those it is a member of come
+	// first, then the others; the newest first in each.
+	ListWorlds(ctx context.Context, account int64, all bool, offset, limit int) ([]WorldInfo, error)
 	// IsGM reports whether the account is a game master of an unfinished
 	// world.
 	IsGM(ctx context.Context, account int64) (bool, error)
@@ -211,6 +241,9 @@ type Worlds interface {
 	Member(ctx context.Context, world, account int64) (string, error)
 	// AddMember makes the account a member, or changes its role.
 	AddMember(ctx context.Context, world, account int64, role string) error
+	// RemoveMember ends the account's membership of the world; it reports
+	// false when it was no member.
+	RemoveMember(ctx context.Context, world, account int64) (bool, error)
 
 	// CreateInvite stores an invite, and drops those expired at now or
 	// used up. It returns ErrInvites when the world has MaxLiveInvites.

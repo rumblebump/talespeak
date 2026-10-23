@@ -130,7 +130,7 @@ func serve(args []string) error {
 		PerClient: lim.worldsPerClient, Log: log,
 		Load: func(w store.World, p *pack.Pack) (*game.World, error) {
 			return game.NewWorld(p, lim.script, log.With("world", w.ID), game.WithClientBudget(lim.luaClientRate, lim.luaClientBurst),
-				game.WithClientMemory(lim.luaClientMemory), game.WithStore(db, w.ID))
+				game.WithClientMemory(lim.luaClientMemory), game.WithStore(db, w.ID), game.WithAudit(db))
 		}})
 	defer worlds.Close()
 	go worlds.Run(ctx)

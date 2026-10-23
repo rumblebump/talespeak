@@ -39,7 +39,8 @@ Per-client limits count IPv6 clients by their /64 network; the Lua time budget c
 | server → client | `timer` | `id`, `title`, `ms` | A countdown to show: `title` is its label (1 to 100 bytes), `ms` the time left in milliseconds (at most a day). The same `id` replaces it; without `ms` it is removed. Only timers a script shows are sent; secret ones are not. A room's timer, which every player in the room sees, has the id `room:<name>`; a player's own timer has its plain name. A client shows at most 20 |
 | client → server | `choose` | `id`, `option` (1-based) for `dialog`; `id`, `choices` (list of option numbers) for `select` | The answer to the open dialog or select |
 | client → server | `answer` | `id`, `text` | The typed answer to the open `ask` |
-| client → server | `input` | `text` | A line the player typed, outside a question; runs the room's `on_input` |
+| client → server | `input` | `text` | A line the player typed, outside a question; runs the room's `on_input`. A line that starts with `/` is a command instead ([gm-tools.md](gm-tools.md)), and never reaches `on_input`: the engine's own commands (`/help`, and the game master's) work also while a question is open; a room's commands (`on_command`) need it answered first |
+| server → client | `notice` | `text`, `role`, `from` | A message of the engine (`role` `server`: what a command answers, `/help`) or of a game master (`role` `gm`, `from` their name: `/say`, and the mark other players see when a GM acts). `text` may hold several lines. The client gives each a look of its own that a pack's `text`, whatever its `from`, never has |
 | client → server | `click` | `item` | The player clicked one of the items they were shown; runs the room's `on_click` |
 | server → client | `error` | `message`, `id` | The client sent something the server does not understand or cannot take now, or a room script failed; the connection stays open. `id` is set only when an answer to the open question was not taken: the question with that `id` is still open and can be answered again |
 
@@ -74,7 +75,7 @@ Playing the demo:
 < {"type":"text","text":"You step back from the door. The guard yawns."}
 > {"type":"click","item":"scratches"}
 < {"type":"text","text":"You roll 14: in the dim light the scratches turn into a map."}
-< {"type":"image","text":"A map scratched into the wall. An X marks the end of the corridor.","url":"/packs/demo/1.0.0/assets/wall-map-clear.png"}
+< {"type":"image","text":"A map scratched into the wall. An X marks the end of the corridor.","url":"/packs/demo/1.1.0/assets/wall-map-clear.png"}
 ```
 
 The demo's exchange is checked byte for byte by `TestDemoMatchesProtocolDoc` (the dice roll aside).

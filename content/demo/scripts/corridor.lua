@@ -26,6 +26,13 @@ function on_enter(player)
   say("You are out! Somewhere down the stairs the guard is filling his bottle. He will not be long.")
 end
 
+-- /reset room by the game master: the corridor is open again (the guard
+-- room locks it once the key is taken); the globals start over by
+-- themselves.
+function on_reset(player)
+  state.player.set("solved_corridor", nil)
+end
+
 function on_click(player, item)
   if not act() then
     return

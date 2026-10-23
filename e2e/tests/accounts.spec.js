@@ -47,7 +47,10 @@ test("a reload continues in the room the player left", async ({ page }) => {
   await page.reload();
   await expect(status(page)).toContainText("connected · engine");
   await expect(story(page)).toContainText("Cellar");
-  await expect(story(page).locator(".room-title")).toHaveCount(0); // not back in the hall
+  await expect(story(page).locator(".room-title:not(.earlier)")).toHaveCount(0); // not back in the hall
+  // What happened before the reload is still there, above a divider.
+  await expect(story(page).locator(".earlier").filter({ hasText: "Down to the cellar." })).toHaveCount(1);
+  await expect(story(page).locator(".divider")).toHaveCount(1);
   await expect(page.getByRole("navigation").getByRole("button")).toHaveText(["stairs up"]);
 });
 

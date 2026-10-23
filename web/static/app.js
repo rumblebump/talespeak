@@ -10,6 +10,7 @@
 import Alpine from "/vendor/alpine-csp.js";
 import { connect } from "/net.js";
 import { createSpeaker } from "/speech.js";
+import { forgetLogs, loadLog, saveLog } from "/storylog.js";
 
 // Limits that match the engine (docs/websocket-protocol.md).
 const MAX_LINES = 500; // older story lines are dropped
@@ -17,6 +18,7 @@ const MAX_INPUT = 500; // bytes the engine accepts in one typed line
 const MAX_HISTORY = 50; // typed lines kept for arrow up and down
 const MAX_TIMERS = 20; // shown timers: 10 of the player and 10 of the room
 const MAX_MS = 24 * 60 * 60 * 1000; // the longest timer or question timeout
+const NEAR_BOTTOM = 48; // pixels from the end of the story that still count as at the end
 
 /**
  * api calls the account API: GET without a body, else a JSON POST. It
@@ -27,7 +29,7 @@ const MAX_MS = 24 * 60 * 60 * 1000; // the longest timer or question timeout
  */
 async function api(path, body) {
   // Only this server's account API: a fixed path, never one from the server.
-  const apiPath = /^\/api\/[a-z]+$/.test(path) ? path : "/api/invalid";
+  const apiPath = /^\/api\/[a-z]+(\?page=[1-9][0-9]{0,3})?$/.test(path) ? path : "/api/invalid";
   const init = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
   let resp;
   try {
@@ -150,11 +152,15 @@ function game() {
   let conn = null;
   let lineNo = 0;
   let historyAt = -1;
+  let scrollSeen = 0; // the story's scrollTop at its last scroll event
+  let resizing = null; // the ResizeObserver of the story
 
   return {
     view: "loading", // signin, lobby, play or replaced
     me: null, // the answer of /api/me
     worlds: [], // the lobby's world cards
+    page: 1, // the last lobby page loaded
+    more: false, // the lobby has more worlds than it shows
     packs: [], // what the account may create worlds from
     world: 0, // the world played, or about to be
     codes: {}, // world id -> the last join code made here: { text, code, copied }
@@ -179,6 +185,8 @@ function game() {
     canSpeak: false,
     timers: [], // shown countdowns: { id, title, end }, end in this browser's clock
     now: Date.now(),
+    atEnd: true, // the story is scrolled to its end: new lines keep it there
+    newBelow: false, // lines came in while the player read further up
 
     init() {
       // Countdowns count from the time left the server sent, on this
@@ -216,6 +224,7 @@ function game() {
       this.form.password = "";
       if (!me.account) {
         this.stopGame();
+        forgetLogs(); // the next one at this browser sees nothing of it
         this.world = 0;
         this.codes = {};
         setHash(0); // the next account to sign in here starts in the lobby
@@ -232,11 +241,21 @@ function game() {
       else this.openLobby();
     },
 
-    // loadLobby asks the server for the world cards.
-    async loadLobby() {
+    // loadLobby asks the server for the world cards: the first page, or
+    // with page the next one, added to those shown (admins of servers
+    // with many worlds).
+    async loadLobby(page) {
       try {
-        const l = await api("/api/worlds");
-        this.worlds = Array.isArray(l.worlds) ? l.worlds.filter((c) => c && typeof c === "object").map(cleanCard).filter((c) => c.id) : [];
+        const l = await api(page > 1 ? "/api/worlds?page=" + page : "/api/worlds");
+        const got = Array.isArray(l.worlds) ? l.worlds.filter((c) => c && typeof c === "object").map(cleanCard).filter((c) => c.id) : [];
+        if (page > 1) {
+          const seen = new Set(this.worlds.map((c) => c.id));
+          this.worlds = [...this.worlds, ...got.filter((c) => !seen.has(c.id))];
+        } else {
+          this.worlds = got;
+        }
+        this.page = page > 1 ? page : 1;
+        this.more = l.more === true && this.page < 1000;
         this.packs = Array.isArray(l.packs)
           ? l.packs
               .filter((p) => p && typeof p.id === "string")
@@ -245,6 +264,16 @@ function game() {
         if (!this.packs.some((p) => p.id === this.newWorld.pack)) this.newWorld.pack = this.packs.length ? this.packs[0].id : "";
       } catch (err) {
         this.formError = err.message;
+      }
+    },
+
+    async moreWorlds() {
+      if (this.busy || !this.more) return;
+      this.busy = true;
+      try {
+        await this.loadLobby(this.page + 1);
+      } finally {
+        this.busy = false;
       }
     },
 
@@ -486,6 +515,29 @@ function game() {
 
     startGame() {
       this.setStatus("connecting", "connecting…");
+      // What the player saw here before the page was reloaded.
+      lineNo = 0;
+      this.lines = loadLog(this.isEdu, this.accountName, this.world).map((l) => ({
+        text: l.text,
+        kind: l.kind,
+        cls: l.kind + " earlier",
+        from: speakerName(l.from),
+        gm: l.kind === "gm",
+        n: ++lineNo,
+        speech: "",
+        earlier: true,
+      }));
+      this.atEnd = true;
+      this.newBelow = false;
+      this.$nextTick(() => this.toEnd());
+      // The story shrinks when the items, a question or a phone's keyboard
+      // take room below it: keep its end in view.
+      if (!resizing && this.$refs.story && typeof ResizeObserver === "function") {
+        resizing = new ResizeObserver(() => {
+          if (this.atEnd) this.toEnd();
+        });
+        resizing.observe(this.$refs.story);
+      }
       conn = connect({
         world: this.world,
         onOpen: () => this.setStatus("online", "connected"),
@@ -558,7 +610,10 @@ function game() {
       switch (msg.type) {
         case "welcome":
           this.setStatus("online", "connected · engine " + text(msg.version));
-          this.lines = []; // a new connection starts a new session
+          // A new connection starts a new session; the story so far stays
+          // above a divider.
+          if (this.lines.length > 0) this.addLine("· · ·", "divider", true);
+          else if (this.history.length === 0) this.addLine("Type /help to see what you can type.", "server", true);
           this.items = [];
           this.timers = [];
           this.closeDialog();
@@ -590,6 +645,12 @@ function game() {
           // player was moved.
           if (this.dialog && this.dialog.id === text(msg.id)) this.closeDialog();
           break;
+        case "notice":
+          // From the engine or a game master: a look a pack's lines never
+          // get, so a story cannot pretend to be either.
+          if (msg.role === "gm") this.addLine(msg.text, "gm", false, { from: speakerName(msg.from) });
+          else this.addLine(msg.text, "server", true);
+          break;
         case "error":
           this.addLine(msg.message, "error");
           break;
@@ -607,20 +668,70 @@ function game() {
       const from = voice && voice.from ? voice.from : "";
       const spoken = !!voice && voice.speak && this.canSpeak;
       const hidden = spoken && voice.hide;
+      const gm = kind === "gm";
+      const k = hidden ? "spoken" : from && !gm ? (kind + " guide").trim() : kind;
       this.lines.push({
         n: ++lineNo,
         text: hidden ? "(listen)" : s,
-        kind: hidden ? "spoken" : from ? (kind + " guide").trim() : kind,
+        kind: k,
+        cls: k,
         from,
+        gm,
         speech: spoken ? s : "",
+        earlier: false,
       });
       if (this.lines.length > MAX_LINES) this.lines.splice(0, this.lines.length - MAX_LINES);
+      saveLog(this.isEdu, this.accountName, this.world, this.lines);
       if (spoken) speaker.speak(s, from);
       else if (!silent) this.say(s, from);
+      this.follow();
+    },
+
+    // Chat-like scrolling: the story stays at its newest line while the
+    // player is there; reading further up, new lines wait below a button.
+
+    // follow keeps the end in view after the page drew a change.
+    follow() {
       this.$nextTick(() => {
-        const story = this.$refs.story;
-        if (story && story.lastElementChild) story.lastElementChild.scrollIntoView({ block: "nearest" });
+        if (this.atEnd) this.toEnd();
+        else this.newBelow = true;
       });
+    },
+
+    toEnd() {
+      const story = this.$refs.story;
+      if (story) story.scrollTop = story.scrollHeight;
+      this.atEnd = true;
+      this.newBelow = false;
+    },
+
+    // onStoryScroll notes whether the player is at the end of the story.
+    // Only scrolling up leaves it: the story growing, or the page
+    // scrolling to the end, fires scroll events too, sometimes after
+    // more lines came in.
+    onStoryScroll() {
+      const story = this.$refs.story;
+      if (!story) return;
+      const top = story.scrollTop;
+      if (story.scrollHeight - top - story.clientHeight <= NEAR_BOTTOM) {
+        this.atEnd = true;
+        this.newBelow = false;
+      } else if (top < scrollSeen - 1) {
+        this.atEnd = false;
+      }
+      scrollSeen = top;
+    },
+
+    // jumpToEnd is the "new lines" button.
+    jumpToEnd() {
+      this.toEnd();
+      if (this.$refs.command) this.$refs.command.focus();
+    },
+
+    // acted: the player did something, so they want to see what follows.
+    acted() {
+      this.atEnd = true;
+      this.follow();
     },
 
     say(s, from) {
@@ -667,7 +778,10 @@ function game() {
         this.hint = "Answer the question first.";
         return;
       }
-      if (this.wire({ type: "click", item: item.id })) this.addLine(item.label, "you", true);
+      if (this.wire({ type: "click", item: item.id })) {
+        this.acted();
+        this.addLine(item.label, "you", true);
+      }
     },
 
     // Dialogs and multiple choice
@@ -705,6 +819,7 @@ function game() {
       this.picked = [];
       this.hint = "";
       this.draft = "";
+      this.follow(); // the question takes room below the story
       if (ask) {
         this.$nextTick(() => this.$refs.command && this.$refs.command.focus());
         return;
@@ -729,6 +844,7 @@ function game() {
     // story reads on after the question box closes, and closes the
     // question; receive reopens it if the engine refuses the answer.
     answered(answer) {
+      this.acted();
       this.addLine(this.dialogTitle, "asked", true, { from: this.dialog.from });
       this.addLine(answer, "you", true);
       this.sent = this.dialog;
@@ -828,6 +944,17 @@ function game() {
         this.hint = "That is too long.";
         return;
       }
+      // A slash command goes to the engine as it is, also while a
+      // question is open: /help should always work.
+      if (line.startsWith("/")) {
+        if (!this.wire({ type: "input", text: line })) return;
+        this.acted();
+        this.addLine(line, "you", true);
+        this.remember(line);
+        this.draft = "";
+        this.hint = "";
+        return;
+      }
       if (this.isAsk) {
         const d = this.dialog;
         if (this.wire({ type: "answer", id: d.id, text: line })) {
@@ -845,6 +972,7 @@ function game() {
         return;
       }
       if (!this.wire({ type: "input", text: line })) return;
+      this.acted();
       this.addLine(line, "you", true);
       this.remember(line);
       this.draft = "";
@@ -967,10 +1095,10 @@ function game() {
     get largeTextLabel() {
       return this.largeText ? "large text: on" : "large text: off";
     },
+    // No typing hints while playing: finding out what works is part of
+    // the game, and /help is there.
     get placeholder() {
-      if (this.state !== "online") return "waiting for the server…";
-      if (this.isAsk) return "type your answer, then Enter";
-      return this.dialog ? "type a number to answer" : "type what you do, then Enter";
+      return this.state === "online" ? "" : "waiting for the server…";
     },
     // Typing help (autocorrect, autocomplete) is off for strict questions.
     get autocorrect() {

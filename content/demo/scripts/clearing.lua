@@ -10,7 +10,8 @@
 -- The dice are a game in turns (lib/round.lua): whoever picks them up
 -- starts a round for everyone here, in the order they came; each player
 -- rolls once and ends their turn, with 30 seconds for it. The highest
--- roll wins, and the blessing adds one.
+-- roll wins, and the blessing adds one. A game master can skip a turn,
+-- set the order or stop the turns with /skip, /turns and /free.
 
 require("rooms") -- whisp: lib/rooms.lua
 local items = require("items")
@@ -95,6 +96,19 @@ function on_leave(player)
   else
     news(player.name .. " has gone.")
   end
+end
+
+-- The game master's turn commands, /skip, /turns and /free (lib/round.lua).
+commands = round.commands
+
+function on_command(player, name, args)
+  round.command(player, name, args)
+end
+
+-- /reset room by the game master: the dice game stops. The things by the
+-- fire stay as they were taken.
+function on_reset(player)
+  round.free(player)
 end
 
 function on_timer(player, name, kind)
