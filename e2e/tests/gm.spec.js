@@ -58,6 +58,22 @@ test("a game master's words have a look of their own, and /reset room starts the
   const friendContext = await browser.newContext();
   const friend = await friendContext.newPage();
   try {
+    await friend.addInitScript(() => {
+      // A fake local voice, to hear how a game master's line is read.
+      window.__spoken = [];
+      const synth = {
+        getVoices: () => [{ name: "Local", lang: "en-US", localService: true }],
+        speak: (u) => window.__spoken.push(u.text),
+        cancel: () => {},
+        addEventListener: () => {},
+      };
+      Object.defineProperty(window, "speechSynthesis", { value: synth, configurable: true });
+      window.SpeechSynthesisUtterance = class {
+        constructor(text) {
+          this.text = text;
+        }
+      };
+    });
     await signUp(friend);
     await friend.goto("/");
     const join = friend.getByRole("form", { name: "Join with a code" });
@@ -70,11 +86,15 @@ test("a game master's words have a look of their own, and /reset room starts the
     await expect(help).toContainText("/say TEXT");
     await expect(help).toContainText("/reset room [ROOM]");
 
-    // /say reaches everyone, marked as the game master's.
+    // /say reaches everyone, marked as the game master's, and read aloud
+    // as theirs.
+    await friend.getByRole("button", { name: /read aloud/ }).click();
     await type(page, "/say Hello, everyone!");
     const said = story(friend).locator("p.gm");
     await expect(said).toHaveText(/Hello, everyone!/);
     await expect(said.locator(".from")).toHaveCount(1);
+    await expect.poll(() => friend.evaluate(() => window.__spoken)).toContainEqual(expect.stringMatching(/^Game master .+ says: Hello, everyone!$/));
+    await friend.getByRole("button", { name: /read aloud/ }).click();
     await expect(story(page).locator("p.gm").last()).toContainText("Hello, everyone!");
 
     // A pack's guide line never gets that look.

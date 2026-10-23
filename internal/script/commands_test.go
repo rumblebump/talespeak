@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCommands(t *testing.T) {
@@ -54,7 +55,9 @@ commands = {
 // A room offers at most MaxCommands, and the engine looks at no more than
 // 4*MaxCommands entries of the table, so a huge one costs nothing.
 func TestCommandsCap(t *testing.T) {
-	r := New(DefaultLimits)
+	limits := DefaultLimits
+	limits.Time = 10 * time.Second // the 5000-entry top level, under -race on a busy machine
+	r := New(limits)
 	defer r.Close()
 	env, err := r.Load("many.lua", `
 commands = {}

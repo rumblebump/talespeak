@@ -169,6 +169,8 @@ type World struct {
 
 	auditStore store.Audit        // where game masters' actions go; nil keeps them in auditLog
 	auditLog   []store.AuditEntry // the latest actions without an audit store, the oldest first
+
+	broadcasts map[string]*budget // game master -> commands that reach other players they may send now
 }
 
 // budget is a token bucket of Lua time in seconds. It may go below zero
@@ -516,9 +518,6 @@ type session struct {
 
 	timers      map[string]*timer // the player's timers, by name
 	dialogTimer func() bool       // stops the open question's timeout, if it has one
-
-	broadcasts    float64   // how many commands that reach other players the game master may send now
-	lastBroadcast time.Time // when broadcasts was last counted
 
 	out        []ws.Message // collects output during one hook call
 	queue      []ws.Message // pushed output waiting for Pending

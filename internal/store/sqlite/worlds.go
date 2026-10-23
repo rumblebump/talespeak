@@ -263,7 +263,7 @@ func (s *Store) RemoveMember(ctx context.Context, world, account int64) (bool, e
 	return n > 0, err
 }
 
-// AddAudit writes e and drops the world's entries past
+// AddAudit writes e and drops the world's entries of e's action past
 // store.MaxAuditEntries, in one transaction.
 func (s *Store) AddAudit(ctx context.Context, e store.AuditEntry) error {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -275,15 +275,14 @@ func (s *Store) AddAudit(ctx context.Context, e store.AuditEntry) error {
 	if e.Account != 0 {
 		by = e.Account
 	}
-	if len(e.Detail) > store.MaxAuditDetail {
-		e.Detail = e.Detail[:store.MaxAuditDetail]
-	}
+	e.Detail = store.AuditDetail(e.Detail)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO audit_log (world_id, account_id, name, action, detail, at) VALUES (?, ?, ?, ?, ?, ?)`,
 		e.World, by, e.Name, e.Action, e.Detail, e.At.UnixMilli()); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM audit_log WHERE world_id = ? AND id <= (
-			SELECT id FROM audit_log WHERE world_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?)`, e.World, e.World, store.MaxAuditEntries); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM audit_log WHERE world_id = ? AND action = ? AND id <= (
+			SELECT id FROM audit_log WHERE world_id = ? AND action = ? ORDER BY id DESC LIMIT 1 OFFSET ?)`,
+		e.World, e.Action, e.World, e.Action, store.MaxAuditEntries); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -291,6 +290,9 @@ func (s *Store) AddAudit(ctx context.Context, e store.AuditEntry) error {
 
 // AuditLog returns the world's latest audit entries, the newest first.
 func (s *Store) AuditLog(ctx context.Context, world int64, limit int) ([]store.AuditEntry, error) {
+	if limit <= 0 {
+		return nil, nil // SQLite reads LIMIT -1 as no limit
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id, world_id, coalesce(account_id, 0), name, action, detail, at
 		FROM audit_log WHERE world_id = ? ORDER BY id DESC LIMIT ?`, world, limit)
 	if err != nil {

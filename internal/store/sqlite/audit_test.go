@@ -55,13 +55,15 @@ func TestAuditLog(t *testing.T) {
 		t.Errorf("finished world's log = %+v", l)
 	}
 
-	// The oldest go past MaxAuditEntries.
+	// The oldest of an action go past MaxAuditEntries; other actions stay,
+	// so a flood of /say cannot push a reset out of the log.
 	for i := range store.MaxAuditEntries {
 		add(w.ID, "say", strconv.Itoa(i))
 	}
 	l, _ = s.AuditLog(ctx, w.ID, 2*store.MaxAuditEntries)
-	if len(l) != store.MaxAuditEntries || l[0].Detail != strconv.Itoa(store.MaxAuditEntries-1) || l[len(l)-1].Detail != "0" {
-		t.Errorf("kept %d, newest %q, oldest %q", len(l), l[0].Detail, l[len(l)-1].Detail)
+	if len(l) != store.MaxAuditEntries+1 || l[0].Detail != strconv.Itoa(store.MaxAuditEntries-1) || l[len(l)-2].Detail != "0" ||
+		l[len(l)-1].Action != "reset room" {
+		t.Errorf("kept %d, newest %q, oldest %q %q", len(l), l[0].Detail, l[len(l)-1].Action, l[len(l)-1].Detail)
 	}
 	if l, _ := s.AuditLog(ctx, other.ID, 10); len(l) != 1 {
 		t.Errorf("the other world lost its log: %+v", l)

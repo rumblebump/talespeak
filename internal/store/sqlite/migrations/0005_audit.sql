@@ -10,3 +10,4 @@ CREATE TABLE audit_log (
     at         INTEGER NOT NULL -- Unix milliseconds
 ) STRICT;
 CREATE INDEX audit_log_world ON audit_log (world_id, id);
+CREATE INDEX audit_log_action ON audit_log (world_id, action, id);

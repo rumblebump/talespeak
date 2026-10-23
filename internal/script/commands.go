@@ -43,20 +43,28 @@ func ValidCommand(name string) bool {
 // Commands lists the commands env's script offers in its global table
 // commands, sorted by name: entries that are not a valid name with a
 // table are left out, and so are those past MaxCommands. A help line
-// that is not one line of at most MaxCommandHelpBytes is dropped. It runs
-// no Lua, so it needs no time budget; the caller holds the world's lock.
+// that is not one line of at most MaxCommandHelpBytes is dropped. The
+// table is read once, when the script's top level has run (Instance), so
+// a hook changing it later changes nothing, and asking costs nothing.
 func (e *Env) Commands() []Command {
 	if e == nil {
 		return nil
 	}
-	t, ok := e.table.RawGetString("commands").(*lua.LTable)
+	return e.commands
+}
+
+// readCommands reads the commands table of a script's globals. It runs no
+// Lua, so it needs no time budget; the caller holds the world's lock.
+func readCommands(globals *lua.LTable) []Command {
+	t, ok := globals.RawGetString("commands").(*lua.LTable)
 	if !ok {
 		return nil
 	}
 	var list []Command
 	seen := 0
-	// Next instead of ForEach: a table of a million entries costs no
-	// more than MaxCommands*4 steps here.
+	// Next instead of ForEach: it stops after 4*MaxCommands entries
+	// (skipping empty slots on the way, bounded by what the top level
+	// could build in its time and memory).
 	for k, v := t.Next(lua.LNil); k != lua.LNil && seen < 4*MaxCommands && len(list) < MaxCommands; k, v = t.Next(k) {
 		seen++
 		name, ok := k.(lua.LString)

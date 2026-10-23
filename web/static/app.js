@@ -683,6 +683,7 @@ function game() {
       if (this.lines.length > MAX_LINES) this.lines.splice(0, this.lines.length - MAX_LINES);
       saveLog(this.isEdu, this.accountName, this.world, this.lines);
       if (spoken) speaker.speak(s, from);
+      else if (gm && !silent) this.say("Game master " + (from ? from + " " : "") + "says: " + s, ""); // a pack's voice cannot sound like one
       else if (!silent) this.say(s, from);
       this.follow();
     },

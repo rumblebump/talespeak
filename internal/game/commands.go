@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rumblebump/talespeak/internal/script"
 	"github.com/rumblebump/talespeak/internal/store"
@@ -124,10 +125,13 @@ func (s *session) command(text string) []ws.Message {
 		return []ws.Message{{Type: "error", Message: "Answer the open question first."}}
 	}
 	if cmd.GM {
+		if s.slowDown() {
+			return []ws.Message{notice(slowDownMessage)}
+		}
 		if err := s.audit("/"+name, args); err != nil {
 			return []ws.Message{{Type: "error", Message: auditFailed}}
 		}
-		s.tellRoom(s.room, s.gmNotice(strings.TrimSpace("used /"+name+" "+args)))
+		s.tellRoom(s.room, s.gmNotice(strings.TrimSpace("used /"+name+" "+shorten(args, maxMarkArgs))))
 	}
 	h := s.hook(script.Hook{Name: "on_command", Args: []string{name, args}})
 	return s.after(s.run1(func() (*script.Thread, error) { return s.w.rt.RunHook(s, env, h) }))
@@ -181,9 +185,7 @@ const auditFailed = "The server cannot record that right now, so it did not happ
 // in memory. The caller holds w.mu.
 func (s *session) audit(action, detail string) error {
 	w := s.w
-	if len(detail) > store.MaxAuditDetail {
-		detail = detail[:store.MaxAuditDetail]
-	}
+	detail = store.AuditDetail(detail)
 	e := store.AuditEntry{World: w.worldID, Account: s.account, Name: s.name, Action: action, Detail: detail, At: w.now()}
 	w.log.Info("game master action", "account", s.account, "player", s.id, "action", action, "detail", strconv.Quote(detail))
 	if w.auditStore == nil {
@@ -203,23 +205,56 @@ func (s *session) audit(action, detail string) error {
 }
 
 // slowDown refuses a game master's broadcast past broadcastBurst at once
-// and one per broadcastGap after. The caller holds w.mu.
+// and one per broadcastGap after. The count belongs to the account (the
+// player without one), so connecting again does not refill it. The
+// caller holds w.mu.
 func (s *session) slowDown() bool {
-	now := s.w.now()
-	if s.lastBroadcast.IsZero() {
-		s.broadcasts = broadcastBurst
-	} else {
-		s.broadcasts = min(broadcastBurst, s.broadcasts+now.Sub(s.lastBroadcast).Seconds()/broadcastGap.Seconds())
+	w := s.w
+	key := "p" + s.id
+	if s.account != 0 {
+		key = "a" + strconv.FormatInt(s.account, 10)
 	}
-	s.lastBroadcast = now
-	if s.broadcasts < 1 {
+	now := w.now()
+	b := w.broadcasts[key]
+	if b == nil {
+		if w.broadcasts == nil {
+			w.broadcasts = make(map[string]*budget)
+		}
+		for k, old := range w.broadcasts { // full again: forget it
+			if now.Sub(old.last) >= broadcastBurst*broadcastGap {
+				delete(w.broadcasts, k)
+			}
+		}
+		b = &budget{left: broadcastBurst}
+		w.broadcasts[key] = b
+	} else {
+		b.left = min(broadcastBurst, b.left+now.Sub(b.last).Seconds()/broadcastGap.Seconds())
+	}
+	b.last = now
+	if b.left < 1 {
 		return true
 	}
-	s.broadcasts--
+	b.left--
 	return false
 }
 
 const slowDownMessage = "Wait a moment before the next one."
+
+// maxMarkArgs is how much of a room command's arguments the mark the
+// other players see shows; the audit log keeps them all.
+const maxMarkArgs = 60
+
+// shorten cuts s to at most n bytes, on a letter's boundary, marking the cut.
+func shorten(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
 
 // helpCommand lists the commands the player may use: the engine's, then
 // the room's.
@@ -374,7 +409,7 @@ func (w *World) resetRoom(gm *session, room string) []ws.Message {
 	for _, p := range w.inRoom(room) {
 		p.drop() // the question goes first, then the mark
 		p.out = append(p.out, gm.gmNotice(text))
-		out := p.restart(room)
+		out := p.restart(room, gm)
 		if p == gm {
 			mine = append(mine, out...)
 		} else {
@@ -389,9 +424,9 @@ func (w *World) resetRoom(gm *session, room string) []ws.Message {
 
 // restart is resetRoom for one player: on_reset, then a new instance of
 // room's script and on_enter. on_reset cannot ask, move the player or be
-// refused for want of Lua time; its time is charged all the same. The
-// caller holds w.mu.
-func (s *session) restart(room string) []ws.Message {
+// refused for want of Lua time; its time is charged all the same, to the
+// game master by who asked for it. The caller holds w.mu.
+func (s *session) restart(room string, by *session) []ws.Message {
 	w := s.w
 	s.drop()
 	s.moves = 0
@@ -399,7 +434,7 @@ func (s *session) restart(room string) []ws.Message {
 		w.log.Warn("room script failed", "room", room, "hook", "on_reset", "err", logText(err))
 	} else if env != nil && env.HasHook("on_reset") {
 		h := s.hook(script.Hook{Name: "on_reset", NoWait: true})
-		err := w.charged(s.client, func() error {
+		err := w.charged(by.client, func() error {
 			_, err := w.rt.RunHook(s, env, h)
 			return err
 		})

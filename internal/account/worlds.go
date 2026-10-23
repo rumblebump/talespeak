@@ -145,7 +145,10 @@ func (s *Service) lobbyPage(ctx context.Context, a *store.Account, page int) (Lo
 	}
 	l := Lobby{Worlds: []Card{}, Packs: []Pack{}, Page: page}
 	if len(list) > MaxListed {
-		l.More, list = true, list[:MaxListed]
+		// In edu mode a player sees only their own worlds, which come
+		// first: there are more of them only if the next one is.
+		l.More = !s.cfg.Edu || admin || list[MaxListed].Role != ""
+		list = list[:MaxListed]
 	}
 	for _, wi := range list { // the account's own worlds first: none drop off the end for others
 		if s.cfg.Edu && wi.Role == "" && !admin {

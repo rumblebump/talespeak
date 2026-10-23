@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rumblebump/talespeak/internal/store"
 	"github.com/rumblebump/talespeak/internal/ws"
 )
 
@@ -116,6 +117,7 @@ func TestWorldPlayersAfterRestart(t *testing.T) {
 	w := storeWorldWith(t, st, world, rosterRoom, rosterRoom)
 	gmWho := who[0]
 	gmWho.GM = true
+	setRole(t, st, world, who[0], store.MemberGM)
 	mira, _ := w.NewSession("", gmWho)
 	zed, _ := w.NewSession("", who[1])
 	got := texts(input(zed, "roster"))

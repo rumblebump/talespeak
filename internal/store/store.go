@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"time"
+	"unicode/utf8"
 )
 
 // ErrNotFound is returned when a requested record does not exist.
@@ -178,17 +179,31 @@ type AuditEntry struct {
 }
 
 // MaxAuditDetail bounds an audit entry's Detail; MaxAuditEntries is how
-// many entries one world keeps, the oldest going first.
+// many entries of one action one world keeps, the oldest going first, so
+// many of one action (/go) never push out another (/say).
 const (
 	MaxAuditDetail  = 600
 	MaxAuditEntries = 1000
 )
 
+// AuditDetail cuts detail to at most MaxAuditDetail bytes, on a letter's
+// boundary.
+func AuditDetail(detail string) string {
+	if len(detail) <= MaxAuditDetail {
+		return detail
+	}
+	cut := MaxAuditDetail
+	for cut > 0 && !utf8.RuneStart(detail[cut]) {
+		cut--
+	}
+	return detail[:cut]
+}
+
 // Audit is the log of what game masters do in worlds. It outlives the
 // world's game state: finishing a world keeps it.
 type Audit interface {
-	// AddAudit writes e, and drops the world's oldest entries past
-	// MaxAuditEntries.
+	// AddAudit writes e, and drops the world's oldest entries of the same
+	// action past MaxAuditEntries.
 	AddAudit(ctx context.Context, e AuditEntry) error
 	// AuditLog returns the world's latest entries, at most limit, the
 	// newest first.

@@ -21,17 +21,17 @@ In edu mode, worlds are only for their members, kids join only with a code from 
 | `/rooms` | GM | The pack's rooms with their ids |
 | `/go ROOM` | GM | Goes to a room (by its id from `/rooms`) yourself, as `room.go` would; its `on_enter` runs |
 | `/say TEXT` | GM | Every player online in the world reads TEXT, marked as the game master's |
-| `/reset room [ROOM]` | GM | Starts the room you are in (or ROOM) over for every player in it: questions they had open close, the room's timers stop, the pack's `on_reset` clears what it keeps of the room, the players' instances of the room's script start over and `on_enter` runs again. Players elsewhere keep what they have |
+| `/reset room [ROOM]` | GM | Starts the room you are in (or ROOM) over for every player in it: questions they had open close, the room's timers stop, the pack's `on_reset` clears what it keeps of the room, the players' instances of the room's script start over and `on_enter` runs again (for a player out of Lua time, as when joining, only with their next line). Players elsewhere keep what they have |
 | `/audit` | GM | The last 20 entries of the world's audit log, the latest first |
 | a room's own | as the pack says | Packs add commands with a `commands` table and `on_command` ([lua-sandbox.md](lua-sandbox.md#commands)); the demo's clearing has `/skip`, `/turns` and `/free` for turns |
 
 Command names work in any letter case. The engine's commands also work while a question is open; a room's commands wait until it is answered.
 
-`/say` and `/reset` reach other players, so a GM may send five of them at once and then one a second.
+`/say`, `/reset` and a room's GM commands reach other players, so a GM may send five of them at once and then one a second. The count belongs to the GM's account, so connecting again does not refill it. When a GM resets a room, the Lua time of every player's `on_reset` is charged to the GM's connection.
 
 ## What players see
 
-A GM's words and actions have a look a pack cannot copy: they come as `notice` messages ([websocket-protocol.md](websocket-protocol.md)), which the client shows in a box with a **GM** badge and the GM's name, whatever name a pack gives its own lines. When a GM resets a room or uses a room's GM command, the other players there see it marked the same way ("started this room over.", "used /skip").
+A GM's words and actions have a look a pack cannot copy: they come as `notice` messages ([websocket-protocol.md](websocket-protocol.md)), which the client shows in a box with a **GM** badge and the GM's name, whatever name a pack gives its own lines. When a GM resets a room or uses a room's GM command, the other players there see it marked the same way ("started this room over.", "used /skip anna"; past 60 bytes the arguments are cut, the audit log keeps them whole). With read aloud on, the client speaks a GM's line in the plain voice as "Game master NAME says: …", never in a pack's guide voice.
 
 ## The audit log
 

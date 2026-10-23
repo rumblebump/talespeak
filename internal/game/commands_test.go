@@ -3,6 +3,7 @@ package game
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -181,6 +182,69 @@ func TestSayReachesEveryPlayer(t *testing.T) {
 	c.Advance(time.Second)
 	if n := notices(input(gm, "/say later")); len(n) != 1 || n[0] != "gm traveler: later" {
 		t.Errorf("a second later = %q", n)
+	}
+}
+
+// A room's GM commands reach the others in the room as a mark, so they
+// count toward the same limit as /say; the mark shows a short version of
+// the arguments, the audit log all of them.
+func TestRoomGMCommandsSlowedAndShortened(t *testing.T) {
+	w, _ := clockWorld(t, cmdRoom, cmdRoomB)
+	gm, _ := w.NewSession("", ws.Who{GM: true})
+	defer gm.Close()
+	player, _ := w.NewSession("", ws.Who{})
+	defer player.Close()
+	long := strings.Repeat("é", maxMarkArgs) // two bytes each: the cut falls inside one
+	if got := texts(input(gm, "/skip "+long)); got != "command skip ["+long+"] gm=true" {
+		t.Errorf("/skip long = %q", got)
+	}
+	want := "gm traveler: used /skip " + strings.Repeat("é", maxMarkArgs/2) + "…"
+	if n := notices(pending(t, player)); len(n) != 1 || n[0] != want {
+		t.Errorf("mark = %q, want %q", n, want)
+	}
+	for i := range broadcastBurst - 1 {
+		if got := texts(input(gm, "/skip")); got != "command skip [] gm=true" {
+			t.Fatalf("skip %d = %q", i, got)
+		}
+	}
+	ms := input(gm, "/skip")
+	if n := notices(ms); len(n) != 1 || n[0] != "server: "+slowDownMessage || strings.Contains(texts(ms), "command skip") {
+		t.Errorf("sixth = %+v", ms)
+	}
+	if got := strings.Join(notices(input(gm, "/audit")), "\n"); !strings.Contains(got, strconv.Quote(long)) {
+		t.Errorf("the log lost the arguments: %q", got)
+	}
+}
+
+// The limit belongs to the account: connecting again does not refill it.
+func TestBroadcastLimitOutlivesReconnect(t *testing.T) {
+	w, c := clockWorld(t, cmdRoom, cmdRoomB)
+	gm, _ := w.NewSession("", ws.Who{Account: 7, GM: true})
+	for range broadcastBurst {
+		input(gm, "/say hi")
+	}
+	gm.Close()
+	again, _ := w.NewSession("", ws.Who{Account: 7, GM: true})
+	defer again.Close()
+	if n := notices(input(again, "/say hi")); len(n) != 1 || n[0] != "server: "+slowDownMessage {
+		t.Errorf("after reconnecting = %q", n)
+	}
+	other, _ := w.NewSession("", ws.Who{Account: 8, GM: true})
+	defer other.Close()
+	if n := notices(input(other, "/say hi")); len(n) != 1 || n[0] == "server: "+slowDownMessage {
+		t.Errorf("another game master = %q", n)
+	}
+	// Full again, a game master's count is forgotten when a new one starts.
+	c.Advance(time.Hour)
+	input(again, "/say hi")
+	third, _ := w.NewSession("", ws.Who{Account: 9, GM: true})
+	defer third.Close()
+	input(third, "/say hi")
+	w.mu.Lock()
+	n := len(w.broadcasts)
+	w.mu.Unlock()
+	if n != 2 {
+		t.Errorf("counts kept = %d, want 2 (7 and 9)", n)
 	}
 }
 

@@ -450,3 +450,41 @@ func mustCatalog(t *testing.T, packs ...*pack.Pack) *pack.Catalog {
 	}
 	return c
 }
+
+// In edu mode a player sees only their own worlds: other worlds past the
+// first page do not make a "more worlds" button that leads nowhere.
+func TestEduLobbyMoreOnlyForOwnWorlds(t *testing.T) {
+	f := newFixture(t, Config{Edu: true, Registration: RegistrationSelf})
+	f.admin("root")
+	kid := f.player("Kid")
+	ctx := context.Background()
+	root, _, _ := f.st.AccountByName(ctx, "root")
+	k, _, _ := f.st.AccountByName(ctx, "Kid")
+	newWorld := func() int64 {
+		w, err := f.st.CreateWorld(ctx, store.NewWorld{PackID: "demo", Visibility: store.VisibilityPublic, CreatedBy: root.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return w.ID
+	}
+	for range 3 {
+		newWorld() // public, not the kid's: never listed to them in edu mode
+	}
+	var own int
+	l := kid.lobby()
+	own = len(l.Worlds)
+	for ; own < MaxListed; own++ {
+		if err := f.st.AddMember(ctx, newWorld(), k.ID, store.MemberPlayer); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if l := kid.lobby(); len(l.Worlds) != MaxListed || l.More {
+		t.Errorf("%d own worlds: %d listed, more %v", MaxListed, len(l.Worlds), l.More)
+	}
+	if err := f.st.AddMember(ctx, newWorld(), k.ID, store.MemberPlayer); err != nil {
+		t.Fatal(err)
+	}
+	if l := kid.lobby(); len(l.Worlds) != MaxListed || !l.More {
+		t.Errorf("%d own worlds: %d listed, more %v", MaxListed+1, len(l.Worlds), l.More)
+	}
+}
