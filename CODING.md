@@ -51,6 +51,7 @@ browser (web/static)  --HTTP-->  internal/server  --/api-->  internal/account  -
 | `internal/account/account.go` | Settings, `Config`, `Service`, `Handler` (all `/api/` routes); JSON and same-origin helpers; `/api/me`; `Auth` for the WebSocket; register, login, logout, session cookies; join codes and invites |
 | `internal/account/worlds.go` | The lobby (`GET /api/worlds`, cards), who may play, see, invite, finish and create worlds, creating and ending worlds |
 | `internal/account/names.go` | `ValidName`, `ValidPassword`, `CreateInvite` |
+| `internal/account/members.go` | `POST /api/members`: admins change an account's role in a world or take it out; live players reconnect with the new role |
 | `internal/account/limit.go` | Token-bucket `limiter` per key for sign-in and API rates |
 
 ### internal/store: persistence
@@ -60,7 +61,7 @@ browser (web/static)  --HTTP-->  internal/server  --/api-->  internal/account  -
 | `internal/store/store.go` | The interfaces game code uses (`Store`, `Accounts`, `Worlds`, `Packs`) and their records; `ErrNotFound`, `ErrNameTaken` |
 | `internal/store/sqlite/sqlite.go` | SQLite backend (pure Go): `Open`, WAL, migrations from `internal/store/sqlite/migrations/`, settings |
 | `internal/store/sqlite/accounts.go` | Accounts, passwords, roles, login tokens |
-| `internal/store/sqlite/worlds.go` | Worlds, pack versions, members, invites, characters, saved `state.player`/`state.world` (`Save`) |
+| `internal/store/sqlite/worlds.go` | Worlds, pack versions, members and roles, invites, characters, saved `state.player`/`state.world` (`Save`), the GM audit log |
 
 A schema change is a new numbered file in `internal/store/sqlite/migrations/`; never edit an applied one.
 
@@ -81,6 +82,7 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | File | What it does |
 | --- | --- |
 | `internal/game/game.go` | `World` (fields and the `w.mu` lock), options, `NewWorld`, `NewSession`, `Close`, idle and `End`; per-client Lua time and memory budgets; `session` (one player): `Handle` dispatches `choose`/`input`/`click`/`answer`, room script instances, entering rooms, running hooks and their errors; the `script.Host` methods (`Say`, `Items`, `Go`, `Image`) |
+| `internal/game/commands.go` | Slash commands: a line starting with `/` never reaches `on_input`; engine commands (`/help` and the GM tools `/players`, `/rooms`, `/go`, `/say`, `/reset`, `/audit`), room script commands via `on_command`, notices a pack cannot fake, the audit log, broadcast rate limit, `RoleChanged` |
 | `internal/game/party.go` | What a room's players share: unique names, `room.players`/`world.players`, leaving (`on_leave`), room timers |
 | `internal/game/push.go` | Output nobody asked for: the push queue (`ws.Pusher`), player timers, question timeouts |
 | `internal/game/world.go` | `state.world` and `on_change` delivery to other players |
@@ -94,6 +96,7 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `internal/script/sandbox.go` | The allowlisted libraries (`openSandbox`): every global a script sees is registered here; read-only proxies; guarded string and table functions; `say`, `room.*`, `ui.*`, `words.*`, `ValidItemID` |
 | `internal/script/state.go` | `State`: `state.player` and `state.world` get/set/update, encoding and limits |
 | `internal/script/timer.go` | `timer.*`, question timeouts, `room.players`, `world.players` |
+| `internal/script/commands.go` | A room script's `commands` table and `on_command` hook (`Env.Commands`, `ValidCommand`) |
 | `internal/script/require.go` | `require` and pack modules (`AddModule`) |
 | `internal/script/rewrite.go` | Compile-time rewrite of `..` into the size-checked `__concat` |
 | `internal/script/memory.go` | Allocation watcher and the walk that measures what an instance keeps |
@@ -116,6 +119,7 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | --- | --- |
 | `web/web.go` | Embeds `web/static/` into the binary |
 | `web/static/app.js` | The `game` Alpine component: clean helpers for server data, settings, sign-in, the lobby and its cards, starting a game, `receive` for every engine message, lines, timers, dialogs and typed answers, keys, pictures, read aloud and large text |
+| `web/static/storylog.js` | The story log kept in the browser per account and world (`loadLog`, `saveLog`, `forgetLogs`); session storage in edu mode |
 | `web/static/net.js` | The WebSocket to one world: reconnect with backoff, pings, close codes |
 | `web/static/speech.js` | Read aloud with local voices only |
 
