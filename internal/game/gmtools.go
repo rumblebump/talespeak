@@ -153,6 +153,7 @@ func (w *World) resetRoom(gm *session, room string) []ws.Message {
 func (s *session) restart(room string, by *session) []ws.Message {
 	w := s.w
 	s.drop()
+	s.forgetRoomQuestions(room)
 	s.moves = 0
 	if env, err := s.env(room); err != nil {
 		w.log.Warn("room script failed", "room", room, "hook", "on_reset", "err", logText(err))

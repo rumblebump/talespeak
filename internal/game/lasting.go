@@ -32,6 +32,18 @@ type timerKey struct {
 	name string
 }
 
+// maxTimerSaves bounds the timer changes waiting for a save while saves
+// fail: past it the oldest change is dropped (and logged), as maxLost
+// does for state.
+const maxTimerSaves = maxLost * script.MaxTimers
+
+// timerSave is a noted timer change and when it was noted, for dropping
+// the oldest.
+type timerSave struct {
+	t   store.Timer
+	seq int64
+}
+
 // noteTimer notes a timer change for the next save: the latest change of
 // each timer is written. The caller holds w.mu.
 func (w *World) noteTimer(t store.Timer) {
@@ -42,7 +54,19 @@ func (w *World) noteTimer(t store.Timer) {
 	if t.Kind == store.TimerRoom {
 		k.char = 0
 	}
-	w.timerSaves[k] = t
+	if _, ok := w.timerSaves[k]; !ok && len(w.timerSaves) >= maxTimerSaves {
+		var oldest timerKey
+		first := true
+		for k2, v := range w.timerSaves {
+			if first || v.seq < w.timerSaves[oldest].seq {
+				oldest, first = k2, false
+			}
+		}
+		w.log.Error("dropping a timer change that was not saved", "world", w.worldID, "kind", oldest.kind, "name", oldest.name)
+		delete(w.timerSaves, oldest)
+	}
+	w.timerSeq++
+	w.timerSaves[k] = timerSave{t, w.timerSeq}
 }
 
 // noteTimer notes that the player's timer name started or changed (t), or
@@ -76,7 +100,7 @@ func (w *World) timerChanges() []store.Timer {
 	})
 	list := make([]store.Timer, len(keys))
 	for i, k := range keys {
-		list[i] = w.timerSaves[k]
+		list[i] = w.timerSaves[k].t
 	}
 	return list
 }
@@ -111,12 +135,12 @@ func (w *World) validTimer(t store.Timer) bool {
 }
 
 // restoreRoomTimers starts the room timers the world had, from the store,
-// as the world loads. The caller holds w.mu, or the world is new.
+// as the world loads. The caller holds w.mu.
 func (w *World) restoreRoomTimers(list []store.Timer) {
 	now := w.now()
 	for _, st := range list {
 		room, name := st.Room, st.Name
-		if !w.validTimer(st) || len(w.roomTimers[room]) >= MaxRoomTimers || w.roomTimers[room][name] != nil {
+		if st.Kind != store.TimerRoom || !w.validTimer(st) || len(w.roomTimers[room]) >= MaxRoomTimers || w.roomTimers[room][name] != nil {
 			w.log.Warn("dropping a stored room timer", "world", w.worldID, "room", room, "name", name)
 			w.noteRoomTimer(room, name, nil)
 			continue
@@ -138,7 +162,8 @@ func (s *session) restoreTimers(list []store.Timer) {
 	now := w.now()
 	for _, st := range list {
 		switch {
-		case st.Kind == store.TimerQuestion && validQuestion(st.Name) && w.pack.Rooms[st.Room] != nil && len(s.questions) < maxQuestions:
+		case st.Kind == store.TimerQuestion && validQuestion(st.Name) && w.pack.Rooms[st.Room] != nil && len(s.questions) < maxQuestions &&
+			st.Deadline.After(now.Add(-questionGrace)):
 			if s.questions == nil {
 				s.questions = map[questionKey]time.Time{}
 			}
@@ -181,9 +206,15 @@ func (w *World) wakeRoom(room string) {
 // a question closed by the game (a move, /reset) forgets the deadline.
 
 // maxQuestions bounds the question deadlines one character keeps: those
-// of questions cut off and not asked again. Past it the one that runs
-// out first goes.
+// of questions cut off and not asked again. Past it a deadline that
+// passed goes first; when none has, the new question's deadline is not
+// kept, so cutting off other questions never frees one still running.
 const maxQuestions = script.MaxTimers
+
+// questionGrace is how long a deadline that passed is kept: a player who
+// comes back later than that is asked as if for the first time. Waiting
+// gains nothing over coming back at once, which times the question out.
+const questionGrace = script.MaxTimerSeconds * time.Second
 
 // questionKey is a question asked in a room: its room and questionName.
 type questionKey struct{ room, name string }
@@ -207,8 +238,8 @@ func questionName(d script.Dialog) string {
 
 // validQuestion reports whether name can be a questionName.
 func validQuestion(name string) bool {
-	_, err := hex.DecodeString(name)
-	return len(name) == 32 && err == nil
+	b, err := hex.DecodeString(name)
+	return len(name) == 32 && err == nil && hex.EncodeToString(b) == name
 }
 
 // questionTimeout is how long the player has to answer d, the question
@@ -228,6 +259,9 @@ func (s *session) questionTimeout(d script.Dialog) time.Duration {
 		first := slices.MinFunc(slices.Collect(maps.Keys(s.questions)), func(a, b questionKey) int {
 			return cmp.Or(s.questions[a].Compare(s.questions[b]), cmp.Compare(a.room, b.room), cmp.Compare(a.name, b.name))
 		})
+		if s.questions[first].After(now) {
+			return d.Timeout // every kept deadline still runs: this one is not kept
+		}
 		s.dropQuestion(first)
 	}
 	if s.questions == nil {
@@ -244,6 +278,16 @@ func (s *session) forgetQuestion() {
 	if s.asked != (questionKey{}) {
 		s.dropQuestion(s.asked)
 		s.asked = questionKey{}
+	}
+}
+
+// forgetRoomQuestions forgets the deadlines of every question room asked
+// the player, as the room starts over (/reset). The caller holds w.mu.
+func (s *session) forgetRoomQuestions(room string) {
+	for _, k := range slices.SortedFunc(maps.Keys(s.questions), func(a, b questionKey) int { return cmp.Compare(a.name, b.name) }) {
+		if k.room == room {
+			s.dropQuestion(k)
+		}
 	}
 }
 

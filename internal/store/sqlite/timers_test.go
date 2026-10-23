@@ -114,3 +114,56 @@ func TestTimersStayInTheirWorld(t *testing.T) {
 		t.Errorf("another world's timers after finishing: %+v", list)
 	}
 }
+
+// A save is all or nothing: a timer that cannot be written undoes the
+// state and the timers of the same save. Deleting a timer that is not
+// there is no error, and deadlines before 1970 and read_only round-trip.
+func TestTimersSaveIsAtomic(t *testing.T) {
+	ctx := context.Background()
+	s := fresh(t)
+	w, _ := s.OpenWorld(ctx, "demo", "", nil)
+	ann := mustAccount(t, s, "Ann", store.RolePlayer)
+	c, err := s.Character(ctx, w.ID, ann.ID, "Ann")
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.UnixMilli(time.Now().UnixMilli())
+	if err := s.Save(ctx, store.Save{World: w.ID, WorldState: []store.Change{{Key: "door", Value: []byte(`"open"`)}},
+		Character: c.ID, Room: "hall", Timers: []store.Timer{
+			{Kind: store.TimerPlayer, Character: c.ID, Name: "guards", Deadline: at},
+			{Kind: store.TimerRoom, Room: "hall", Name: "turn", Deadline: at},
+			{Kind: "alarm", Character: c.ID, Name: "x", Deadline: at},
+		}}); err == nil {
+		t.Fatal("a save with an unknown timer kind worked")
+	}
+	if vals, _ := s.WorldState(ctx, w.ID); len(vals) != 0 {
+		t.Errorf("world state of a failed save: %q", vals)
+	}
+	if list, _ := s.PlayerTimers(ctx, c.ID); len(list) != 0 {
+		t.Errorf("player timers of a failed save: %+v", list)
+	}
+	if rooms, _ := s.RoomTimers(ctx, w.ID); len(rooms) != 0 {
+		t.Errorf("room timers of a failed save: %+v", rooms)
+	}
+
+	old := time.UnixMilli(-86400000)
+	if err := s.Save(ctx, store.Save{World: w.ID, Timers: []store.Timer{
+		{Kind: store.TimerPlayer, Character: c.ID, Name: "missing", Delete: true},
+		{Kind: store.TimerQuestion, Character: c.ID, Room: "hall", Name: "missing", Delete: true},
+		{Kind: store.TimerRoom, Room: "hall", Name: "missing", Delete: true},
+		{Kind: store.TimerPlayer, Character: c.ID, Name: "old", Deadline: old, ReadOnly: true, Show: "Old"},
+	}}); err != nil {
+		t.Fatalf("deleting timers that are not there: %v", err)
+	}
+	list, err := s.PlayerTimers(ctx, c.ID)
+	if err != nil || len(list) != 1 || !list[0].Deadline.Equal(old) || !list[0].ReadOnly || list[0].Show != "Old" || list[0].Kind != store.TimerPlayer {
+		t.Errorf("player timers = %+v, %v", list, err)
+	}
+	// A character of no world: nothing written, no error.
+	if err := s.Save(ctx, store.Save{World: w.ID, Timers: []store.Timer{{Kind: store.TimerPlayer, Character: 9999, Name: "ghost", Deadline: at}}}); err != nil {
+		t.Errorf("a timer of an unknown character: %v", err)
+	}
+	if n := count(t, s, `SELECT count(*) FROM player_timers WHERE character_id = 9999`); n != 0 {
+		t.Errorf("%d rows for an unknown character", n)
+	}
+}
