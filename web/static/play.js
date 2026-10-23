@@ -87,7 +87,7 @@ export function play(speaker) {
     endSession() {
       this.closeDialog();
       this.sent = null;
-      this.timers = []; // the session ended, and its timers with it
+      this.timers = []; // the next session sends those that still run
     },
 
     // wire sends msg to the engine; false when there is no connection.

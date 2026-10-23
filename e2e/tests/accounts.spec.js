@@ -54,6 +54,18 @@ test("a reload continues in the room the player left", async ({ page }) => {
   await expect(page.getByRole("navigation").getByRole("button")).toHaveText(["stairs up"]);
 });
 
+test("a shown timer lasts through a reload", async ({ page }) => {
+  await open(page);
+  await page.locator("#command").fill("candle");
+  await page.locator("#command").press("Enter");
+  const timers = page.getByRole("list", { name: "Timers" });
+  await expect(timers).toHaveText(/Candle (10:00|9:5\d)/);
+  await page.reload();
+  await expect(status(page)).toContainText("connected · engine");
+  // The engine sends the countdown again, from its own deadline.
+  await expect(timers).toHaveText(/Candle (10:00|9:[45]\d)/);
+});
+
 test("a second window takes over, and the first can take it back", async ({ page, context }) => {
   await open(page);
   const second = await context.newPage();

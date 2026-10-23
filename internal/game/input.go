@@ -89,6 +89,7 @@ func (s *session) place(room string) {
 		s.showRoomTimers(s.room, room)
 		s.w.arrivals++
 		s.arrived = s.w.arrivals
+		s.w.wakeRoom(room)
 	}
 	s.room = room
 	s.items = nil
@@ -273,8 +274,9 @@ func (s *session) after(th *script.Thread, err error) []ws.Message {
 			m.Type, m.Strict = "ask", d.Strict
 		}
 		if d.Timeout > 0 {
-			m.Ms = d.Timeout.Milliseconds()
-			s.expireAfter(d.Timeout)
+			left := s.questionTimeout(d)
+			m.Ms = max(left.Milliseconds(), 1)
+			s.expireAfter(max(left, 0))
 		}
 		s.out = append(s.out, m)
 	} else if s.next != "" {

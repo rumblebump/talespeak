@@ -579,11 +579,8 @@ func TestOnLeaveStartsRoomTimer(t *testing.T) {
 	if n := c.running(); n != 0 {
 		t.Errorf("%d timers left in an empty world", n)
 	}
-	w.mu.Lock()
-	n = len(w.roomTimers)
-	w.mu.Unlock()
-	if n != 0 {
-		t.Errorf("rooms with timers: %d", n)
+	if n := runningRoomTimers(w); n != 0 {
+		t.Errorf("room timers still running: %d, want the one left waiting for a player", n)
 	}
 }
 
@@ -652,8 +649,9 @@ func TestConcurrentPartyOps(t *testing.T) {
 	<-stopped
 	c.Advance(time.Hour)
 	c.Advance(time.Hour)
+	n := runningRoomTimers(w)
 	w.mu.Lock()
-	n, sessions, paused := len(w.roomTimers), len(w.sessions), w.rt.Paused()
+	sessions, paused := len(w.sessions), w.rt.Paused()
 	w.mu.Unlock()
 	if n != 0 || sessions != 0 || paused != 0 {
 		t.Errorf("after all left: %d rooms with timers, %d sessions, %d paused", n, sessions, paused)

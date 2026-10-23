@@ -11,8 +11,9 @@ import (
 )
 
 // What lasts in a world with a store: state.world, each character's
-// state.player and room, read when the world starts or the player joins,
-// and written after every hook, in one transaction per hook call.
+// state.player and room, and the timers (lasting.go), read when the world
+// starts or the player joins, and written after every hook, in one
+// transaction per hook call.
 
 // errNoAccount refuses a player without an account in a world with a
 // store.
@@ -69,7 +70,14 @@ func (s *session) load(who ws.Who) (string, error) {
 	if err := w.writeLost(ctx, c.ID); err != nil {
 		return "", err // reading now would bring back older values
 	}
+	if err := w.writeTimers(ctx); err != nil {
+		return "", err
+	}
 	vals, err := w.store.PlayerState(ctx, c.ID)
+	if err != nil {
+		return "", err
+	}
+	timers, err := w.store.PlayerTimers(ctx, c.ID)
 	if err != nil {
 		return "", err
 	}
@@ -88,6 +96,7 @@ func (s *session) load(who ws.Who) (string, error) {
 	s.gm = role == store.MemberGM
 	s.char, s.id, s.name = c.ID, "p"+strconv.FormatInt(c.ID, 10), c.Name
 	s.state.Changed = s.changedState
+	s.restoreTimers(timers)
 	if w.pack.Rooms[room] == nil {
 		return w.pack.Start, nil // a new character, or its room left the pack
 	}
@@ -155,6 +164,7 @@ func (w *World) save(s *session) {
 			sv.Room = s.room
 		}
 	}
+	sv.Timers = w.timerChanges()
 	if sv.Empty() && len(w.lost) == 0 {
 		return
 	}
@@ -175,6 +185,7 @@ func (w *World) save(s *session) {
 		return
 	}
 	w.unsaved, s.dirty, s.moved = nil, nil, false
+	clear(w.timerSaves)
 }
 
 // keepLost keeps the failed save of a player who is leaving, merged with

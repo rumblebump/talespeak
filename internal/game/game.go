@@ -114,6 +114,9 @@ type World struct {
 	lost      map[int64]store.Save // character -> what a failed save of a player who left did not write
 	lostOrder []int64              // the characters of lost, the oldest first
 
+	timerSaves map[timerKey]timerSave // timer changes the next save writes (lasting.go)
+	timerSeq   int64                  // changes noted, for the order of timerSaves
+
 	world       script.State // state.world, shared by every player
 	changed     []string     // world keys the running hook changed
 	delivering  bool         // a delivery of on_change is due
@@ -141,20 +144,24 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Opti
 	w := &World{log: log, pack: p, rt: script.New(limits), scripts: map[string]*script.Script{}, sessions: map[*session]struct{}{},
 		budgets: map[string]*budget{}, now: time.Now, after: afterFunc, clientMemory: DefaultClientMemory, clientEnvs: map[string]map[*script.Env]struct{}{},
 		clientState: map[string]int64{}, roomTimers: map[string]map[string]*roomTimer{}, timerNews: map[roomTimerKey]struct{}{},
-		timerDue: map[roomTimerKey]*session{}, chars: map[int64]*session{}, lost: map[int64]store.Save{}}
+		timerDue: map[roomTimerKey]*session{}, chars: map[int64]*session{}, lost: map[int64]store.Save{}, timerSaves: map[timerKey]timerSave{}}
 	w.world = script.State{World: true, Reserve: w.reserveWorld, Changed: w.change}
 	WithClientBudget(DefaultClientRate, DefaultClientBurst)(w)
 	for _, o := range opts {
 		o(w)
 	}
 	w.lastLeft = w.now()
+	var timers []store.Timer // the room timers, restored once the scripts compiled
 	if w.store != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), saveTimeout)
 		vals, err := w.store.WorldState(ctx, w.worldID)
-		cancel()
 		if err == nil {
 			err = w.world.Load(vals)
 		}
+		if err == nil {
+			timers, err = w.store.RoomTimers(ctx, w.worldID)
+		}
+		cancel()
 		if err != nil {
 			w.rt.Close()
 			return nil, fmt.Errorf("world state: %w", err)
@@ -187,6 +194,11 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Opti
 		}
 		w.scripts[id] = sc
 	}
+	// Last, under w.mu, so a failed script leaves no timer behind: an
+	// overdue timer fires at once, on its own goroutine.
+	w.mu.Lock()
+	w.restoreRoomTimers(timers)
+	w.mu.Unlock()
 	return w, nil
 }
 

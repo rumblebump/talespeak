@@ -118,7 +118,14 @@ const MaxRoomTimers = script.MaxTimers
 // roomTimer is a timer of a room, shared by the players in it.
 type roomTimer struct {
 	timer
-	by *session // who started it: on_timer runs for them while they are in the room
+	by     *session // who started it: on_timer runs for them while they are in the room
+	byChar int64    // their character, with a store; after a restart only this is known
+	due    bool     // it ran out in an empty room: it fires once a player comes in (wakeRoom)
+}
+
+// starter reports whether p started t.
+func (t *roomTimer) starter(p *session) bool {
+	return p == t.by || (t.byChar != 0 && p.char == t.byChar)
 }
 
 type roomTimerKey struct{ room, name string }
@@ -154,9 +161,10 @@ func (s *session) StartRoomTimer(name string, d time.Duration, show string) erro
 		ts = map[string]*roomTimer{}
 		w.roomTimers[room] = ts
 	}
-	t := &roomTimer{timer: timer{deadline: w.now().Add(d), show: show, readOnly: s.readOnlyWorld}, by: s}
+	t := &roomTimer{timer: timer{deadline: w.now().Add(d), show: show, readOnly: s.readOnlyWorld}, by: s, byChar: s.char}
 	t.stop = w.after(d, func() { w.fireRoom(room, name, t) })
 	ts[name] = t
+	w.noteRoomTimer(room, name, t)
 	if show != "" || (old != nil && old.show != "") {
 		w.timerNews[roomTimerKey{room, name}] = struct{}{}
 	}
@@ -187,6 +195,7 @@ func (s *session) RoomTimerLeft(name string) (time.Duration, bool) {
 
 // dropRoomTimer forgets the room's timer name. The caller holds w.mu.
 func (w *World) dropRoomTimer(room, name string) {
+	w.noteRoomTimer(room, name, nil)
 	delete(w.roomTimers[room], name)
 	if len(w.roomTimers[room]) == 0 {
 		delete(w.roomTimers, room)
@@ -265,22 +274,29 @@ func (s *session) showRoomTimers(old, to string) {
 // out, unless it was stopped or replaced meanwhile: for the player who
 // started it while they are in the room, else for the player there
 // longest; when that player's address has no Lua time left, for the next
-// one. In an empty room it is dropped. When nobody in the room has Lua
-// time left, it tries again a little later.
+// one. In an empty room it waits, due, for the next player who comes in
+// (wakeRoom), so a deadline that passed while the server was down still
+// counts. When nobody in the room has Lua time left, it tries again a
+// little later.
 func (w *World) fireRoom(room, name string, t *roomTimer) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed || w.roomTimers[room][name] != t {
 		return
 	}
-	w.dropRoomTimer(room, name)
 	list := w.inRoom(room)
-	if i := slices.Index(list, t.by); i > 0 {
-		list = append(append([]*session{t.by}, list[:i]...), list[i+1:]...)
+	if i := slices.IndexFunc(list, t.starter); i > 0 {
+		list = append(append([]*session{list[i]}, list[:i]...), list[i+1:]...)
 	}
 	if len(list) == 0 {
-		return // nobody is there to see it go
+		t.due, t.stop, t.by = true, func() bool { return false }, nil // by: keep no session that left
+		if t.show != "" {                                             // nobody sees it any more, nor will those who come in
+			t.show = ""
+			w.noteRoomTimer(room, name, t)
+		}
+		return
 	}
+	w.dropRoomTimer(room, name)
 	if t.show != "" {
 		// Gone for everyone, before what on_timer says; while it waits for
 		// Lua time it is a secret timer, which nobody sees.
@@ -299,6 +315,7 @@ func (w *World) fireRoom(room, name string, t *roomTimer) {
 		w.roomTimers[room] = map[string]*roomTimer{}
 	}
 	w.roomTimers[room][name] = t
+	w.noteRoomTimer(room, name, t)
 	t.stop = w.after(retryBusy, func() { w.fireRoom(room, name, t) })
 }
 

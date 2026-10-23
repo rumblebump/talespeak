@@ -24,13 +24,13 @@ Scripts keep progress in the database, not in Lua variables: a player's progress
 - [x] Writes count toward the client's Lua budget (T-0004), and a world writes to the database at most once per hook call, batched, so many players cannot flood the disk
 - [ ] Edu mode: strings written into `state.world` or `state.game` pass the chat filter and appear in the GM transcript (typed text shared between players is chat)
 - [x] Changing world state notifies the other players' sessions (for example a door opened by one player)
-- [ ] A restart continues the same round and turn: the turn library keeps them in `state.world` (`round_<room>`, T-0019), and room timers (T-0031) are stored with the other timers (T-0012)
+- [x] A restart continues the same round and turn: the turn library keeps them in `state.world` (`round_<room>`, T-0019), and room timers (T-0031) are stored with the other timers (T-0012)
 - [x] Player ids (`player.id`, T-0031) never repeat across restarts once `state.world` lasts, or a new `p1` would inherit the old `p1`'s items and turns (from the T-0031 security review); with accounts they become character ids
 - [ ] Tests: restart keeps state, two players see world state, player state stays private, limits, fuzzed values
 
 ## Notes
 
-Done in T-0034 (2026-10-18): `state.player` and `state.world` stored in SQLite and saved after every hook, the room saved on every move, character ids as `player.id`, restart and privacy tests (`internal/game/store_test.go`). Still open here: `state.game`; finishing a world from the game (the store's `FinishWorld` deletes the state already, nothing calls it yet); death modes and save points; inventories per ruleset version and moving them; the edu chat filter on shared strings; the state limits as settings; the round's turn deadline after a restart (room timers, T-0012).
+Done in T-0034 (2026-10-18): `state.player` and `state.world` stored in SQLite and saved after every hook, the room saved on every move, character ids as `player.id`, restart and privacy tests (`internal/game/store_test.go`). Still open here: `state.game`; finishing a world from the game (the store's `FinishWorld` deletes the state already, nothing calls it yet); death modes and save points; inventories per ruleset version and moving them; the edu chat filter on shared strings; the state limits as settings. The round's turn deadline lasts since T-0012 (room timers in the database).
 
 Core vs Lua (Carl 2026-10-18): the engine stores state, positions and inventories and moves inventories between worlds; what death, revival, save points or inventory rules mean in a game is Lua (a ruleset library), which reads and writes that state. The world's death setting is a stored value the script reads.
 

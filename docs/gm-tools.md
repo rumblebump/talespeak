@@ -21,7 +21,7 @@ In edu mode, worlds are only for their members, kids join only with a code from 
 | `/rooms` | GM | The pack's rooms with their ids |
 | `/go ROOM` | GM | Goes to a room (by its id from `/rooms`) yourself, as `room.go` would; its `on_enter` runs |
 | `/say TEXT` | GM | Every player online in the world reads TEXT, marked as the game master's |
-| `/reset room [ROOM]` | GM | Starts the room you are in (or ROOM) over for every player in it: questions they had open close, the room's timers stop, the pack's `on_reset` clears what it keeps of the room, the players' instances of the room's script start over and `on_enter` runs again (for a player out of Lua time, as when joining, only with their next line). Players elsewhere keep what they have |
+| `/reset room [ROOM]` | GM | Starts the room you are in (or ROOM) over for every player in it: questions they had open close and the room's question deadlines are forgotten, the room's timers stop (also those waiting for a player), the pack's `on_reset` clears what it keeps of the room, the players' instances of the room's script start over and `on_enter` runs again (for a player out of Lua time, as when joining, only with their next line). Players elsewhere keep what they have |
 | `/audit` | GM | The last 20 entries of the world's audit log, the latest first |
 | a room's own | as the pack says | Packs add commands with a `commands` table and `on_command` ([lua-sandbox.md](lua-sandbox.md#commands)); the demo's clearing has `/skip`, `/turns` and `/free` for turns |
 

@@ -7,8 +7,8 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Limits of timers and question timeouts. Timers last for the session for
-// now; T-0012 keeps them in the database.
+// Limits of timers and question timeouts. In a world with a store, the
+// game keeps timers and question deadlines in it (T-0012).
 const (
 	MaxTimers       = 10 // running timers per player
 	MinTimerSeconds = 1
@@ -77,7 +77,7 @@ func timerOpts(L *lua.LState, n int, start bool) (room bool, show string) {
 	switch v := opts.RawGetString("show").(type) {
 	case *lua.LNilType:
 	case lua.LString:
-		if !validLabel(string(v)) {
+		if !ValidLabel(string(v)) {
 			L.ArgError(n, "show must be one line of 1 to 100 bytes")
 		}
 		show = string(v)
