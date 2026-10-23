@@ -10,6 +10,7 @@ Thanks for helping. The base engine is free forever, and improvements are most u
 
 ## Pull requests
 
+- Read [CODING.md](CODING.md) first: the map of the source files and the style guide. Keep it current in the same pull request.
 - One topic per pull request, with its tests ([docs/testing.md](docs/testing.md)).
 - Link the task (`T-0012`) in the description, and move the task file between `tasks/open`, `tasks/doing` and `tasks/done` ([tasks/README.md](tasks/README.md)).
 - Manual or blackbox checks go into `protocol/` with the exact commands. Never write secrets: use `$VARIABLES` ([protocol/README.md](protocol/README.md)).

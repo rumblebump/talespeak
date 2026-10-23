@@ -7,14 +7,20 @@ The browser client in `web/static/` is a renderer: it draws the messages the eng
 | File | What it does |
 | --- | --- |
 | `index.html` | The page; Alpine attributes hold only simple expressions |
-| `app.js` | The `game` Alpine component: signing in, the lobby, every renderer and all input handling |
+| `app.js` | The `game` Alpine component: its state and `init`, with its parts merged in from the files below |
+| `lobby.js` | Signing in, the lobby, world cards, join codes and invites |
+| `play.js` | The connection to a world, every engine message, story lines, timers, items |
+| `dialog.js` | Dialogs, multiple choice, typed answers and the input line |
+| `view.js` | Pictures, read aloud, large text |
+| `clean.js` | Limits that match the engine, cleaning server data, settings, the page address |
+| `api.js` | The only `fetch`: the account API |
 | `net.js` | The WebSocket to one world: reconnects with backoff (1 s doubling to 30 s), pings every 30 s, stops after 4001 (playing elsewhere) or when the player may no longer play |
 | `speech.js` | Read aloud with the browser's local voices |
 | `storylog.js` | The last story lines of each world, kept in the browser (below) |
 | `style.css` | Terminal theme on CSS variables: dark, light (follows the system), large text |
 | `vendor/alpine-csp.js` | Alpine.js CSP build, pinned in `web/vendor.json` |
 
-Plain ES modules, no build step. The CSP build of Alpine runs without `'unsafe-eval'`; it refuses `x-html` and access to globals in attributes, so all logic lives in `app.js`. Untrusted text (pack text, typed input, later chat and LLM output) only reaches the page through `x-text` or `textContent`.
+Plain ES modules, no build step. The CSP build of Alpine runs without `'unsafe-eval'`; it refuses `x-html` and access to globals in attributes, so all logic lives in the modules. Untrusted text (pack text, typed input, later chat and LLM output) only reaches the page through `x-text` or `textContent`.
 
 ## Signing in
 

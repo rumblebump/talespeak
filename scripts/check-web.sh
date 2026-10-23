@@ -7,9 +7,10 @@
 #     checksums instead (scripts/vendor.sh)
 #   - no HTML sinks: server text is only shown with x-text or textContent
 #   - no URL bindings or URL assignments other than the picture's src,
-#     which app.js validates, and no style bindings
-#   - no fetch other than the account API's, in app.js, whose path it
-#     checks
+#     which view.js validates (clean.js imageURL), and no style bindings
+#   - no fetch other than the account API's: the one exact line in
+#     api.js, which checks the path; no XMLHttpRequest or sendBeacon, and
+#     no WebSocket other than the one exact line in net.js
 set -eu
 cd "$(dirname "$0")/.."
 fail=0
@@ -53,14 +54,15 @@ report "HTML sinks in web/ (above): show untrusted text with x-text or textConte
 $(grep -rnIE 'x-html|innerHTML|outerHTML|insertAdjacentHTML|setHTMLUnsafe|createContextualFragment|DOMParser|srcdoc|document\.write|\beval\(|new Function|setAttribute\(' "$tmp/web" || true)
 EOF2
 
-report "URL bindings in web/ (above): only the picture's src is allowed, and app.js validates it" <<EOF2
+report "URL bindings in web/ (above): only the picture's src is allowed, and view.js validates it" <<EOF2
 $(grep -rnIE '(:|x-bind:)(href|src|action|formaction|srcset|data|poster|style)=' "$tmp/web" | sed 's/:src="picture\.url"//g' |
 	grep -E '^[^:]+:[0-9]+:.*(:|x-bind:)(href|src|action|formaction|srcset|data|poster|style)=' || true)
 EOF2
 
 report "URL assignments in web/ (above): the client never loads or opens a URL from script" <<EOF2
-$(grep -rnIE '\.(src|href|srcset|action|formAction|poster|data)[[:space:]]*=[^=]|location[[:space:]]*=[^=]|location\.(href|assign|replace)|window\.open|\.style\.|setProperty\(|new (Image|Audio|Worker|SharedWorker|EventSource)\(|importScripts|import\(|fetch\(' "$tmp/web" |
-	grep -vE '^[^:]*/static/app\.js:[0-9]+:[[:space:]]*resp = await fetch\(apiPath, ' || true)
+$(grep -rnIE '\.(src|href|srcset|action|formAction|poster|data)[[:space:]]*=[^=]|location[[:space:]]*=[^=]|location\.(href|assign|replace)|window\.open|\.style\.|setProperty\(|new (Image|Audio|Worker|SharedWorker|EventSource|WebSocket)\(|importScripts|import\(|fetch\(|XMLHttpRequest|sendBeacon' "$tmp/web" |
+	grep -vE "^$tmp/web/static/api\.js:[0-9]+:    resp = await fetch\(apiPath, \{ \.\.\.init, credentials: \"same-origin\", cache: \"no-store\" \}\);\$" |
+	grep -vE "^$tmp/web/static/net\.js:[0-9]+:    const ws = new WebSocket\(scheme \+ location\.host \+ \"/ws\?world=\" \+ world\);\$" || true)
 EOF2
 
 scripts/vendor.sh check || fail=1

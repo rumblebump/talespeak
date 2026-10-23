@@ -1,6 +1,7 @@
 package game
 
 import (
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -631,5 +632,27 @@ func TestRoomGMCommandSlowedAndMarkCut(t *testing.T) {
 	}
 	if n := notices(input(again, "/skip")); len(n) != 1 || n[0] != "server: "+slowDownMessage {
 		t.Errorf("sixth, after reconnecting = %q", n)
+	}
+}
+
+// runCore knows every core command, and refuses a name it does not know
+// instead of running one of them (it once ran /audit for any other name).
+func TestRunCoreEveryCommand(t *testing.T) {
+	w, _ := clockWorld(t, cmdRoom, cmdRoomB)
+	s, _ := w.NewSession("", ws.Who{Account: 7, GM: true})
+	defer s.Close()
+	sess := s.(*session)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, c := range coreCommands {
+		got := sess.runCore(c.name, "")
+		if len(got) == 0 || reflect.DeepEqual(got, unknownCommand(c.name)) {
+			t.Errorf("runCore(%q) = %+v", c.name, got)
+		}
+	}
+	for _, name := range []string{"nosuch", "Audit", "", "audit2"} {
+		if got, want := sess.runCore(name, ""), unknownCommand(name); !reflect.DeepEqual(got, want) {
+			t.Errorf("runCore(%q) = %+v, want %+v", name, got, want)
+		}
 	}
 }
