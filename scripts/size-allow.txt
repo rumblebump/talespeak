@@ -4,6 +4,5 @@
 content/clockmaker/lib/case.lua 867
 internal/account/account.go 642
 internal/game/demo_test.go 1180
-internal/script/sandbox.go 676
 internal/ws/ws_test.go 816
 web/static/app.js 1112

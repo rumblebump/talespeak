@@ -99,7 +99,10 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `internal/script/script.go` | Package doc; `Limits`, errors, `Env`, `Runtime`, `New`, `Close`, `Compile`, `Instance`, `Release`, `Load` |
 | `internal/script/host.go` | What a script reaches the game through: the `Host` and `Party` interfaces, `Player`, `Voice`, `Item`, `Dialog` and its `Check` |
 | `internal/script/thread.go` | Hooks: `Run`, `RunHook`, `Resume`, `Answer`, `Expire`, `Cancel`; each on its own goroutine, paused until the player answers |
-| `internal/script/sandbox.go` | The allowlisted libraries (`openSandbox`): every global a script sees is registered here; read-only proxies; guarded string and table functions; `say`, `room.*`, `ui.*`, `words.*`, `ValidItemID` |
+| `internal/script/sandbox.go` | The allowlisted libraries (`openSandbox`): every global a script sees is registered here; read-only proxies, `newEnv` |
+| `internal/script/safelib.go` | The wrapped string and table functions (`find`, `sub`, `rep`, `concat`, `table.concat`, `table.sort`) with bounded arguments and results |
+| `internal/script/ui.go` | Output to the player: `say`, `room.describe`, `room.go`, `ui.dialog`, `ui.select`, `ui.ask`, `ui.items`, `ui.image`; `ValidItemID` |
+| `internal/script/words.go` | `words.normalize` and `words.same` |
 | `internal/script/state.go` | `State`: `state.player` and `state.world` get/set/update, encoding and limits |
 | `internal/script/timer.go` | `timer.*`, question timeouts, `room.players`, `world.players` |
 | `internal/script/commands.go` | A room script's `commands` table and `on_command` hook (`Env.Commands`, `ValidCommand`) |
