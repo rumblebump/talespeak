@@ -76,6 +76,16 @@ func (s *session) load(who ws.Who) (string, error) {
 	if err := s.state.Load(vals); err != nil {
 		return "", errors.Join(errFull, err)
 	}
+	// The role as it is now, not as it was when the connection signed
+	// in: a demotion between the two would otherwise keep GM powers.
+	// RoleChanged writes the store before it looks for sessions, under
+	// w.mu like this, so either this read sees the change or it finds
+	// this session.
+	role, err := w.store.Member(ctx, w.worldID, who.Account)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return "", err
+	}
+	s.gm = role == store.MemberGM
 	s.char, s.id, s.name = c.ID, "p"+strconv.FormatInt(c.ID, 10), c.Name
 	s.state.Changed = s.changedState
 	if w.pack.Rooms[room] == nil {

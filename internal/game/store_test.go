@@ -54,6 +54,15 @@ func openStore(t *testing.T, path string) (*sqlite.Store, store.World, []ws.Who)
 	return st, world, who
 }
 
+// setRole makes who a member of world with role: with a store, a session's
+// game master role comes from there, not from its Who.
+func setRole(t *testing.T, st *sqlite.Store, world store.World, who ws.Who, role string) {
+	t.Helper()
+	if err := st.AddMember(context.Background(), world.ID, who.Account, role); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func storeWorld(t *testing.T, st *sqlite.Store, world store.World) *World {
 	t.Helper()
 	return storeWorldWith(t, st, world, storeRoomA, storeRoomB)

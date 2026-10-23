@@ -36,6 +36,14 @@ function on_enter(player)
   say("Click something in the cell, or type what you do.")
 end
 
+-- /reset room by the game master: the guard is back at his post and the
+-- cell is no longer solved; the script's globals start over by
+-- themselves.
+function on_reset(player)
+  state.player.set("guard_away", nil)
+  state.player.set("solved_cell", nil)
+end
+
 function on_click(player, item)
   if not act() then
     return

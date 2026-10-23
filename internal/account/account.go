@@ -69,6 +69,7 @@ const DefaultAddressBurst = 40
 type Store interface {
 	store.Accounts
 	store.Worlds
+	store.Audit
 }
 
 // Config sets up a Service.
@@ -211,6 +212,7 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("GET /api/worlds", s.get(s.worlds))
 	mux.HandleFunc("POST /api/worlds", s.post(s.createWorld))
 	mux.HandleFunc("POST /api/finish", s.post(s.finish))
+	mux.HandleFunc("POST /api/members", s.post(s.members))
 	return mux
 }
 
@@ -521,6 +523,11 @@ func (s *Service) join(w http.ResponseWriter, r *http.Request) (any, error) {
 		return nil, err
 	}
 	s.cfg.Log.Info("invite used", "account", a.ID, "world", world)
+	if role, err := s.cfg.Store.Member(r.Context(), world, a.ID); err == nil {
+		s.cfg.Live.RoleChanged(world, a.ID, role) // a game master invite promotes a player who plays now
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
 	me, err := s.describe(r.Context(), &a)
 	me.Joined = world
 	return me, err

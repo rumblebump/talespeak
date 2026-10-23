@@ -232,7 +232,10 @@ func (d *Dialog) Check(choices []int) ([]int, error) {
 
 // Env is the global environment of one loaded script. Its globals do not
 // leak into other scripts, and the shared libraries are read-only.
-type Env struct{ table *lua.LTable }
+type Env struct {
+	table    *lua.LTable
+	commands []Command // the script's commands table, read once its top level ran
+}
 
 // Thread is a hook paused in ui.dialog or ui.select. Resume it with the
 // player's choice, or Cancel it when the player leaves.
@@ -381,6 +384,7 @@ func (r *Runtime) Instance(s *Script) (*Env, error) {
 		r.Release(env)
 		return nil, fmt.Errorf("%w: %s waits in ui.dialog outside a hook", ErrScript, s.name)
 	}
+	env.commands = readCommands(env.table)
 	return env, nil
 }
 

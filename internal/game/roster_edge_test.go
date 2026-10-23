@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rumblebump/talespeak/internal/store"
 	"github.com/rumblebump/talespeak/internal/ws"
 )
 
@@ -174,6 +175,7 @@ func TestPlayerGMAfterReplacedSession(t *testing.T) {
 	w := storeWorldWith(t, st, world, rosterEdge, rosterEdge)
 	miraGM := who[0]
 	miraGM.GM = true
+	setRole(t, st, world, who[0], store.MemberGM) // with a store, the member role decides
 	old, _ := w.NewSession("", miraGM)
 	zed, _ := w.NewSession("", who[1])
 	defer zed.Close()
@@ -184,6 +186,7 @@ func TestPlayerGMAfterReplacedSession(t *testing.T) {
 		t.Fatalf("roster = %q", got)
 	}
 
+	setRole(t, st, world, who[0], store.MemberPlayer)
 	cur, first := w.NewSession("", who[0]) // no longer a GM
 	if got, want := texts(first), "enter false "+zid+"@a,"+mid+"@a"; !strings.HasSuffix(got, want) {
 		t.Errorf("new session on_enter = %q, want suffix %q", got, want)
@@ -199,6 +202,7 @@ func TestPlayerGMAfterReplacedSession(t *testing.T) {
 		t.Errorf("roster after the old connection ended = %q, want %q", got, want)
 	}
 
+	setRole(t, st, world, who[0], store.MemberGM)
 	again, first := w.NewSession("", miraGM) // a GM again
 	defer again.Close()
 	if got, want := texts(first), "enter true "+zid+"@a,"+mid+"@a*"; !strings.HasSuffix(got, want) {

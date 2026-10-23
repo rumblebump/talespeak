@@ -2,6 +2,7 @@ package account
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +18,13 @@ type fakeLive struct {
 	mu     sync.Mutex
 	online map[int64]int
 	ended  []int64
+	roles  []string // "world account role" of every RoleChanged
+}
+
+func (l *fakeLive) RoleChanged(world, account int64, role string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.roles = append(l.roles, fmt.Sprint(world, " ", account, " ", role))
 }
 
 func (l *fakeLive) Online(world int64) int {

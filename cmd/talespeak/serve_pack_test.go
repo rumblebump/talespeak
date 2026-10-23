@@ -99,7 +99,7 @@ func TestServeRunsTalespeakPack(t *testing.T) {
 		t.Errorf("square.png = %d %q, %d bytes", resp.StatusCode, resp.Header.Get("Content-Type"), len(body))
 	}
 	// The demo stays installed, for new worlds.
-	if resp, err := http.Get("http://" + addr + "/packs/demo/1.0.0/assets/wall-map-clear.png"); err != nil || resp.StatusCode != http.StatusOK {
+	if resp, err := http.Get("http://" + addr + "/packs/demo/1.1.0/assets/wall-map-clear.png"); err != nil || resp.StatusCode != http.StatusOK {
 		t.Errorf("the demo's image next to TALESPEAK_PACK: %v %v", resp.Status, err)
 	} else {
 		resp.Body.Close()

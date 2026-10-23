@@ -51,10 +51,12 @@ A room script defines global functions the engine calls:
 | `on_timer(player, name)` | One of the player's timers ran out; runs in the room the player is in then | the timer's name |
 | `on_change(player, keys)` | Another player's hook (or timer) changed `state.world`; runs in the room the player is in | a list of the changed keys, at most 50, the latest when more changed while the player waited |
 | `on_leave(player)` | The player leaves the world (closes the game or loses the connection); runs in the room they are in | none |
+| `on_command(player, name, args)` | The player typed one of the room's commands (`/name args`, see below), outside a question | the command's name, in lower case, and the rest of the line, trimmed |
+| `on_reset(player)` | A game master typed `/reset room` for the room the player is in, before the room starts over ([gm-tools.md](gm-tools.md)): clear what the pack keeps of the room in `state.player` and `state.world`. It cannot ask or move the player, and runs even when the player's address used up its Lua time | none |
 
 Every hook's `player` has `player.id`, the id of the player's character in the world (`"p17"`), which is never given to another player, also after a restart, and `player.name`, their account name. Keep `player.id` to know who took or did something, and use names for showing only. (A server without a database, in tests and local tools, names players `traveler`, `traveler 2`, ... with ids from `p1`.)
 
-`player.gm` is true when the player is a game master of this world (they created it, or an admin made them one) and false otherwise; an admin who is not a member of the world is not its GM. The server reads it when the player connects, so a player made GM while playing is one from their next connection. A pack can leave a decision to the GM, for example whether a smaller party carries on:
+`player.gm` is true when the player is a game master of this world (they created it, or an admin made them one) and false otherwise; an admin who is not a member of the world is not its GM. The server reads it when the player connects; when an admin (or a game master's join code) changes the role of a player who is playing, their game connects again at once with the new role, so `player.gm` is never stale. A pack can leave a decision to the GM, for example whether a smaller party carries on:
 
 ```lua
 function on_enter(player)
@@ -135,6 +137,21 @@ The tables of one value may have at most 65536 slots in all, empty ones included
 The top level of a script runs once when the world starts, for setup. `say`, `room.describe` and the `ui` functions only work inside hooks. `ui.dialog`, `ui.select` and `ui.ask` can wait anywhere in a hook, also inside `pcall`, a `table.sort` comparator or a metamethod. When the player leaves while a hook waits, `ui.dialog` raises the error "the player left" and the hook runs to its end with its output dropped, within 5 ms; it cannot wait again.
 
 The name `__concat` is reserved: every `..` in a script is compiled into a call to it.
+
+## Commands
+
+A room offers slash commands with a global table `commands`: each key is a command's name (1 to 20 of `a-z`, `0-9`, `_`, `-`), each value a table with an optional `help` (one line of at most 100 bytes, shown by `/help`) and `gm = true` for a command only the world's game masters may use. The engine lists them in `/help`, refuses a `gm` command to everyone else as if it did not exist, writes every use of one to the audit log, and shows the other players in the room that the game master used it. A typed `/name args` then runs `on_command(player, name, args)`. At most 20 commands count, and the engine looks at no more than 80 entries of the table. The engine's own commands (`help`, `players`, `rooms`, `go`, `say`, `reset`, `audit`) cannot be replaced.
+
+```lua
+local round = require("round")
+commands = round.commands -- skip, turns, free: gm = true
+
+function on_command(player, name, args)
+  round.command(player, name, args)
+end
+```
+
+The demo's `lib/round.lua` has the game master's turn commands: `/skip` ends the turn of whoever is acting, `/turns` starts turns for everyone in the room (names after it, separated by commas or spaces, set the order), `/free` lets everyone act at once.
 
 ## Limits
 
