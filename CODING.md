@@ -154,7 +154,7 @@ Pack format: docs/content-format.md; patterns for pack authors: docs/pack-patter
 
 - **A new Lua function for packs:** register it in `openSandbox` (`internal/script/sandbox.go`, or the file of its library, such as `timer.go`); if it needs the game, add a method to `Host` or `Party` (`script.go`) and implement it on `session` in `internal/game`. Document it in docs/lua-sandbox.md. Ask first whether it is a core primitive or belongs in pack Lua (CLAUDE.md).
 - **A new WebSocket message:** fields in `ws.Message` (`internal/ws/ws.go`), client to engine in `session.handle` (`internal/game/game.go`), engine to client in `receive` (`web/static/app.js`); document it in docs/websocket-protocol.md.
-- **A new `/api/` route:** `Service.Handler` (`internal/account/account.go`) with `s.post` or `s.get`; the client's `fetch` paths are checked by `scripts/check-web.sh`; document it in docs/accounts.md.
+- **A new `/api/` route:** `Service.Handler` (`internal/account/account.go`) with `s.post` or `s.get`; check edu mode and world visibility with the `may...` helpers in `internal/account/worlds.go`; the client's `fetch` paths are checked by `scripts/check-web.sh`; document it in docs/accounts.md.
 - **A new setting:** env var in `cmd/talespeak/config.go` or `accounts.go`, passed down through a `Config` or `WithX` option; document it in docs/admin-limits.md or docs/setup-server.md and `deploy/.env.example`.
 - **A database change:** a new migration file plus the `store` interface method and its SQLite implementation.
 - **A pack room or module:** `content/<pack>/rooms/*.yaml`, `scripts/*.lua`, `lib/*.lua`; tests in `internal/game/*_test.go` drive the pack through a `World`.
@@ -164,6 +164,7 @@ Pack format: docs/content-format.md; patterns for pack authors: docs/pack-patter
 - **One lock per world.** `World.mu` guards the Lua runtime, every session's fields and all world state; every Lua call runs under it. Methods that need it held end in `Locked` or say "the caller holds w.mu". Nothing blocks while holding it.
 - **Hooks run on their own goroutine.** `ui.dialog`, `ui.select` and `ui.ask` block that goroutine until the player answers (never a coroutine yield). Timers and pushes call in from timer goroutines and take `w.mu` themselves.
 - **Every outside input is bounded where it enters:** WebSocket message size and rate (`ws`), API rates (`account/limit.go`), pack sizes (`pack.Limits`), Lua time and memory (`script.Limits`), per-client budgets (`game`).
+- **Edu mode (kids):** every world is private, players join only with a code, and only admins and GMs create worlds, whatever the other settings say (docs/accounts.md). It is checked in `internal/account/worlds.go` (`mayPlay`, `mayKnow`, `mayCreate`, the lobby) and set up in `cmd/talespeak/accounts.go`; no pack, request or Lua may get around it.
 - **Core vs Lua:** the Go core is glue; game mechanics (turns, items, death, endings) are pack Lua; the core gains only generic primitives.
 - **Offline:** nothing loads from another origin, in the client or in packs (`scripts/check-web.sh`, `internal/pack/lint.go`).
 
