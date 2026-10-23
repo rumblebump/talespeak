@@ -96,14 +96,16 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 
 | File | What it does |
 | --- | --- |
-| `internal/script/script.go` | Package doc; `Limits`, errors, the `Host`/`Party` interfaces and their types (`Player`, `Voice`, `Item`, `Dialog`); `Runtime`, `Compile`, `Instance`, `Load`; hooks: `Run`, `RunHook`, `Resume`, `Answer`, `Expire`, `Cancel` on their own goroutines; memory accounting (`Reserve`, `Kept`) |
+| `internal/script/script.go` | Package doc; `Limits`, errors, `Env`, `Runtime`, `New`, `Close`, `Compile`, `Instance`, `Release`, `Load` |
+| `internal/script/host.go` | What a script reaches the game through: the `Host` and `Party` interfaces, `Player`, `Voice`, `Item`, `Dialog` and its `Check` |
+| `internal/script/thread.go` | Hooks: `Run`, `RunHook`, `Resume`, `Answer`, `Expire`, `Cancel`; each on its own goroutine, paused until the player answers |
 | `internal/script/sandbox.go` | The allowlisted libraries (`openSandbox`): every global a script sees is registered here; read-only proxies; guarded string and table functions; `say`, `room.*`, `ui.*`, `words.*`, `ValidItemID` |
 | `internal/script/state.go` | `State`: `state.player` and `state.world` get/set/update, encoding and limits |
 | `internal/script/timer.go` | `timer.*`, question timeouts, `room.players`, `world.players` |
 | `internal/script/commands.go` | A room script's `commands` table and `on_command` hook (`Env.Commands`, `ValidCommand`) |
 | `internal/script/require.go` | `require` and pack modules (`AddModule`) |
 | `internal/script/rewrite.go` | Compile-time rewrite of `..` into the size-checked `__concat` |
-| `internal/script/memory.go` | Allocation watcher and the walk that measures what an instance keeps |
+| `internal/script/memory.go` | The allocation watcher, the walk that measures what an instance keeps, `Reserve` and `Kept` |
 | `internal/script/table.go` | Table size guards (`MaxArrayIndex`, `table.insert`) |
 | `internal/script/format.go` | A safe `string.format` |
 
