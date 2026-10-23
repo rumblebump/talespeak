@@ -41,6 +41,11 @@ function on_input(player, text)
     say("Guide answer: " .. label)
     return
   end
+  if text == "candle" then
+    -- A long shown timer, which lasts through a reload (T-0012).
+    timer.start("candle", 600, { show = "Candle" })
+    return
+  end
   if text == "hourglass" then
     -- A shown timer, and a question with a timeout (T-0029).
     timer.start("sand", 2, { show = "Sand" })

@@ -66,6 +66,7 @@ browser (web/static)  --HTTP-->  internal/server  --/api-->  internal/account  -
 | `internal/store/sqlite/sqlite.go` | SQLite backend (pure Go): `Open`, WAL, migrations from `internal/store/sqlite/migrations/`, settings |
 | `internal/store/sqlite/accounts.go` | Accounts, passwords, roles, login tokens |
 | `internal/store/sqlite/worlds.go` | Worlds, pack versions, members and roles, invites, characters, saved `state.player`/`state.world` (`Save`), the GM audit log |
+| `internal/store/sqlite/timers.go` | Timers that last (T-0012): player timers and question deadlines (`player_timers`), room timers (`room_timers`), written by `Save` |
 
 A schema change is a new numbered file in `internal/store/sqlite/migrations/`; never edit an applied one.
 
@@ -92,10 +93,11 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `internal/game/host.go` | The session as `script.Host`: `flush`, `Say`, `DescribeRoom`, `Items`, `Go`, `Image`, state access |
 | `internal/game/commands.go` | Slash commands: a line starting with `/` never reaches `on_input`; dispatch to the engine's commands or the room script's (`on_command`), notices a pack cannot fake, the audit log, the broadcast rate limit, `/help` |
 | `internal/game/gmtools.go` | The GM commands `/players`, `/rooms`, `/go`, `/say`, `/reset` (`resetRoom`, `restart`) and `/audit`; `RoleChanged` |
-| `internal/game/party.go` | What a room's players share: unique names, `room.players`/`world.players`, leaving (`on_leave`), room timers |
+| `internal/game/party.go` | What a room's players share: unique names, `room.players`/`world.players`, leaving (`on_leave`), room timers (one that runs out in an empty room waits, `due`, for the next player) |
 | `internal/game/push.go` | Output nobody asked for: the push queue (`ws.Pusher`), player timers, question timeouts |
+| `internal/game/lasting.go` | Timers that last with a store: noting changes for the next save, restoring room timers at load and a player's at join, question deadlines by `questionName` |
 | `internal/game/world.go` | `state.world` and `on_change` delivery to other players |
-| `internal/game/store.go` | With a store: loading a character, saving after every hook, keeping what a failed save lost, replaced sessions |
+| `internal/game/store.go` | With a store: loading a character (and its timers), saving after every hook (timers included), keeping what a failed save lost, replaced sessions |
 
 ### internal/script: the Lua sandbox
 

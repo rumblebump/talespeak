@@ -117,6 +117,7 @@ func (s *session) StartTimer(name string, d time.Duration, show string) error {
 	t := &timer{deadline: s.w.now().Add(d), show: show, readOnly: s.readOnlyWorld}
 	t.stop = s.w.after(d, func() { s.fire(name, t) })
 	s.timers[name] = t
+	s.noteTimer(name, t)
 	if show != "" {
 		s.out = append(s.out, ws.Message{Type: "timer", ID: name, Title: show, Ms: max(d.Milliseconds(), 1)})
 	}
@@ -130,6 +131,7 @@ func (s *session) StopTimer(name string) bool {
 	}
 	t.stop()
 	delete(s.timers, name)
+	s.noteTimer(name, nil)
 	if t.show != "" {
 		s.out = append(s.out, ws.Message{Type: "timer", ID: name})
 	}
@@ -144,8 +146,9 @@ func (s *session) TimerLeft(name string) (time.Duration, bool) {
 	return t.deadline.Sub(s.w.now()), true
 }
 
-// stopTimers stops the player's timers and the open question's timeout.
-// The caller holds w.mu.
+// stopTimers stops the player's timers and the open question's timeout;
+// with a store they wait there for the player to come back. The caller
+// holds w.mu.
 func (s *session) stopTimers() {
 	for _, t := range s.timers {
 		t.stop()
@@ -168,6 +171,7 @@ func (s *session) fire(name string, t *timer) {
 		return
 	}
 	delete(s.timers, name)
+	s.noteTimer(name, nil)
 	mark := len(s.out)
 	if t.show != "" {
 		s.out = append(s.out, ws.Message{Type: "timer", ID: name})
@@ -175,6 +179,7 @@ func (s *session) fire(name string, t *timer) {
 	if !s.runPushed(script.Hook{Name: "on_timer", Args: []string{name}, ReadOnlyWorld: t.readOnly}) {
 		s.out = s.out[:mark]
 		s.timers[name] = t
+		s.noteTimer(name, t)
 		t.stop = w.after(retryBusy, func() { s.fire(name, t) })
 	}
 }

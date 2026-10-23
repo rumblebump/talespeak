@@ -175,7 +175,7 @@ function on_round_end(player, n) say("Round " .. n .. " is over.") end
 | `round.leave(player)` | Takes the player out (call it before `room.go` out of the room, and in `on_leave`) |
 | `round.status(player)` | A line like "Round 2. Order: Mira (acting), Tom (you)." |
 
-`on_turn` runs in the instance of the player whose turn starts, usually from `on_change`, so it should only say things and set items: questions and world writes belong to the player's own clicks. A player who leaves is skipped; one who comes in during a round joins at the next. Without `on_turn_timeout(player, id, name)` a turn whose time ran out is skipped. The round lives in `state.world` as `round_<room id>`, so it survives a restart; the turn's deadline is a room timer, which does not yet (T-0012).
+`on_turn` runs in the instance of the player whose turn starts, usually from `on_change`, so it should only say things and set items: questions and world writes belong to the player's own clicks. A player who leaves is skipped; one who comes in during a round joins at the next. Without `on_turn_timeout(player, id, name)` a turn whose time ran out is skipped. The round lives in `state.world` as `round_<room id>`, so it survives a restart; so does the turn's deadline, a room timer (T-0012).
 
 ## Items players share
 

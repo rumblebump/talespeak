@@ -210,7 +210,8 @@ func (s *Store) IsGM(ctx context.Context, account int64) (bool, error) {
 	return ok, err
 }
 
-// FinishWorld ends the world and deletes its state and its players' state.
+// FinishWorld ends the world and deletes its state, its players' state and
+// its timers.
 func (s *Store) FinishWorld(ctx context.Context, world int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -228,6 +229,8 @@ func (s *Store) FinishWorld(ctx context.Context, world int64) error {
 		`DELETE FROM world_state WHERE world_id = ?`,
 		`DELETE FROM player_state WHERE character_id IN (SELECT id FROM characters WHERE world_id = ?)`,
 		`DELETE FROM invites WHERE world_id = ?`,
+		`DELETE FROM room_timers WHERE world_id = ?`,
+		`DELETE FROM player_timers WHERE character_id IN (SELECT id FROM characters WHERE world_id = ?)`,
 	} {
 		if _, err := tx.ExecContext(ctx, q, world); err != nil {
 			return err
@@ -436,6 +439,9 @@ func (s *Store) Save(ctx context.Context, sv store.Save) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE characters SET room = ? WHERE id = ?`, sv.Room, sv.Character); err != nil {
 			return err
 		}
+	}
+	if err := putTimers(ctx, tx, sv.World, sv.Timers); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

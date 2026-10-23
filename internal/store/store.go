@@ -118,11 +118,35 @@ type Save struct {
 	Character   int64 // 0: no player state and no position in this save
 	PlayerState []Change
 	Room        string // the character's room; "" leaves it as it is
+
+	// Timers started, changed or stopped, of any character of the world
+	// and of its rooms.
+	Timers []Timer
 }
 
 // Empty reports whether s writes nothing.
 func (s Save) Empty() bool {
-	return len(s.WorldState) == 0 && len(s.PlayerState) == 0 && s.Room == ""
+	return len(s.WorldState) == 0 && len(s.PlayerState) == 0 && s.Room == "" && len(s.Timers) == 0
+}
+
+// Timer kinds.
+const (
+	TimerPlayer   = "timer"    // a player's timer.start
+	TimerQuestion = "question" // the deadline of a question with a timeout
+	TimerRoom     = "room"     // a room's timer.start(..., {room = true})
+)
+
+// Timer is a timer that lasts through reloads and restarts (T-0012): a
+// player's, a room's, or a question's deadline. Its deadline is absolute.
+type Timer struct {
+	Kind      string // TimerPlayer, TimerQuestion or TimerRoom
+	Character int64  // whose player timer or question; who started a room timer (0: nobody known)
+	Room      string // a question's or a room timer's room; "" for a player timer
+	Name      string // the timer's name, or a hash of the question
+	Deadline  time.Time
+	Show      string // the label players see; "" for a secret timer
+	ReadOnly  bool   // started where state.world is read-only
+	Delete    bool   // in a Save: the timer stopped or ran out
 }
 
 // Store is implemented by every storage backend.
@@ -248,8 +272,8 @@ type Worlds interface {
 	// IsGM reports whether the account is a game master of an unfinished
 	// world.
 	IsGM(ctx context.Context, account int64) (bool, error)
-	// FinishWorld ends the world: its state and its players' state are
-	// deleted, and OpenWorld starts a new main world.
+	// FinishWorld ends the world: its state, its players' state and all
+	// its timers are deleted, and OpenWorld starts a new main world.
 	FinishWorld(ctx context.Context, world int64) error
 
 	// Member returns the account's role in the world, or ErrNotFound.
@@ -279,4 +303,8 @@ type Worlds interface {
 	WorldState(ctx context.Context, world int64) (map[string][]byte, error)
 	// Save writes what one hook call changed, all of it or nothing.
 	Save(ctx context.Context, s Save) error
+	// PlayerTimers returns the character's timers and question deadlines.
+	PlayerTimers(ctx context.Context, character int64) ([]Timer, error)
+	// RoomTimers returns the timers of the world's rooms.
+	RoomTimers(ctx context.Context, world int64) ([]Timer, error)
 }

@@ -90,11 +90,8 @@ func FuzzPartyOps(f *testing.F) {
 		}
 		c.Advance(time.Hour)
 		c.Advance(time.Hour)
-		w.mu.Lock()
-		rooms := len(w.roomTimers)
-		w.mu.Unlock()
-		if rooms != 0 {
-			t.Fatalf("%d rooms with timers after everyone left", rooms)
+		if n := runningRoomTimers(w); n != 0 {
+			t.Fatalf("%d room timers running after everyone left", n)
 		}
 		if n := c.running(); n != 0 {
 			t.Fatalf("%d clock timers after everyone left", n)

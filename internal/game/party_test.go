@@ -1,6 +1,7 @@
 package game
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -62,6 +63,22 @@ function on_input(p, text)
   end
 end
 function on_change(p, keys) end`
+
+// runningRoomTimers counts the room timers that still run: those that ran
+// out in an empty room and wait for a player do not.
+func runningRoomTimers(w *World) int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n := 0
+	for _, ts := range w.roomTimers {
+		for _, t := range ts {
+			if !t.due {
+				n++
+			}
+		}
+	}
+	return n
+}
 
 func input(s ws.Session, text string) []ws.Message {
 	return s.Handle(ws.Message{Type: "input", Text: text})
@@ -235,7 +252,9 @@ func TestRoomTimerRunsForTheFirstHere(t *testing.T) {
 	}
 }
 
-func TestRoomTimerEmptyRoomDropsIt(t *testing.T) {
+// A room timer that runs out in an empty room waits for the next player
+// who comes in: it fires after their on_enter.
+func TestRoomTimerEmptyRoomWaits(t *testing.T) {
 	w, c := clockWorld(t, partyRoom, partyRoomB)
 	s1, _ := w.NewSession("", ws.Who{})
 	defer s1.Close()
@@ -248,9 +267,18 @@ func TestRoomTimerEmptyRoomDropsIt(t *testing.T) {
 	if n := c.running(); n != 0 {
 		t.Errorf("%d timers left", n)
 	}
-	input(s1, "back")
+	if got := input(s1, "back"); slices.ContainsFunc(got, func(m ws.Message) bool { return m.Type == "timer" }) {
+		t.Errorf("coming back shows the timer that ran out: %+v", got)
+	}
+	if got := texts(input(s1, "left")); got != "0 nil" {
+		t.Errorf("left = %q, want 0 until it fires", got)
+	}
+	c.Advance(0)
+	if got := texts(pending(t, s1)); got != "a: turn room for p1" {
+		t.Errorf("once a player came in: %q", got)
+	}
 	if got := texts(input(s1, "left")); got != "nil nil" {
-		t.Errorf("left = %q", got)
+		t.Errorf("left after it fired = %q", got)
 	}
 }
 
