@@ -27,6 +27,7 @@ Pull request runs test the merge result GitHub creates (`refs/pull/N/merge`), so
 | --- | --- | --- | --- |
 | `changes` | always | always | always |
 | `secrets` (gitleaks) | always | always | always |
+| `codemap` | always | always | always |
 | `lint-ci` (actionlint, Renovate config) | when `.github/` or `renovate.json` changed | same | same |
 | `go` | when Go or content changed: `go vet`, `go test -short`, build | when Go or content changed: `go vet`, `go test -race` with coverage, short fuzz runs, govulncheck, build | always, full like a push to `dev` |
 | `web` | when `web/` or `e2e/` changed | same | same |
@@ -36,8 +37,9 @@ Pull request runs test the merge result GitHub creates (`refs/pull/N/merge`), so
 | `deploy` | no | dev server, when `DEV_DEPLOY` is `true` | push to `main`: staging, when `STAGING_DEPLOY` is `true` |
 | `ci-ok` | always | always | always |
 
-- **Docs-only changes** (`*.md`, `docs/`, `tasks/`, `protocol/`) run only `changes`, `secrets` and `ci-ok`, and finish in well under a minute.
+- **Docs-only changes** (`*.md`, `docs/`, `tasks/`, `protocol/`) run only `changes`, `secrets`, `codemap` and `ci-ok`, and finish in well under a minute.
 - **Web checks:** the `web` job runs `scripts/check-web.sh` (module syntax, no external URL, no HTML sinks, vendored checksums) and `scripts/vendor.sh verify` ([web-client.md](web-client.md)). The `e2e` job runs the Playwright tests in both projects (desktop and phone).
+- **Code map:** the `codemap` job runs `scripts/check-codemap.sh`: every source file is named in [CODING.md](../CODING.md), every path it names exists, and no file is longer than 600 lines (tests 800) unless `scripts/size-allow.txt` still allows it.
 - **`ci-ok`** always reports, and is the single required status check. Filtering at the trigger level instead would leave required checks waiting forever on docs-only pull requests.
 - **Concurrency:** a new push to the same branch cancels the older run. Deploys never cancel each other.
 

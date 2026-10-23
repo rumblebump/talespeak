@@ -69,6 +69,7 @@ jobs:
               - 'go.sum'
               - 'content/**'   # story packs (YAML, Lua), embedded in the binary
               - 'testdata/**'
+              - 'scripts/check-codemap.sh'   # tested by scripts/check_codemap_test.go
             web:
               - 'web/**'
               - 'e2e/**'
@@ -108,6 +109,13 @@ jobs:
           docker run --rm -v "$PWD:/repo" "zricethezav/gitleaks:$GITLEAKS_VERSION" \
             git /repo --redact --no-banner \
             --log-opts="${{ github.event.before && github.event.before != '0000000000000000000000000000000000000000' && format('{0}..{1}', github.event.before, github.sha) || '-1' }}"
+
+  # Always runs: CODING.md must name every source file, and files stay short (CODING.md, Style guide).
+  codemap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-codemap.sh
 
   lint-ci:
     needs: changes
@@ -304,7 +312,7 @@ jobs:
         run: scripts/deploy.sh "${{ github.ref == 'refs/heads/main' && 'staging' || 'dev' }}" "$CHANNEL" "$CHANNEL-$GITHUB_SHA"
 
   ci-ok:
-    needs: [changes, secrets, lint-ci, go, web, e2e, trivy-fs, image, deploy]
+    needs: [changes, secrets, codemap, lint-ci, go, web, e2e, trivy-fs, image, deploy]
     if: always()
     runs-on: ubuntu-latest
     steps:

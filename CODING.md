@@ -1,0 +1,222 @@
+# Coding in Talespeak
+
+Read this before reading code: it says which file does what, so a change only opens the files it needs. Function lists are not kept here; `grep -n '^func' <file>` (or `go doc ./internal/<pkg>`) gives them. Details of the protocol, the Lua API and the settings live in [docs/](docs/).
+
+`scripts/check-codemap.sh` (CI job `codemap`) fails when a source file is missing here, when a path here no longer exists, or when a file is too long. Update this file in the same PR as the code.
+
+## Request path
+
+```
+browser (web/static)  --HTTP-->  internal/server  --/api-->  internal/account  --> internal/store (SQLite)
+        |                                         --/packs/->  internal/pack (images)
+        +--WebSocket /ws-->  internal/ws  -->  internal/hub  -->  internal/game.World  -->  internal/script (Lua)
+                                                  (one per world)    (one session per player)   runs content/<pack>
+```
+
+1. `internal/server` serves the embedded client, `/healthz`, and routes `/ws`, `/packs/` and `/api/`, with the security headers and the host check.
+2. `internal/account` answers `/api/` (sign-in, lobby, join codes) and tells `internal/ws` who a connection is and which world it plays (`ws.Who`).
+3. `internal/ws` accepts the WebSocket, applies connection and message limits, and hands each JSON message to the `ws.Session` the game gave it.
+4. `internal/hub` is that game: it loads the world named in `ws.Who` (from the store and the pack catalog), unloads idle worlds, and caps worlds and players.
+5. `internal/game` turns a message into a Lua hook call on the player's instance of the room script, and the hook's output into messages. Timers and other players' changes are pushed (`ws.Pusher`).
+6. `internal/script` runs the Lua in its sandbox with time and memory budgets; `internal/pack` loaded the pack's YAML, Lua and images from `content/`.
+
+## File map
+
+### cmd/talespeak: the binary
+
+| File | What it does |
+| --- | --- |
+| `cmd/talespeak/main.go` | Commands (`serve`, `account`, `healthcheck`), wiring of every package in `serve`, env helpers |
+| `cmd/talespeak/config.go` | Resource limits from `TALESPEAK_*` env vars (`loadLimits`), byte sizes; list in docs/admin-limits.md |
+| `cmd/talespeak/accounts.go` | Server modes and who may register, play and create worlds (`access`); the installed packs and the main world (`packs`); `account` subcommands |
+
+### internal/server: HTTP
+
+| File | What it does |
+| --- | --- |
+| `internal/server/server.go` | `New`: routes, `/healthz`, security headers; `ContentSecurityPolicy` must match `deploy/Caddyfile` (a test checks) |
+| `internal/server/hosts.go` | `ParseHosts` (`TALESPEAK_HOSTS`) and the 421 answer to other Host headers (DNS rebinding) |
+
+### internal/clientip: who the client is
+
+| File | What it does |
+| --- | --- |
+| `internal/clientip/clientip.go` | `Resolver`: client IP and HTTPS behind trusted proxies; `Key` and `Wide` group addresses (/64, /48) for limits |
+
+### internal/account: sign-in, lobby, invites
+
+| File | What it does |
+| --- | --- |
+| `internal/account/password.go` | Package doc; argon2id `Hash` and `Verify` |
+| `internal/account/account.go` | Settings, `Config`, `Service`, `Handler` (all `/api/` routes); JSON and same-origin helpers; `/api/me`; `Auth` for the WebSocket; register, login, logout, session cookies; join codes and invites |
+| `internal/account/worlds.go` | The lobby (`GET /api/worlds`, cards), who may play, see, invite, finish and create worlds, creating and ending worlds |
+| `internal/account/names.go` | `ValidName`, `ValidPassword`, `CreateInvite` |
+| `internal/account/limit.go` | Token-bucket `limiter` per key for sign-in and API rates |
+
+### internal/store: persistence
+
+| File | What it does |
+| --- | --- |
+| `internal/store/store.go` | The interfaces game code uses (`Store`, `Accounts`, `Worlds`, `Packs`) and their records; `ErrNotFound`, `ErrNameTaken` |
+| `internal/store/sqlite/sqlite.go` | SQLite backend (pure Go): `Open`, WAL, migrations from `internal/store/sqlite/migrations/`, settings |
+| `internal/store/sqlite/accounts.go` | Accounts, passwords, roles, login tokens |
+| `internal/store/sqlite/worlds.go` | Worlds, pack versions, members, invites, characters, saved `state.player`/`state.world` (`Save`) |
+
+A schema change is a new numbered file in `internal/store/sqlite/migrations/`; never edit an applied one.
+
+### internal/ws: the WebSocket endpoint
+
+| File | What it does |
+| --- | --- |
+| `internal/ws/ws.go` | `Message` (every field of the protocol), `Who`, the `Game`/`Session`/`Pusher`/`Replacer` interfaces, `Server` with its options, origin check, connection and message rate limits, push loop, `Shutdown` |
+
+### internal/hub: the worlds of a server
+
+| File | What it does |
+| --- | --- |
+| `internal/hub/hub.go` | `Hub`: `NewSession` loads the world of `ws.Who` and tracks players per network, loading and evicting worlds, `Reap`/`Run` for idle worlds, `Finish`, `Close` |
+
+### internal/game: one running world
+
+| File | What it does |
+| --- | --- |
+| `internal/game/game.go` | `World` (fields and the `w.mu` lock), options, `NewWorld`, `NewSession`, `Close`, idle and `End`; per-client Lua time and memory budgets; `session` (one player): `Handle` dispatches `choose`/`input`/`click`/`answer`, room script instances, entering rooms, running hooks and their errors; the `script.Host` methods (`Say`, `Items`, `Go`, `Image`) |
+| `internal/game/party.go` | What a room's players share: unique names, `room.players`/`world.players`, leaving (`on_leave`), room timers |
+| `internal/game/push.go` | Output nobody asked for: the push queue (`ws.Pusher`), player timers, question timeouts |
+| `internal/game/world.go` | `state.world` and `on_change` delivery to other players |
+| `internal/game/store.go` | With a store: loading a character, saving after every hook, keeping what a failed save lost, replaced sessions |
+
+### internal/script: the Lua sandbox
+
+| File | What it does |
+| --- | --- |
+| `internal/script/script.go` | Package doc; `Limits`, errors, the `Host`/`Party` interfaces and their types (`Player`, `Voice`, `Item`, `Dialog`); `Runtime`, `Compile`, `Instance`, `Load`; hooks: `Run`, `RunHook`, `Resume`, `Answer`, `Expire`, `Cancel` on their own goroutines; memory accounting (`Reserve`, `Kept`) |
+| `internal/script/sandbox.go` | The allowlisted libraries (`openSandbox`): every global a script sees is registered here; read-only proxies; guarded string and table functions; `say`, `room.*`, `ui.*`, `words.*`, `ValidItemID` |
+| `internal/script/state.go` | `State`: `state.player` and `state.world` get/set/update, encoding and limits |
+| `internal/script/timer.go` | `timer.*`, question timeouts, `room.players`, `world.players` |
+| `internal/script/require.go` | `require` and pack modules (`AddModule`) |
+| `internal/script/rewrite.go` | Compile-time rewrite of `..` into the size-checked `__concat` |
+| `internal/script/memory.go` | Allocation watcher and the walk that measures what an instance keeps |
+| `internal/script/table.go` | Table size guards (`MaxArrayIndex`, `table.insert`) |
+| `internal/script/format.go` | A safe `string.format` |
+
+### internal/pack: story packs
+
+| File | What it does |
+| --- | --- |
+| `internal/pack/pack.go` | Package doc; `Pack`, `Room`, `Item`, `Limits`; `Load` reads `pack.yaml`, rooms, scripts, lib modules and checks them; content hash |
+| `internal/pack/assets.go` | Pack images in memory, `AssetHandler` for `/packs/`, `AssetURL`, `Image` |
+| `internal/pack/catalog.go` | `Catalog` of installed packs and versions: `Newest`, `Pick`, `Match` |
+| `internal/pack/version.go` | Semantic versions and ranges (`ParseVersion`, `ParseRange`, `Compatible`) |
+| `internal/pack/lint.go` | Offline lint: no external URL in YAML strings or Lua string literals |
+
+### web: the browser client
+
+| File | What it does |
+| --- | --- |
+| `web/web.go` | Embeds `web/static/` into the binary |
+| `web/static/app.js` | The `game` Alpine component: clean helpers for server data, settings, sign-in, the lobby and its cards, starting a game, `receive` for every engine message, lines, timers, dialogs and typed answers, keys, pictures, read aloud and large text |
+| `web/static/net.js` | The WebSocket to one world: reconnect with backoff, pings, close codes |
+| `web/static/speech.js` | Read aloud with local voices only |
+
+`web/static/index.html` holds only simple Alpine expressions, `web/static/style.css` the theme; vendored Alpine is pinned in `web/vendor.json`. More in docs/web-client.md.
+
+### content: packs (YAML and Lua)
+
+| Path | What it does |
+| --- | --- |
+| `content/content.go` | Embeds the demo pack into the binary (`Demo`) |
+| `content/demo/scripts/` | The demo escape: cell, corridor, guard room, clearing |
+| `content/demo/lib/rooms.lua` | Demo helpers: Whisp, the guard's countdown, solved rooms, the key box code |
+| `content/demo/lib/round.lua` | Free and turn-based rounds in a room, for any pack to copy |
+| `content/demo/lib/items.lua` | Shared, split and used-up items and effects, for any pack to copy |
+| `content/clockmaker/scripts/` | The co-op case "The Clockmaker's Silence": one script per location |
+| `content/clockmaker/lib/case.lua` | The party, five levels with save spots, per-world secrets, satchels, the casebook and typed input |
+| `content/test-pack/scripts/` | The tiny pack the browser tests run: every renderer once |
+| `content/test-pack/lib/visits.lua` | A module to test `require` |
+
+Pack format: docs/content-format.md; patterns for pack authors: docs/pack-patterns.md.
+
+### scripts and deploy
+
+| File | What it does |
+| --- | --- |
+| `scripts/check-codemap.sh` | This map and the file size limits (CI `codemap`) |
+| `scripts/check-web.sh` | Client checks without a browser: modules parse, no external URLs, no HTML sinks (CI `web`) |
+| `scripts/vendor.sh` | Vendored browser code: check, verify, update against `web/vendor.json` |
+| `scripts/fuzz.sh` | Runs every `Fuzz*` target briefly |
+| `scripts/board.sh` | Builds `tasks/BOARD.md` from the task files |
+| `scripts/deploy.sh` | Deploys to a server over SSH and checks `/healthz` |
+| `deploy/remote-up.sh` | Runs on the server: pulls and starts the images, waits until healthy |
+| `scripts/clockmaker-maps.py` | Generates the clockmaker map puzzle pictures |
+
+## Where to change what
+
+- **A new Lua function for packs:** register it in `openSandbox` (`internal/script/sandbox.go`, or the file of its library, such as `timer.go`); if it needs the game, add a method to `Host` or `Party` (`script.go`) and implement it on `session` in `internal/game`. Document it in docs/lua-sandbox.md. Ask first whether it is a core primitive or belongs in pack Lua (CLAUDE.md).
+- **A new WebSocket message:** fields in `ws.Message` (`internal/ws/ws.go`), client to engine in `session.handle` (`internal/game/game.go`), engine to client in `receive` (`web/static/app.js`); document it in docs/websocket-protocol.md.
+- **A new `/api/` route:** `Service.Handler` (`internal/account/account.go`) with `s.post` or `s.get`; the client's `fetch` paths are checked by `scripts/check-web.sh`; document it in docs/accounts.md.
+- **A new setting:** env var in `cmd/talespeak/config.go` or `accounts.go`, passed down through a `Config` or `WithX` option; document it in docs/admin-limits.md or docs/setup-server.md and `deploy/.env.example`.
+- **A database change:** a new migration file plus the `store` interface method and its SQLite implementation.
+- **A pack room or module:** `content/<pack>/rooms/*.yaml`, `scripts/*.lua`, `lib/*.lua`; tests in `internal/game/*_test.go` drive the pack through a `World`.
+
+## Rules that span files
+
+- **One lock per world.** `World.mu` guards the Lua runtime, every session's fields and all world state; every Lua call runs under it. Methods that need it held end in `Locked` or say "the caller holds w.mu". Nothing blocks while holding it.
+- **Hooks run on their own goroutine.** `ui.dialog`, `ui.select` and `ui.ask` block that goroutine until the player answers (never a coroutine yield). Timers and pushes call in from timer goroutines and take `w.mu` themselves.
+- **Every outside input is bounded where it enters:** WebSocket message size and rate (`ws`), API rates (`account/limit.go`), pack sizes (`pack.Limits`), Lua time and memory (`script.Limits`), per-client budgets (`game`).
+- **Core vs Lua:** the Go core is glue; game mechanics (turns, items, death, endings) are pack Lua; the core gains only generic primitives.
+- **Offline:** nothing loads from another origin, in the client or in packs (`scripts/check-web.sh`, `internal/pack/lint.go`).
+
+## Tests
+
+- Next to the code: `x_test.go` for the main cases, `x_edge_test.go` for limits and odd input, `x_fuzz_test.go` for fuzz targets, or a file per feature (`timer_test.go`). Look for the file named after the feature first.
+- Test helpers live in the test file that uses them most: in `internal/game`, `move_test.go` (`roomsWorld`, `texts`) and `demo_test.go` (`play` and the demo steps).
+- Browser tests: `e2e/tests/*.spec.js`, always importing `e2e/tests/fixtures.js` (offline and CSP guard, accounts per test).
+- How to run them: docs/testing.md.
+
+## Style guide
+
+For people and agents alike. It writes down how the code is already written.
+
+### Every change
+
+- Read this file, then only the files the change needs; grep for a function before opening a whole file.
+- Small, surgical changes: one topic per PR, no reformatting or renaming of code the change does not need.
+- Files stay under 500 lines, grouped by function; CI fails at 600 (tests 800). A new feature goes into a new file instead of growing a big one. `scripts/size-allow.txt` lists the files still waiting for their split; they may not grow.
+- Update every doc the change makes wrong, in the same PR: this file, docs/, README, task files.
+- Never a secret anywhere, `protocol/` included: write `$VARIABLES`.
+- A new dependency only after checking its license and size; nothing that needs cgo or a network service.
+
+### Go
+
+- Pure Go (`CGO_ENABLED=0`), standard library first, `gofmt` and `go vet` clean.
+- A package comment on every package. A doc comment in full sentences on every exported name and every unexported one that is not obvious: what it is, and why. A limit says what it protects against.
+- Limits are named constants, enforced where outside input enters.
+- Errors callers test are `var ErrX = errors.New(...)`, checked with `errors.Is`; wrap with `fmt.Errorf("...: %w", err)`. What a player reads is a short plain sentence, never internals.
+- Settings come through `WithX` options or a `Config` struct; defaults are named constants.
+- Struct fields say in a comment which lock guards them; time comes from the injected clock (`WithClock`), never `time.Now` in game logic.
+- Log with `log/slog`; never log passwords, tokens or join codes.
+- Short plain names without stutter: `game.World`, not `game.GameWorld`.
+
+### JavaScript (`web/static`)
+
+- Plain ES modules, no build step; the only library is the vendored Alpine CSP build.
+- Server text reaches the page only through `x-text` or `textContent`; no `x-html`, `eval` or inline scripts. HTML attributes hold only simple expressions.
+- Every field from the server is cleaned and cut to the engine's limits before use (the `clean...` helpers in `app.js`).
+- `fetch` only the server's own `/api/` paths.
+
+### Lua (packs)
+
+- Shared code goes in `lib/<name>.lua`, loaded with `require`; a module's top level never calls `say`, `ui` or `state.player`.
+- What must last goes in `state.player` or `state.world` (shared changes through `state.world.update`), never in globals.
+- Libs follow the 500-line rule too.
+
+### Tests
+
+- Standard `testing`, table-driven, no assertion library; injected clock, no sleeps, no network; pass with `-race` in any order.
+- New tests go into a topic file instead of growing a long one. Fuzz anything that parses outside input. A client change gets a Playwright test.
+
+### Writing (comments, docs, commits, protocol)
+
+- Plain English, short sentences, present tense; say what and why, not the history of the change.
+- Commits: `T-NNNN: what changed` (or `ci:`, `e2e:`, `build:` outside a task), signed off with `git commit -s`.
