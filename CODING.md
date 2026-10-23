@@ -187,6 +187,25 @@ For people and agents alike. It writes down how the code is already written.
 - Never a secret anywhere, `protocol/` included: write `$VARIABLES`.
 - A new dependency only after checking its license and size; nothing that needs cgo or a network service.
 
+### Tests and security reviews
+
+This is how to run them; what they found goes in `protocol/`, never here.
+
+**On every task**, as the task-workflow skill (`.claude/skills/task-workflow/SKILL.md`) says:
+
+1. Commit the change, then start the `test-engineer` agent (`.claude/agents/test-engineer.md`) with the task id, the task file and the base `origin/dev`. It adds the missing tests and reports bugs with a failing test; fix the code.
+2. Start the `security-reviewer` agent (`.claude/agents/security-reviewer.md`) on the same diff. Fix every critical, high and medium finding; fix a low one or say in the PR why not.
+3. Both can run at once when the code is stable. Without an Agent tool, follow the agent's file yourself and say so in the PR.
+4. Write both results into the task's protocol entry: what each agent found, what was fixed, the commands and trimmed output.
+
+**From time to time, a full pass** over the whole code, not one diff, because findings that span several PRs only show there:
+
+1. When: at least every 10 merged PRs or every two weeks, whichever comes first, and before a tag to prod. The newest `protocol/*-full-review.md` says when the last one ran and at which commit.
+2. Branch from `dev` (`full-review-YYYY-MM-DD`). Give both agents the whole repo as scope and the last full pass's commit as the base, so they read everything but look hardest at what changed since. Split the scope by package when one agent cannot read it all (for example `internal/script` and `internal/game` apart from the rest).
+3. The test engineer also reports coverage per package and the packages or files without tests. The security reviewer also checks the rules of this file and of docs/ across packages: limits on every outside input, offline and CSP, kids safety, secrets in logs.
+4. Fix what is small in the same PR. Everything else becomes a task in `tasks/open/` with the finding, its severity and `file:line`.
+5. Log it as `protocol/YYYY-MM-DD-full-review.md`: the commit reviewed, the commands, every finding with its severity and what happened to it (fixed, task T-NNNN, or why not). Secrets only as `$VARIABLES`.
+
 ### Go
 
 - Pure Go (`CGO_ENABLED=0`), standard library first, `gofmt` and `go vet` clean.

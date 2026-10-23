@@ -45,8 +45,9 @@ for f in $(files | grep -E '\.(go|js|lua|sh|py)$' | grep -vE '_test\.go$|^e2e/')
 done
 
 # Only paths under the repo's own folders are checked, so `log/slog` and
-# other import paths in the text are no paths.
-for p in $(printf '%s\n' "$named" | grep -E '^(cmd|internal|web|content|scripts|docs|e2e|deploy|tasks|protocol|\.github|\.claude)/'); do
+# other import paths in the text are no paths; nor are patterns such as
+# `protocol/YYYY-MM-DD-slug.md`.
+for p in $(printf '%s\n' "$named" | grep -E '^(cmd|internal|web|content|scripts|docs|e2e|deploy|tasks|protocol|\.github|\.claude)/' | grep -vE 'YYYY|NNNN'); do
   if [ ! -e "$p" ]; then
     echo "$p: named in $map but does not exist" >&2
     fail=1
