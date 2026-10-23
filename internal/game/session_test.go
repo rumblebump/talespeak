@@ -349,6 +349,9 @@ func FuzzSessionHandle(f *testing.F) {
 	f.Add("input", "", 0, " \n ")
 	f.Add("click", "", 0, "")
 	f.Add("answer", "d1", 0, "x")
+	f.Add("input", "", 0, "/")
+	f.Add("input", "", 0, "/help")
+	f.Add("input", "", 0, "/reset room")
 	w, err := NewWorld(mustDemo(), script.DefaultLimits, quiet)
 	if err != nil {
 		f.Fatal(err)
@@ -369,10 +372,17 @@ func FuzzSessionHandle(f *testing.F) {
 			t.Fatal("no answer")
 		}
 		valid := typ == "choose" && id == "d1" && option >= 1 && option <= 3
-		if !valid {
-			if !isError(got) {
-				t.Fatalf("invalid message answered with %+v", got)
+		if typ == "input" && isCommand(cleanInput(text)) {
+			// A slash command gets the engine's answer, and the question
+			// stays open (T-0011).
+			if kinds(got) != "notice:" && !isError(got) {
+				t.Fatalf("command answered with %+v", got)
 			}
+			valid = false
+		} else if !valid && !isError(got) {
+			t.Fatalf("invalid message answered with %+v", got)
+		}
+		if !valid {
 			if again := kinds(s.Handle(ws.Message{Type: "choose", ID: "d1", Option: 2})); again != "text:" {
 				t.Fatalf("dialog closed by an invalid message: %s", again)
 			}
