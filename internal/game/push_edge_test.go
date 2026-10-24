@@ -487,26 +487,36 @@ function on_change(p, keys) say(table.concat(keys, ",") .. " " .. state.world.ge
 	}
 	wg.Wait()
 	want := "count " + strconv.Itoa(players*rounds)
+	// One deadline for all, long enough for a loaded runner: the pushes
+	// come from real timers (the on_change throttle), and the test ends as
+	// soon as every player heard something and all but one the final count.
+	last := make([]string, players)
 	atFull := 0
-	for i, s := range sessions {
-		var last string
-		deadline := time.Now().Add(2 * time.Second)
-		for !strings.HasSuffix(last, want) && time.Now().Before(deadline) {
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
+		heard := 0
+		atFull = 0
+		for i, s := range sessions {
 			for _, m := range pending(t, s) {
 				if m.Type != "text" {
 					t.Errorf("player %d got %+v", i, m)
 				}
-				last = m.Text
+				last[i] = m.Text
 			}
-			if !strings.HasSuffix(last, want) {
-				time.Sleep(time.Millisecond) // polling real timers, with a deadline
+			if last[i] != "" {
+				heard++
+			}
+			if strings.HasSuffix(last[i], want) {
+				atFull++
 			}
 		}
-		if last == "" {
+		if heard == players && atFull >= players-1 {
+			break
+		}
+		time.Sleep(time.Millisecond) // polling real timers, with a deadline
+	}
+	for i := range last {
+		if last[i] == "" {
 			t.Errorf("player %d heard no change", i)
-		}
-		if strings.HasSuffix(last, want) {
-			atFull++
 		}
 	}
 	// Only the player who wrote last may not hear the final count.

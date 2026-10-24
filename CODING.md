@@ -120,6 +120,7 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `internal/script/memory.go` | The allocation watcher, the walk that measures what an instance keeps, `Reserve` and `Kept` |
 | `internal/script/table.go` | Table size guards (`MaxArrayIndex`, `table.insert`) |
 | `internal/script/format.go` | A safe `string.format` |
+| `internal/script/random.go` | The sandbox's `math`: an allowlist without `randomseed`, `math.random` on `math/rand/v2` |
 
 ### internal/pack: story packs
 

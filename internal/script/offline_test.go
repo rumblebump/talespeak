@@ -47,7 +47,7 @@ func TestSandboxSurfaceIsExactly(t *testing.T) {
 		"math", "math.abs", "math.acos", "math.asin", "math.atan", "math.atan2", "math.ceil",
 		"math.cos", "math.cosh", "math.deg", "math.exp", "math.floor", "math.fmod", "math.frexp",
 		"math.huge", "math.ldexp", "math.log", "math.log10", "math.max", "math.min", "math.mod",
-		"math.modf", "math.pi", "math.pow", "math.rad", "math.random", "math.randomseed",
+		"math.modf", "math.pi", "math.pow", "math.rad", "math.random",
 		"math.sin", "math.sinh", "math.sqrt", "math.tan", "math.tanh",
 		"next", "pairs", "pcall", "rawequal", "rawget", "rawset", "require",
 		"room", "room.describe", "room.go", "room.players", "say", "select", "setmetatable", "state", "state.player", "state.player.get", "state.player.set",
