@@ -345,6 +345,21 @@ footer { padding: 0.75rem 1rem; text-align: center; color: var(--muted); font-si
 .members form { display: flex; flex-wrap: wrap; align-items: end; gap: 0.4rem; }
 .members input { min-width: 0; }
 .copy { margin-left: 0.5rem; min-height: 1.75rem; font-size: 0.85rem; }
+/* Picking who plays a world on a ruleset (profiles.js). */
+.card-pick { border: 1px solid var(--line); border-radius: 3px; margin: 0; padding: 0.5rem 0.75rem; font-size: 0.9rem; }
+.card-pick label { display: block; overflow-wrap: anywhere; }
+.card-pick label.choice { display: flex; gap: 0.5rem; align-items: baseline; margin: 0.25rem 0; }
+.card-pick input { accent-color: var(--accent); }
+.card-pick input:not([type="radio"]) {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.3rem 0.5rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
 .account select {
   display: block;
   width: 100%;

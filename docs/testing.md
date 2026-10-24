@@ -33,7 +33,7 @@ CGO_ENABLED=0 go build -o bin/talespeak ./cmd/talespeak
 cd e2e
 npm ci
 npx playwright install chromium
-npx playwright test                  # starts ../bin/talespeak three times: the test pack, the demo, and the demo for party tests
+npx playwright test                  # starts ../bin/talespeak for each server in playwright.config.js: the test pack, the demo, party tests, invites, the ruleset packs
 npx playwright test --ui             # watch and debug locally
 ```
 

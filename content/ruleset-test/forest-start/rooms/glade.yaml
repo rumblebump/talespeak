@@ -1,0 +1,7 @@
+id: glade
+title: A glade
+description: A fox is caught in the brambles.
+script: glade.lua
+items:
+  - id: fox
+    label: help the fox

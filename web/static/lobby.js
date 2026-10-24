@@ -5,6 +5,7 @@
 import { cleanCard, cleanLine, setHash, text, worldFromHash } from "/clean.js";
 import { api } from "/api.js";
 import { forgetLogs } from "/storylog.js";
+import { cleanProfiles } from "/profiles.js";
 
 /** lobby returns the methods and getters of this part. */
 export function lobby() {
@@ -52,7 +53,7 @@ export function lobby() {
     async loadLobby(page) {
       try {
         const l = await api(page > 1 ? "/api/worlds?page=" + page : "/api/worlds");
-        const got = Array.isArray(l.worlds) ? l.worlds.filter((c) => c && typeof c === "object").map(cleanCard).filter((c) => c.id) : [];
+        const got = Array.isArray(l.worlds) ? l.worlds.filter((c) => c && typeof c === "object").map((c) => ({ ...cleanCard(c), profiles: cleanProfiles(c.profiles) })).filter((c) => c.id) : [];
         if (page > 1) {
           const seen = new Set(this.worlds.map((c) => c.id));
           this.worlds = [...this.worlds, ...got.filter((c) => !seen.has(c.id))];
@@ -120,6 +121,12 @@ export function lobby() {
     // enter plays the world of card; a game master of it plays as a
     // player with asPlayer (GM mode off until /gm).
     enter(card, asPlayer) {
+      if (this.needsPick(card)) {
+        // A world on a ruleset: pick who plays first (profiles.js).
+        if (this.view !== "lobby") this.openLobby();
+        this.openPick(card);
+        return;
+      }
       this.stopGame();
       this.asPlayer = asPlayer === true;
       this.closeMembers();

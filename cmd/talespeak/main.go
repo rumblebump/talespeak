@@ -8,6 +8,8 @@
 //	talespeak account resetcode NAME      print a one-time reset code for an account
 //	talespeak invite [-uses N] [-days D] [-gm] [-world ID]  print a new invite code to a world
 //	talespeak mail test ADDRESS           send a test mail with the SMTP settings (docs/admin-email.md)
+//	talespeak profile list NAME           list an account's profiles (characters on rulesets)
+//	talespeak profile undo ID             undo a profile's last ruleset migration
 //	talespeak healthcheck  exit 0 if the local server reports healthy (used by Docker)
 //	talespeak version      print the version
 package main
@@ -65,13 +67,15 @@ func run(args []string) error {
 		return inviteCmd(args, os.Stdout)
 	case "mail":
 		return mailCmd(args, os.Getenv, os.Stdout)
+	case "profile":
+		return profileCmd(args, os.Stdout)
 	case "healthcheck":
 		return healthcheck(healthURL(envOr("TALESPEAK_LISTEN", ":8080")))
 	case "version":
 		fmt.Println(version)
 		return nil
 	default:
-		return fmt.Errorf("unknown command %q (want serve, account, invite, mail, healthcheck or version)", cmd)
+		return fmt.Errorf("unknown command %q (want serve, account, invite, mail, profile, healthcheck or version)", cmd)
 	}
 }
 
@@ -143,7 +147,7 @@ func serve(args []string) error {
 		PerClient: lim.worldsPerClient, Log: log,
 		Load: func(w store.World, p *pack.Pack) (*game.World, error) {
 			return game.NewWorld(p, lim.script, log.With("world", w.ID), game.WithClientBudget(lim.luaClientRate, lim.luaClientBurst),
-				game.WithClientMemory(lim.luaClientMemory), game.WithStore(db, w.ID), game.WithAudit(db))
+				game.WithClientMemory(lim.luaClientMemory), game.WithStore(db, w.ID), game.WithAudit(db), game.WithRuleset(ps.ruleset(p), db))
 		}})
 	defer worlds.Close()
 	go worlds.Run(ctx)
@@ -159,7 +163,8 @@ func serve(args []string) error {
 		ws.WithConnectRate(lim.connectRate, lim.connectBurst),
 		ws.WithRateLimit(lim.messageRate, lim.messageBurst), ws.WithIdleTimeout(lim.idleTimeout))
 	accounts = account.New(account.Config{Store: db, Registration: acc.registration, ClassCode: classCode, Edu: acc.mode == modeEdu,
-		Create: acc.create, Home: home.ID, Packs: ps.lobby(), Live: worlds, Runs: func(w store.World) (account.Pack, error) {
+		Create: acc.create, Home: home.ID, Packs: ps.lobby(), Live: worlds, Profiles: profiles(db, ps, worlds, lim, log),
+		Runs: func(w store.World) (account.Pack, error) {
 			p, err := worlds.Pack(w)
 			if err != nil {
 				return account.Pack{}, err

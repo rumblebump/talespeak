@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/rumblebump/talespeak/internal/script"
 	"github.com/rumblebump/talespeak/internal/store"
 	"github.com/rumblebump/talespeak/internal/ws"
 )
@@ -37,6 +38,10 @@ func joinError(err error) string {
 	}
 	if errors.Is(err, errFull) {
 		return "This world is full right now. Try again later."
+	}
+	var refused *joinRefusal
+	if errors.As(err, &refused) {
+		return refused.msg
 	}
 	return "Your character could not be loaded. Try again later."
 }
@@ -73,6 +78,10 @@ func (s *session) load(who ws.Who) (string, error) {
 	if err := w.writeTimers(ctx); err != nil {
 		return "", err
 	}
+	prof, sheet, err := s.checkProfile(ctx, c)
+	if err != nil {
+		return "", err
+	}
 	vals, err := w.store.PlayerState(ctx, c.ID)
 	if err != nil {
 		return "", err
@@ -82,6 +91,11 @@ func (s *session) load(who ws.Who) (string, error) {
 		return "", err
 	}
 	if err := s.state.Load(vals); err != nil {
+		return "", errors.Join(errFull, err)
+	}
+	if err := s.loadProfile(prof, sheet); err != nil {
+		_ = s.reserve(-s.state.Size())
+		s.state = script.State{}
 		return "", errors.Join(errFull, err)
 	}
 	// The role as it is now, not as it was when the connection signed
@@ -165,6 +179,7 @@ func (w *World) save(s *session) {
 			sv.Room = s.room
 		}
 	}
+	s.saveProfile(&sv)
 	sv.Timers = w.timerChanges()
 	if sv.Empty() && len(w.lost) == 0 {
 		return
@@ -186,6 +201,7 @@ func (w *World) save(s *session) {
 		return
 	}
 	w.unsaved, s.dirty, s.moved = nil, nil, false
+	s.savedProfile()
 	clear(w.timerSaves)
 }
 

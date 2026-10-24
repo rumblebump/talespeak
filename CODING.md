@@ -26,10 +26,11 @@ browser (web/static)  --HTTP-->  internal/server  --/api-->  internal/account  -
 
 | File | What it does |
 | --- | --- |
-| `cmd/talespeak/main.go` | Commands (`serve`, `account`, `invite`, `mail`, `healthcheck`), wiring of every package in `serve`, env helpers |
+| `cmd/talespeak/main.go` | Commands (`serve`, `account`, `invite`, `mail`, `profile`, `healthcheck`), wiring of every package in `serve`, env helpers |
 | `cmd/talespeak/config.go` | Resource limits from `TALESPEAK_*` env vars (`loadLimits`), byte sizes; list in docs/admin-limits.md |
 | `cmd/talespeak/accounts.go` | Server modes and who may register, play and create worlds (`access`, the class code); the installed packs and the main world (`packs`); `account` subcommands (`resetcode` too) |
 | `cmd/talespeak/mail.go` | Mail settings (`loadMail`: `TALESPEAK_EMAIL_REGISTRATION`, `TALESPEAK_SMTP_*`, `TALESPEAK_PUBLIC_URL`) and `talespeak mail test ADDRESS` |
+| `cmd/talespeak/profiles.go` | Wiring of rulesets and profiles (`ps.ruleset`, `profiles`) and the `profile list`/`profile undo` subcommands |
 
 ### internal/server: HTTP
 
@@ -60,20 +61,23 @@ browser (web/static)  --HTTP-->  internal/server  --/api-->  internal/account  -
 | `internal/account/worlds.go` | The lobby (`GET /api/worlds`, cards), who may play, see, invite, finish and create worlds, creating and ending worlds |
 | `internal/account/names.go` | `ValidName`, `ValidPassword`, `CreateInvite` |
 | `internal/account/members.go` | `GET` and `POST /api/members`: a world's members, who may change whose role (admins, GMs for their players, the edu floor), live players reconnect with the new role |
+| `internal/account/profiles.go` | Profiles in the lobby: the card's `profiles` (`addProfiles`) and `POST /api/profiles` picking or making a character for a world |
 | `internal/account/limit.go` | Token-bucket `limiter` per key for sign-in and API rates |
 
 ### internal/store: persistence
 
 | File | What it does |
 | --- | --- |
-| `internal/store/store.go` | The interfaces game code uses (`Store`, `Accounts`, `Worlds`, `Packs`) and their records; `ErrNotFound`, `ErrNameTaken` |
+| `internal/store/store.go` | The interfaces game code uses (`Store`, `Accounts`, `Worlds`, `Packs`, `Profiles`) and their records; `ErrNotFound`, `ErrNameTaken` |
 | `internal/store/mail.go` | `Emails`, `Tokens` (one-time codes, only their hashes) and `Outbox` (mail waiting, `MaxOutbox`) |
+| `internal/store/profiles.go` | The `Profiles` interface and its records: `Profile`, `Progress`, `Bind`, `ProgressSave`; `ErrProfiles`, `ErrProfileChanged` |
 | `internal/store/sqlite/sqlite.go` | SQLite backend (pure Go): `Open`, WAL, migrations from `internal/store/sqlite/migrations/`, settings |
 | `internal/store/sqlite/accounts.go` | Accounts, passwords, roles, login tokens |
 | `internal/store/sqlite/worlds.go` | Worlds, pack versions, invites, characters, saved `state.player`/`state.world` (`Save`), the GM audit log |
 | `internal/store/sqlite/members.go` | World members and their roles (`world_members`): `Member`, `AddMember`, `RemoveMember`, `Members` |
 | `internal/store/sqlite/mail.go` | Confirmed email addresses, `account_tokens`, `mail_outbox` (a mail goes with its code), `GMOf` |
 | `internal/store/sqlite/timers.go` | Timers that last (T-0012): player timers and question deadlines (`player_timers`), room timers (`room_timers`), written by `Save` |
+| `internal/store/sqlite/profiles.go` | Profiles (T-0010): sheets, progress and exports, binding a character, migration snapshots and undo; `putProfile`, written by `Save` only while the profile's generation matches |
 
 A schema change is a new numbered file in `internal/store/sqlite/migrations/`; never edit an applied one.
 
@@ -114,6 +118,7 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `internal/game/lasting.go` | Timers that last with a store: noting changes for the next save, restoring room timers at load and a player's at join, question deadlines by `questionName` |
 | `internal/game/world.go` | `state.world` and `on_change` delivery to other players |
 | `internal/game/store.go` | With a store: loading a character (and its timers), saving after every hook (timers included), keeping what a failed save lost, replaced sessions |
+| `internal/game/profile.go` | A world on a ruleset (`WithRuleset`): its modules and `pack` info, checking and loading the player's profile at join, `state.profile`, `progress.*` and saving them |
 
 ### internal/script: the Lua sandbox
 
@@ -127,6 +132,8 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `internal/script/ui.go` | Output to the player: `say`, `room.describe`, `room.go`, `ui.dialog`, `ui.select`, `ui.ask`, `ui.items`, `ui.image`; `ValidItemID` |
 | `internal/script/words.go` | `words.normalize` and `words.same` |
 | `internal/script/state.go` | `State`: `state.player` and `state.world` get/set/update, encoding and limits |
+| `internal/script/profile.go` | `state.profile`, `progress.export`/`complete` through the optional `ProfileHost`, the read-only `pack` table (`SetPack`) |
+| `internal/script/migrate.go` | `Migrate`: a ruleset migration's `migrate(sheet)` in a sandbox of its own |
 | `internal/script/timer.go` | `timer.*`, question timeouts, `room.players`, `world.players` |
 | `internal/script/commands.go` | A room script's `commands` table and `on_command` hook (`Env.Commands`, `ValidCommand`) |
 | `internal/script/perm.go` | `perm.define` and `player:can`: pack permissions per instance, the engine's permissions only in GM mode |
@@ -141,11 +148,19 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 
 | File | What it does |
 | --- | --- |
-| `internal/pack/pack.go` | Package doc; `Pack`, `Room`, `Item`, `Limits`; `Load` reads `pack.yaml`, rooms, scripts, lib modules and checks them; content hash |
+| `internal/pack/pack.go` | Package doc; `Pack` (with the `Manifest` inline), `Room`, `Item`, `Limits`; `Load` reads `pack.yaml`, rooms, scripts, lib modules and checks them; content hash |
 | `internal/pack/assets.go` | Pack images in memory, `AssetHandler` for `/packs/`, `AssetURL`, `Image` |
 | `internal/pack/catalog.go` | `Catalog` of installed packs and versions: `Newest`, `Pick`, `Match` |
+| `internal/pack/ruleset.go` | Rulesets and continuations (T-0010): `Manifest` (`kind`, `ruleset`, `continues`, `imports`, `exports`), its checks, ruleset migrations, `Catalog.Ruleset` and `Catalog.Check` |
 | `internal/pack/version.go` | Semantic versions and ranges (`ParseVersion`, `ParseRange`, `Compatible`) |
 | `internal/pack/lint.go` | Offline lint: no external URL in YAML strings or Lua string literals |
+
+### internal/profile: characters across stories
+
+| File | What it does |
+| --- | --- |
+| `internal/profile/check.go` | Which profile may play which world: `Check` (ruleset, version line, migrations, continuations) and `Locked`, with the reasons the lobby shows |
+| `internal/profile/profile.go` | `Service`: the lobby's `Cards` and `Pick` (binding, moving up a version, running the migrations, copying imports) |
 
 ### web: the browser client
 
@@ -156,6 +171,7 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `web/static/lobby.js` | Part: sign-in, the account, the lobby and its world cards, join codes, invites, creating and ending worlds |
 | `web/static/members.js` | Part: a world's members on its card (`GET`/`POST /api/members`), the play as GM / as player buttons |
 | `web/static/password.js` | Part: forgot password, reset with a code or a mailed link (`#reset=`, `#verify=`), changing the password, an email address, reset codes for others, the class code and email at registration |
+| `web/static/profiles.js` | Part: who plays a world on a ruleset, picking or making a character on its card (`cleanProfiles`, `pickProfile`) |
 | `web/static/play.js` | Part: starting and stopping a game, `receive` for every engine message, story lines and scrolling, timers, items |
 | `web/static/dialog.js` | Part: dialogs, multiple choice, typed answers, the input line with its history and keys |
 | `web/static/view.js` | Part: pictures, read aloud, large text and their labels |
@@ -184,6 +200,12 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `content/clockmaker/lib/case_input.lua` | The casebook and the hooks every room shares: items, clicks, typed input |
 | `content/test-pack/scripts/` | The tiny pack the browser tests run: every renderer once |
 | `content/test-pack/lib/visits.lua` | A module to test `require` |
+| `content/ruleset-test/tiny-rules/lib/sheet.lua` | Test ruleset Tiny Rules 1 (docs/rulesets.md): a level in `state.profile` |
+| `content/ruleset-test/tiny-rules-2/lib/sheet.lua` | Tiny Rules 2: the level moved into `stats`, with courage |
+| `content/ruleset-test/tiny-rules-2/migrations/2.lua` | The migration of a Tiny Rules 1 sheet to 2 |
+| `content/ruleset-test/forest-start/scripts/` | Story on Tiny Rules 1: free the fox, export it and complete the story |
+| `content/ruleset-test/dragon-isle/scripts/` | Story that continues Forest Start and imports its fox |
+| `content/ruleset-test/sky-tower/scripts/` | Story on Tiny Rules 2, for moving a profile up a major version |
 
 Pack format: docs/content-format.md; patterns for pack authors: docs/pack-patterns.md.
 
@@ -208,6 +230,7 @@ Pack format: docs/content-format.md; patterns for pack authors: docs/pack-patter
 - **A new setting:** env var in `cmd/talespeak/config.go` or `accounts.go`, passed down through a `Config` or `WithX` option; document it in docs/admin-limits.md or docs/setup-server.md and `deploy/.env.example`.
 - **A database change:** a new migration file plus the `store` interface method and its SQLite implementation.
 - **A pack room or module:** `content/<pack>/rooms/*.yaml`, `scripts/*.lua`, `lib/*.lua`; tests in `internal/game/*_test.go` drive the pack through a `World`.
+- **Rulesets, profiles, continuations:** pack fields in `internal/pack/ruleset.go`, who may play what in `internal/profile/check.go`, the Lua side in `internal/script/profile.go` and `internal/game/profile.go`; design in docs/rulesets.md.
 
 ## Rules that span files
 

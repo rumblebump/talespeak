@@ -91,6 +91,19 @@
                 <button type="button" class="copy" @click="copyCode(card)" x-text="copyLabel(card)">copy</button>
               </p>
               <p class="card-note" x-show="!card.play" x-text="cannotPlay(card)"></p>
+              <p class="card-meta" x-show="hasProfiles(card)" x-text="profileLine(card)"></p>
+              <fieldset class="card-pick" x-show="isPicking(card)">
+                <legend>who plays</legend>
+                <template x-for="o in pickOptions(card)" :key="o.id">
+                  <label class="choice"><input type="radio" :name="pickGroup(card)" :value="o.id" x-model.number="pick.profile" :disabled="!o.ok"> <span x-text="optionText(o)"></span></label>
+                </template>
+                <label class="choice" x-show="canMakeNew(card)"><input type="radio" :name="pickGroup(card)" value="0" x-model.number="pick.profile"> a new character</label>
+                <label x-show="makingNew(card)">name <input x-model="pick.name" autocomplete="off" maxlength="20"></label>
+                <p class="actions">
+                  <button type="button" class="play" :disabled="!canPick(card)" @click="pickProfile(card)">play</button>
+                  <button type="button" @click="cancelPick">cancel</button>
+                </p>
+              </fieldset>
               <p class="actions">
                 <button type="button" class="play" x-show="playsAs(card)" @click="enter(card)">play</button>
                 <button type="button" class="play" x-show="playsAsGM(card)" @click="enter(card)">play as GM</button>

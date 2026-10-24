@@ -66,9 +66,11 @@ type Pack struct {
 	Title   string `yaml:"title"`
 	// Description is what the lobby shows about the pack; optional.
 	Description string `yaml:"description"`
-	// Start is the room new players enter.
-	Start string           `yaml:"start"`
-	Rooms map[string]*Room `yaml:"-"`
+	// Start is the room new players enter; "" for a ruleset pack.
+	Start string `yaml:"start"`
+	// Manifest is kind, ruleset, continues, imports and exports (ruleset.go).
+	Manifest `yaml:",inline"`
+	Rooms    map[string]*Room `yaml:"-"`
 	// Assets are the pack's images by file name, from assets/.
 	Assets map[string]*Asset `yaml:"-"`
 	// Modules are the sources of lib/<name>.lua by name, what a script's
@@ -142,6 +144,7 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 	if len(p.Description) > MaxPackDescriptionBytes || !utf8.ValidString(p.Description) {
 		fail("pack.yaml", "description: at most %d bytes of text", MaxPackDescriptionBytes)
 	}
+	errs = append(errs, checkManifest(p)...)
 
 	files, err := fs.Glob(fsys, "rooms/*.yaml")
 	if err != nil {
@@ -187,7 +190,9 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 			r.Source = src
 		}
 	}
-	if p.Start == "" {
+	if p.IsRuleset() {
+		errs = append(errs, checkRuleset(fsys, p)...)
+	} else if p.Start == "" {
 		fail("pack.yaml", "start is missing")
 	} else if p.Rooms[p.Start] == nil {
 		fail("pack.yaml", "start room %q does not exist", p.Start)

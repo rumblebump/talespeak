@@ -34,16 +34,17 @@ type session struct {
 	envs     map[string]*script.Env // room id -> this player's instance of its script
 	pending  *script.Thread         // the hook waiting in ui.dialog, if any
 	dialogID string
-	dialogs  int           // dialogs shown, for unique ids
-	items    []script.Item // what the player can click now
-	state    script.State  // state.player, shared by the player's rooms
-	dirty    []string      // state.player keys changed since the last save
-	moved    bool          // room changed since the last save
-	replaced bool          // the player connected again elsewhere: this session ended
-	changed  []string      // world keys others changed that on_change has not seen yet
-	next     string        // the room room.go moves the player to when the hook ends
-	visited  []string      // rooms entered, the latest last
-	moves    int           // room.go moves done for the current message
+	dialogs  int             // dialogs shown, for unique ids
+	items    []script.Item   // what the player can click now
+	state    script.State    // state.player, shared by the player's rooms
+	profile  *sessionProfile // the profile the player plays (profile.go); nil without a ruleset
+	dirty    []string        // state.player keys changed since the last save
+	moved    bool            // room changed since the last save
+	replaced bool            // the player connected again elsewhere: this session ended
+	changed  []string        // world keys others changed that on_change has not seen yet
+	next     string          // the room room.go moves the player to when the hook ends
+	visited  []string        // rooms entered, the latest last
+	moves    int             // room.go moves done for the current message
 
 	timers      map[string]*timer         // the player's timers, by name
 	dialogTimer func() bool               // stops the open question's timeout, if it has one
@@ -139,6 +140,7 @@ func (s *session) end() {
 	s.out, s.queue, s.queueBytes = nil, nil, 0 // a room timer may keep s until it runs out
 	_ = s.reserve(-s.state.Size())
 	s.state = script.State{}
+	s.releaseProfile()
 }
 
 // env returns the player's instance of room's script, starting it on first

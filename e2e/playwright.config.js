@@ -8,6 +8,8 @@ export const DEMO_URL = "http://127.0.0.1:18766";
 export const PARTY_URL = "http://127.0.0.1:18767";
 // The test pack as an invite-only world, with an admin account "teacher".
 export const INVITE_URL = "http://127.0.0.1:18768";
+// The ruleset test packs (content/ruleset-test): characters, continuations.
+export const RULESET_URL = "http://127.0.0.1:18779";
 
 // Each server starts from a fresh data directory under e2e/.data/, emptied
 // by the server's own start command (this file is also loaded by every
@@ -57,5 +59,6 @@ export default defineConfig({
       { TALESPEAK_WORLD_ACCESS: "invite", TALESPEAK_CREATE_WORLDS: "gm" },
       "echo 'admin password' | ../bin/talespeak account add -admin teacher && ",
     ),
+    server(RULESET_URL, "rulesets", "", { TALESPEAK_PACKS: "../content/ruleset-test" }),
   ],
 });

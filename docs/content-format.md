@@ -10,6 +10,8 @@ lib/<name>.lua          # optional modules every room script can require
 assets/<name>.png       # optional images: .png, .jpg, .jpeg, .gif, .webp
 ```
 
+A ruleset pack (`kind: ruleset`) has `pack.yaml`, `lib/` and `migrations/<major>.lua` only: [rulesets.md](rulesets.md).
+
 ## pack.yaml
 
 ```yaml
@@ -20,6 +22,8 @@ description: >-       # optional: what the lobby shows about the pack, at most 3
   Wake up in a cell and talk, trick or puzzle your way out.
 start: cell           # the room new players enter
 ```
+
+A story on a ruleset also names it, the stories it continues and what carries over: `kind`, `ruleset`, `continues`, `imports` and `exports`, in [rulesets.md](rulesets.md#packyaml). A pack without them works as before, with no characters across stories.
 
 ## rooms/*.yaml
 
@@ -46,7 +50,7 @@ items:                # optional, what the player can click on entering
 
 ## lib/
 
-Lua modules the room scripts share, so a helper is written once instead of copied into every room. `require("rooms")` in any script returns what `lib/rooms.lua` returns.
+Lua modules the room scripts share, so a helper is written once instead of copied into every room. `require("rooms")` in any script returns what `lib/rooms.lua` returns. A story on a ruleset can also require the ruleset pack's modules; its own module of the same name wins.
 
 | Rule | |
 | --- | --- |

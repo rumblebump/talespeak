@@ -104,6 +104,10 @@ type Config struct {
 	// players are told when none installed can (hub.Hub.Pack). Nil looks
 	// w's pack up in Packs by id.
 	Runs func(w store.World) (Pack, error)
+	// Profiles fills in the cards of worlds on a ruleset and picks a
+	// profile for one (T-0010, profiles.go); nil when no pack has a
+	// ruleset.
+	Profiles Profiles
 	// Live tells how many players are online in a world and ends a world
 	// that is loaded; nil when no world is ever loaded (tests).
 	Live Live
@@ -143,6 +147,7 @@ type Service struct {
 	forgot   *limiter // forgotten passwords, per client address
 	mailAcc  *limiter // mails, per account
 	mailTo   *limiter // mails, per recipient address
+	picks    *limiter // profiles picked and made, per account
 	packs    map[string]Pack
 }
 
@@ -222,6 +227,7 @@ func New(cfg Config) *Service {
 		// however many accounts ask for it.
 		mailAcc: newLimiter(3, 20*time.Minute, now),
 		mailTo:  newLimiter(3, 20*time.Minute, now),
+		picks:   newLimiter(20, 3*time.Second, now),
 		packs:   packs,
 	}
 }
@@ -250,5 +256,6 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("POST /api/forgot", s.post(s.forgotPassword))
 	mux.HandleFunc("POST /api/email", s.post(s.setEmail))
 	mux.HandleFunc("POST /api/verify", s.post(s.verifyEmail))
+	mux.HandleFunc("POST /api/profiles", s.post(s.pickProfile))
 	return mux
 }

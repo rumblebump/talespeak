@@ -360,7 +360,7 @@ func (s *Store) Character(ctx context.Context, world, account int64, name string
 	var c store.Character
 	err := s.db.QueryRowContext(ctx, `INSERT INTO characters (world_id, account_id, name) VALUES (?, ?, ?)
 		ON CONFLICT (world_id, account_id) DO UPDATE SET world_id = world_id
-		RETURNING id, name, room`, world, account, name).Scan(&c.ID, &c.Name, &c.Room)
+		RETURNING id, name, room, coalesce(profile_id, 0)`, world, account, name).Scan(&c.ID, &c.Name, &c.Room, &c.Profile)
 	return c, err
 }
 
@@ -414,6 +414,9 @@ func (s *Store) Save(ctx context.Context, sv store.Save) error {
 		}
 	}
 	if err := putTimers(ctx, tx, sv.World, sv.Timers); err != nil {
+		return err
+	}
+	if err := putProfile(ctx, tx, sv); err != nil {
 		return err
 	}
 	return tx.Commit()

@@ -89,6 +89,9 @@ type World struct {
 	log  *slog.Logger
 	pack *pack.Pack
 
+	ruleset  *pack.Pack     // the ruleset the story runs on (profile.go); nil without one
+	profiles store.Profiles // where the players' profiles are, with a ruleset
+
 	mu       sync.Mutex // guards rt, budgets, sessions, every session's fields and closed, and every Lua call: gopher-lua states are not goroutine safe
 	rt       *script.Runtime
 	scripts  map[string]*script.Script // room id -> its compiled script
@@ -167,8 +170,10 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Opti
 			return nil, fmt.Errorf("world state: %w", err)
 		}
 	}
-	for _, name := range slices.Sorted(maps.Keys(p.Modules)) {
-		sc, err := w.rt.Compile("lib/"+name+".lua", p.Modules[name])
+	w.rt.SetPack(w.packInfo())
+	modules := w.modules()
+	for _, name := range slices.Sorted(maps.Keys(modules)) {
+		sc, err := w.rt.Compile("lib/"+name+".lua", modules[name])
 		if err == nil {
 			err = w.rt.AddModule(name, sc)
 		}

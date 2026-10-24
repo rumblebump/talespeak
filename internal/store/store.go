@@ -91,6 +91,9 @@ type Character struct {
 	ID   int64 // never used twice, also after a restart
 	Name string
 	Room string // where the player was last; "" before the first room
+	// Profile is the profile the character plays (T-0010); 0 in a world
+	// whose pack has no ruleset.
+	Profile int64
 }
 
 // Member is one account's membership of a world.
@@ -129,11 +132,21 @@ type Save struct {
 	// Timers started, changed or stopped, of any character of the world
 	// and of its rooms.
 	Timers []Timer
+
+	// Profile is the character's profile (T-0010); 0 without one. Its
+	// ProfileState and Progress are written only while the profile is
+	// still at generation ProfileGen: a migration or an undo since the
+	// world loaded it wins.
+	Profile      int64
+	ProfileGen   int64
+	ProfileState []Change
+	Progress     *ProgressSave
 }
 
 // Empty reports whether s writes nothing.
 func (s Save) Empty() bool {
-	return len(s.WorldState) == 0 && len(s.PlayerState) == 0 && s.Room == "" && len(s.Timers) == 0
+	return len(s.WorldState) == 0 && len(s.PlayerState) == 0 && s.Room == "" && len(s.Timers) == 0 &&
+		len(s.ProfileState) == 0 && s.Progress == nil
 }
 
 // Timer kinds.
@@ -172,6 +185,7 @@ type Store interface {
 	Emails
 	Tokens
 	Outbox
+	Profiles
 
 	// Close releases the backend's resources.
 	Close() error

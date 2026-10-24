@@ -147,7 +147,9 @@ func (ps packs) main() *pack.Pack { return ps.cat.Newest(ps.mainID) }
 func (ps packs) lobby() []account.Pack {
 	var l []account.Pack
 	for _, id := range ps.ids() {
-		l = append(l, lobbyPack(ps.cat.Newest(id)))
+		if p := ps.cat.Newest(id); !p.IsRuleset() { // nobody plays a ruleset as a world
+			l = append(l, lobbyPack(p))
+		}
 	}
 	return l
 }
@@ -262,6 +264,12 @@ func loadPacks(getenv func(string) string, lim pack.Limits) (packs, error) {
 	}
 	if ps.cat, err = pack.NewCatalog(all...); err != nil {
 		return packs{}, fmt.Errorf("TALESPEAK_PACKS: %w", err)
+	}
+	if err := ps.cat.Check(); err != nil {
+		return packs{}, fmt.Errorf("TALESPEAK_PACKS: %w", err)
+	}
+	if ps.main().IsRuleset() {
+		return packs{}, fmt.Errorf("TALESPEAK_PACK: %s is a ruleset pack; the main world plays a story pack", ps.main().Name())
 	}
 	for _, id := range ps.ids() {
 		ps.all = append(ps.all, ps.cat.Versions(id)...)

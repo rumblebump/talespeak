@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/rumblebump/talespeak/internal/clientip"
+	"github.com/rumblebump/talespeak/internal/profile"
 	"github.com/rumblebump/talespeak/internal/store"
 )
 
@@ -104,6 +105,9 @@ type Card struct {
 	Play        bool      `json:"play"`   // the account may play it now
 	Invite      bool      `json:"invite"` // the account may make join codes
 	Finish      bool      `json:"finish"` // the account may end it
+	// Profiles, for a world on a ruleset, are the account's characters
+	// that may play it (profiles.go).
+	Profiles *profile.Card `json:"profiles,omitempty"`
 }
 
 // Lobby is what GET /api/worlds answers.
@@ -155,6 +159,9 @@ func (s *Service) lobbyPage(ctx context.Context, a *store.Account, page int) (Lo
 			continue // edu worlds are for their members only, whatever they were before
 		}
 		l.Worlds = append(l.Worlds, s.card(a, wi))
+	}
+	if err := s.addProfiles(ctx, a, l.Worlds, list); err != nil {
+		return Lobby{}, err
 	}
 	create, err := s.mayCreate(ctx, a)
 	if err != nil {
