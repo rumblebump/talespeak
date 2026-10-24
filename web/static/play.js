@@ -43,6 +43,7 @@ export function play(speaker) {
       }
       conn = connect({
         world: this.world,
+        asPlayer: this.asPlayer,
         onOpen: () => this.setStatus("online", "connected"),
         onMessage: (msg) => this.receive(msg),
         onClose: (retryMs) => {

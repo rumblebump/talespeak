@@ -12,6 +12,7 @@
 import Alpine from "/vendor/alpine-csp.js";
 import { dialog } from "/dialog.js";
 import { lobby } from "/lobby.js";
+import { members } from "/members.js";
 import { loadSetting } from "/clean.js";
 import { play } from "/play.js";
 import { createSpeaker } from "/speech.js";
@@ -28,6 +29,12 @@ function game() {
     more: false, // the lobby has more worlds than it shows
     packs: [], // what the account may create worlds from
     world: 0, // the world played, or about to be
+    asPlayer: false, // a game master plays the world as a player (GM mode off)
+    membersOf: 0, // the world whose members the lobby shows, 0 for none
+    members: [], // its members: { name, role, change }
+    membersMakeGM: false, // the account may make its members game masters
+    membersAdd: false, // the account may add accounts by name (admins)
+    addMember: { name: "" },
     codes: {}, // world id -> the last join code made here: { text, code, copied }
     newWorld: { pack: "", title: "", visibility: "public" },
     form: { name: "", password: "", code: "" },
@@ -71,7 +78,7 @@ function game() {
   };
   // The parts in their own files add their methods and getters; getters
   // must be copied as getters, so not with Object.assign.
-  for (const part of [lobby(), play(speaker), dialog(speaker), view(speaker)]) {
+  for (const part of [lobby(), members(), play(speaker), dialog(speaker), view(speaker)]) {
     Object.defineProperties(component, Object.getOwnPropertyDescriptors(part));
   }
   return component;

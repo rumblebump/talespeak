@@ -12,6 +12,7 @@ Room scripts and, later, rule packs run in [gopher-lua](https://github.com/yuin/
 | `math` | All of it |
 | `require(name)` | Returns what the pack's `lib/<name>.lua` returns (true when it returns nothing). The module runs the first time a room script's instance asks for it, with that instance's globals and within the running call's time and memory; later calls return the same value. Every room's instance, and every player, runs it separately, so a module keeps no state between rooms (that is `state.player`). Usually called at the top of a script: `local rooms = require("rooms")`. A module required there also runs at world start, for no player, so its top level must not call `say`, `ui` or `state.player` (put those in its functions). A module shares the room script's globals, so the globals it sets (and any hook it defines) are the room script's too. A missing module, an error in the module, or a module that requires itself (directly or through others) is a script error. A failed `require` keeps no result and runs the module again next time, but the globals it set before the error stay |
 | `say(text [, {speak = true, show = false, from = "Whisp"}])` | Sends a line to the player (at most 4000 bytes). `speak = true` reads it aloud even when the player has not turned read aloud on; `show = false` (needs `speak`) only reads it aloud, for listening exercises, and shows it when the device has no local voice. The text still reaches the player's browser (speech runs there), so `show = false` is not for secrets such as the answer to a graded question. `from` names who says the line, such as the guide: 1 to 40 bytes on one line. The client shows the name with the line, styled apart from the story, and reads it in another local voice |
+| `perm.define(name [, {gm = true, player = false}])`, `player:can(name)` | Permissions; see **Permissions** below |
 | `room.describe()` | Sends the current room's title, description and clickable items |
 | `room.players()` | The players in the caller's room, the caller included, in the order they came in: `{{id = "p1", name = "traveler", gm = false}, ...}` (`gm` as `player.gm`). A player who comes back into a room is last again. A player who is leaving the world (in `on_leave`) is no longer listed |
 | `world.players()` | Every player online in the world, in all rooms, the caller included, in the order they joined: `{{id = "p1", name = "traveler", room = "cell", gm = false}, ...}`. A player who connects again is last. A player who is leaving the world (in `on_leave`) is no longer listed. It lists only who is connected now, so it is right after a restart, where `on_leave` did not run: count the party with it rather than with `on_enter` and `on_leave` in `state.world`. Show other players' rooms, or whether a GM is about, only when the game needs it: in a class, that is where everyone is |
@@ -145,9 +146,28 @@ The top level of a script runs once when the world starts, for setup. `say`, `ro
 
 The name `__concat` is reserved: every `..` in a script is compiled into a call to it.
 
+## Permissions
+
+A pack names what a role may do with `perm.define(name, roles)`, usually at a script's or module's top level, and asks with `player:can(name)` in hooks. `name` is 1 to 40 of `a-z`, `0-9`, `_`, `.` and `-`; `roles` is `{gm = true, player = false}`, both optional, and without it only game masters have it. "gm" means a game master in GM mode ([gm-tools.md](gm-tools.md#gm-mode)); every other player is "player".
+
+```lua
+perm.define("cast.forbidden_spell")                        -- game masters only
+perm.define("open.vault", { gm = true, player = true })   -- everyone
+
+function on_input(player, text)
+  if text == "cast" and not player:can("cast.forbidden_spell") then
+    say("The words slip from your mind.")
+  end
+end
+```
+
+Every player table has `can`: the hook's `player` and the entries of `room.players()` and `world.players()`. The role belongs to the function, not to the table's `gm` field, so a script that sets `player.gm = true` changes nothing. Asking for a name nobody defined is a script error (it catches typos), and so is defining a name again with other roles (the same roles again are fine: every player runs the top level of their own instance). A script instance, its room script with the modules it requires, defines at most 50. Who has a pack's permission beyond the two roles (one player blessed by a spell) is the pack's own rule, kept in `state.player`.
+
+The engine's permissions are `chat.view_all`, `gm.tools`, `item.spawn`, `player.mute`, `timer.edit` and `world.pause`: `can` is true for them only in GM mode, and a pack cannot define them, so no pack gives a player what the engine keeps for game masters (the edu floor).
+
 ## Commands
 
-A room offers slash commands with a global table `commands`: each key is a command's name (1 to 20 of `a-z`, `0-9`, `_`, `-`), each value a table with an optional `help` (one line of at most 100 bytes, shown by `/help`) and `gm = true` for a command only the world's game masters may use. The engine lists them in `/help`, refuses a `gm` command to everyone else as if it did not exist, writes every use of one to the audit log, and shows the other players in the room that the game master used it. A typed `/name args` then runs `on_command(player, name, args)`. At most 20 commands count, and the engine looks at no more than 80 entries of the table. The engine's own commands (`help`, `players`, `rooms`, `go`, `say`, `reset`, `audit`) cannot be replaced.
+A room offers slash commands with a global table `commands`: each key is a command's name (1 to 20 of `a-z`, `0-9`, `_`, `-`), each value a table with an optional `help` (one line of at most 100 bytes, shown by `/help`) and `gm = true` for a command only the world's game masters may use. The engine lists them in `/help`, refuses a `gm` command to everyone else as if it did not exist, writes every use of one to the audit log, and shows the other players in the room that the game master used it. A typed `/name args` then runs `on_command(player, name, args)`. At most 20 commands count, and the engine looks at no more than 80 entries of the table. The engine's own commands (`help`, `gm`, `players`, `rooms`, `go`, `say`, `reset`, `audit`) cannot be replaced. A `gm = true` command needs GM mode on.
 
 ```lua
 local round = require("round")

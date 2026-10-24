@@ -55,7 +55,7 @@ browser (web/static)  --HTTP-->  internal/server  --/api-->  internal/account  -
 | `internal/account/join.go` | `POST /api/join` with a code, `POST /api/invites` for admins and GMs |
 | `internal/account/worlds.go` | The lobby (`GET /api/worlds`, cards), who may play, see, invite, finish and create worlds, creating and ending worlds |
 | `internal/account/names.go` | `ValidName`, `ValidPassword`, `CreateInvite` |
-| `internal/account/members.go` | `POST /api/members`: admins change an account's role in a world or take it out; live players reconnect with the new role |
+| `internal/account/members.go` | `GET` and `POST /api/members`: a world's members, who may change whose role (admins, GMs for their players, the edu floor), live players reconnect with the new role |
 | `internal/account/limit.go` | Token-bucket `limiter` per key for sign-in and API rates |
 
 ### internal/store: persistence
@@ -65,7 +65,8 @@ browser (web/static)  --HTTP-->  internal/server  --/api-->  internal/account  -
 | `internal/store/store.go` | The interfaces game code uses (`Store`, `Accounts`, `Worlds`, `Packs`) and their records; `ErrNotFound`, `ErrNameTaken` |
 | `internal/store/sqlite/sqlite.go` | SQLite backend (pure Go): `Open`, WAL, migrations from `internal/store/sqlite/migrations/`, settings |
 | `internal/store/sqlite/accounts.go` | Accounts, passwords, roles, login tokens |
-| `internal/store/sqlite/worlds.go` | Worlds, pack versions, members and roles, invites, characters, saved `state.player`/`state.world` (`Save`), the GM audit log |
+| `internal/store/sqlite/worlds.go` | Worlds, pack versions, invites, characters, saved `state.player`/`state.world` (`Save`), the GM audit log |
+| `internal/store/sqlite/members.go` | World members and their roles (`world_members`): `Member`, `AddMember`, `RemoveMember`, `Members` |
 | `internal/store/sqlite/timers.go` | Timers that last (T-0012): player timers and question deadlines (`player_timers`), room timers (`room_timers`), written by `Save` |
 
 A schema change is a new numbered file in `internal/store/sqlite/migrations/`; never edit an applied one.
@@ -92,7 +93,7 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `internal/game/input.go` | Entering rooms (`enterLocked`, `place`), answering questions, typed lines and clicks, running hooks (`run`, `after`) and the error text players read |
 | `internal/game/host.go` | The session as `script.Host`: `flush`, `Say`, `DescribeRoom`, `Items`, `Go`, `Image`, state access |
 | `internal/game/commands.go` | Slash commands: a line starting with `/` never reaches `on_input`; dispatch to the engine's commands or the room script's (`on_command`), notices a pack cannot fake, the audit log, the broadcast rate limit, `/help` |
-| `internal/game/gmtools.go` | The GM commands `/players`, `/rooms`, `/go`, `/say`, `/reset` (`resetRoom`, `restart`) and `/audit`; `RoleChanged` |
+| `internal/game/gmtools.go` | The GM commands `/players`, `/rooms`, `/go`, `/say`, `/reset` (`resetRoom`, `restart`) and `/audit`; `RoleChanged`; `/gm` (GM mode, `session.member` vs `session.gm`) |
 | `internal/game/party.go` | What a room's players share: unique names, `room.players`/`world.players`, leaving (`on_leave`), room timers (one that runs out in an empty room waits, `due`, for the next player) |
 | `internal/game/push.go` | Output nobody asked for: the push queue (`ws.Pusher`), player timers, question timeouts |
 | `internal/game/lasting.go` | Timers that last with a store: noting changes for the next save, restoring room timers at load and a player's at join, question deadlines by `questionName` |
@@ -113,6 +114,7 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `internal/script/state.go` | `State`: `state.player` and `state.world` get/set/update, encoding and limits |
 | `internal/script/timer.go` | `timer.*`, question timeouts, `room.players`, `world.players` |
 | `internal/script/commands.go` | A room script's `commands` table and `on_command` hook (`Env.Commands`, `ValidCommand`) |
+| `internal/script/perm.go` | `perm.define` and `player:can`: pack permissions per instance, the engine's permissions only in GM mode |
 | `internal/script/require.go` | `require` and pack modules (`AddModule`) |
 | `internal/script/rewrite.go` | Compile-time rewrite of `..` into the size-checked `__concat` |
 | `internal/script/memory.go` | The allocation watcher, the walk that measures what an instance keeps, `Reserve` and `Kept` |
@@ -136,6 +138,7 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `web/web.go` | Embeds `web/static/` into the binary |
 | `web/static/app.js` | The `game` Alpine component: its state and `init`; merges the parts below with `Object.defineProperties` (keeps getters) |
 | `web/static/lobby.js` | Part: sign-in, the account, the lobby and its world cards, join codes, invites, creating and ending worlds |
+| `web/static/members.js` | Part: a world's members on its card (`GET`/`POST /api/members`), the play as GM / as player buttons |
 | `web/static/play.js` | Part: starting and stopping a game, `receive` for every engine message, story lines and scrolling, timers, items |
 | `web/static/dialog.js` | Part: dialogs, multiple choice, typed answers, the input line with its history and keys |
 | `web/static/view.js` | Part: pictures, read aloud, large text and their labels |

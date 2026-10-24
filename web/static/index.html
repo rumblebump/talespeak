@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
   <meta name="color-scheme" content="dark light">
   <title>Talespeak</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/app.js"></script>
 </head>
@@ -66,10 +67,31 @@
               </p>
               <p class="card-note" x-show="!card.play" x-text="cannotPlay(card)"></p>
               <p class="actions">
-                <button type="button" class="play" x-show="card.play" @click="enter(card)">play</button>
+                <button type="button" class="play" x-show="playsAs(card)" @click="enter(card)">play</button>
+                <button type="button" class="play" x-show="playsAsGM(card)" @click="enter(card)">play as GM</button>
+                <button type="button" x-show="playsAsGM(card)" @click="enterAsPlayer(card)">play as player</button>
                 <button type="button" x-show="card.invite" :disabled="busy" @click="makeCode(card)">join code</button>
+                <button type="button" x-show="card.invite" :disabled="busy" @click="toggleMembers(card)" :aria-expanded="membersShown(card)">members</button>
                 <button type="button" x-show="card.finish" :disabled="busy" @click="endWorld(card)">end world</button>
               </p>
+              <div class="members" x-show="membersShown(card)">
+                <h4>Members</h4>
+                <p class="muted" x-show="noMembers">Nobody yet.</p>
+                <ul>
+                  <template x-for="m in members" :key="m.name">
+                    <li>
+                      <span x-text="m.name"></span> <span class="badge" x-text="memberRole(m)"></span>
+                      <button type="button" x-show="mayPromote(m)" :disabled="busy" @click="promote(m)">make GM</button>
+                      <button type="button" x-show="mayDemote(m)" :disabled="busy" @click="demote(m)">make player</button>
+                      <button type="button" x-show="m.change" :disabled="busy" @click="removeMember(m)">remove</button>
+                    </li>
+                  </template>
+                </ul>
+                <form x-show="membersAdd" @submit.prevent="addByName" aria-label="Add a member">
+                  <label>add an account <input x-model="addMember.name" autocomplete="off" maxlength="20" required></label>
+                  <button type="submit" :disabled="busy">add as player</button>
+                </form>
+              </div>
             </article>
           </li>
         </template>

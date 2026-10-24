@@ -61,9 +61,10 @@ export function status(page) {
 }
 
 // play picks a world in the lobby (the main world by default) and waits
-// until the engine has welcomed the player.
+// until the engine has welcomed the player; a game master of it plays as
+// GM.
 export async function play(page, title) {
-  await card(page, title).getByRole("button", { name: "play" }).click();
+  await card(page, title).getByRole("button", { name: /^play( as GM)?$/ }).click();
   await expect(status(page)).toContainText("connected · engine");
 }
 

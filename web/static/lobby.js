@@ -117,13 +117,20 @@ export function lobby() {
       this.send("/api/logout", {});
     },
 
-    // enter plays the world of card.
-    enter(card) {
+    // enter plays the world of card; a game master of it plays as a
+    // player with asPlayer (GM mode off until /gm).
+    enter(card, asPlayer) {
       this.stopGame();
+      this.asPlayer = asPlayer === true;
+      this.closeMembers();
       this.world = card.id;
       setHash(card.id);
       this.view = "play";
       this.startGame();
+    },
+
+    enterAsPlayer(card) {
+      this.enter(card, true);
     },
 
     // toLobby leaves the world for the lobby.
