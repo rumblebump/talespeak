@@ -59,6 +59,14 @@ var coreCommands = []coreCommand{
 	{name: "say", usage: "/say TEXT", help: "tell every player something, as the game master", gm: true},
 	{name: "reset", usage: "/reset room [ROOM]", help: "start a room over for everyone in it", gm: true},
 	{name: "audit", usage: "/audit", help: "what game masters did here last", gm: true},
+	// The world's time (T-0012, gmtime.go and timertools.go).
+	{name: "pause", usage: "/pause", help: "stop the game for everyone: timers and questions wait, players wait for /resume", gm: true},
+	{name: "resume", usage: "/resume", help: "go on after /pause", gm: true},
+	{name: "timers", usage: "/timers", help: "the timers that run here, numbered", gm: true},
+	{name: "extend", usage: "/extend N TIME", help: "give timer N of /timers more time, such as /extend 3 5m", gm: true},
+	{name: "cancel", usage: "/cancel N", help: "stop timer N of /timers", gm: true},
+	{name: "extratime", usage: "/extratime [NAME FACTOR]", help: "give a player 1 to 3 times as long for questions and shown timers", gm: true},
+	{name: "mintime", usage: "/mintime [TIME|off]", help: "the shortest time a question or shown timer gives here", gm: true},
 }
 
 func findCore(name string) *coreCommand {
@@ -127,6 +135,9 @@ func (s *session) command(text string) []ws.Message {
 	if s.pending != nil {
 		return []ws.Message{{Type: "error", Message: "Answer the open question first."}}
 	}
+	if s.held() {
+		return []ws.Message{notice(pausedText)}
+	}
 	if cmd.GM {
 		if s.slowDown() {
 			return []ws.Message{notice(slowDownMessage)}
@@ -159,6 +170,8 @@ func (s *session) runCore(name, args string) []ws.Message {
 		return s.resetCommand(args)
 	case "audit":
 		return s.auditCommand()
+	case "pause", "resume", "timers", "extend", "cancel", "extratime", "mintime":
+		return s.timeCommand(name, args)
 	default:
 		return unknownCommand(name)
 	}

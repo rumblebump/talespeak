@@ -77,7 +77,7 @@ func (s *session) noteTimer(name string, t *timer) {
 	}
 	st := store.Timer{Kind: store.TimerPlayer, Character: s.char, Name: name, Delete: t == nil}
 	if t != nil {
-		st.Deadline, st.Show, st.ReadOnly = t.deadline, t.show, t.readOnly
+		st.Deadline, st.Show, st.ReadOnly, st.Game = t.deadline, t.show, t.readOnly, t.game
 	}
 	s.w.noteTimer(st)
 }
@@ -87,7 +87,7 @@ func (s *session) noteTimer(name string, t *timer) {
 func (w *World) noteRoomTimer(room, name string, t *roomTimer) {
 	st := store.Timer{Kind: store.TimerRoom, Room: room, Name: name, Delete: t == nil}
 	if t != nil {
-		st.Character, st.Deadline, st.Show, st.ReadOnly = t.byChar, t.deadline, t.show, t.readOnly
+		st.Character, st.Deadline, st.Show, st.ReadOnly, st.Game = t.byChar, t.deadline, t.show, t.readOnly, t.game
 	}
 	w.noteTimer(st)
 }
@@ -137,7 +137,6 @@ func (w *World) validTimer(t store.Timer) bool {
 // restoreRoomTimers starts the room timers the world had, from the store,
 // as the world loads. The caller holds w.mu.
 func (w *World) restoreRoomTimers(list []store.Timer) {
-	now := w.now()
 	for _, st := range list {
 		room, name := st.Room, st.Name
 		if st.Kind != store.TimerRoom || !w.validTimer(st) || len(w.roomTimers[room]) >= MaxRoomTimers || w.roomTimers[room][name] != nil {
@@ -145,12 +144,14 @@ func (w *World) restoreRoomTimers(list []store.Timer) {
 			w.noteRoomTimer(room, name, nil)
 			continue
 		}
-		t := &roomTimer{timer: timer{deadline: lastingDeadline(st.Deadline, now), show: st.Show, readOnly: st.ReadOnly}, byChar: st.Character}
+		t := &roomTimer{timer: timer{deadline: lastingDeadline(st.Deadline, w.clockNow(st.Game)), show: st.Show, readOnly: st.ReadOnly, game: st.Game},
+			byChar: st.Character}
 		if w.roomTimers[room] == nil {
 			w.roomTimers[room] = map[string]*roomTimer{}
 		}
 		w.roomTimers[room][name] = t
-		t.stop = w.after(max(0, t.deadline.Sub(now)), func() { w.fireRoom(room, name, t) })
+		t.fire = func() { w.fireRoom(room, name, t) }
+		w.arm(&t.timer)
 	}
 }
 
@@ -159,10 +160,10 @@ func (w *World) restoreRoomTimers(list []store.Timer) {
 // timers' countdowns go into their first output. The caller holds w.mu.
 func (s *session) restoreTimers(list []store.Timer) {
 	w := s.w
-	now := w.now()
+	now := w.clockNow(false)
 	for _, st := range list {
 		switch {
-		case st.Kind == store.TimerQuestion && validQuestion(st.Name) && w.pack.Rooms[st.Room] != nil && len(s.questions) < maxQuestions &&
+		case st.Kind == store.TimerQuestion && !st.Game && validQuestion(st.Name) && w.pack.Rooms[st.Room] != nil && len(s.questions) < maxQuestions &&
 			st.Deadline.After(now.Add(-questionGrace)):
 			if s.questions == nil {
 				s.questions = map[questionKey]time.Time{}
@@ -170,14 +171,16 @@ func (s *session) restoreTimers(list []store.Timer) {
 			s.questions[questionKey{st.Room, st.Name}] = lastingDeadline(st.Deadline, now)
 		case st.Kind == store.TimerPlayer && w.validTimer(st) && len(s.timers) < script.MaxTimers && s.timers[st.Name] == nil:
 			name := st.Name
-			t := &timer{deadline: lastingDeadline(st.Deadline, now), show: st.Show, readOnly: st.ReadOnly}
+			at := w.clockNow(st.Game)
+			t := &timer{deadline: lastingDeadline(st.Deadline, at), show: st.Show, readOnly: st.ReadOnly, game: st.Game}
 			if s.timers == nil {
 				s.timers = map[string]*timer{}
 			}
 			s.timers[name] = t
-			t.stop = w.after(max(0, t.deadline.Sub(now)), func() { s.fire(name, t) })
+			t.fire = func() { s.fire(name, t) }
+			w.arm(t)
 			if t.show != "" {
-				s.out = append(s.out, ws.Message{Type: "timer", ID: name, Title: t.show, Ms: max(t.deadline.Sub(now).Milliseconds(), 1)})
+				s.out = append(s.out, ws.Message{Type: "timer", ID: name, Title: t.show, Ms: max(t.deadline.Sub(at).Milliseconds(), 1)})
 			}
 		default:
 			w.log.Warn("dropping a stored timer", "world", w.worldID, "character", s.char, "kind", st.Kind, "name", st.Name)
@@ -188,12 +191,12 @@ func (s *session) restoreTimers(list []store.Timer) {
 
 // wakeRoom fires the timers of room that ran out while nobody was there,
 // now that a player came in: after their on_enter, since fireRoom waits
-// for w.mu. The caller holds w.mu.
+// for w.mu; in a paused world, once it runs again. The caller holds w.mu.
 func (w *World) wakeRoom(room string) {
 	for _, name := range slices.Sorted(maps.Keys(w.roomTimers[room])) {
 		if t := w.roomTimers[room][name]; t.due {
 			t.due = false
-			t.stop = w.after(0, func() { w.fireRoom(room, name, t) })
+			w.arm(&t.timer)
 		}
 	}
 }
@@ -243,24 +246,26 @@ func validQuestion(name string) bool {
 }
 
 // questionTimeout is how long the player has to answer d, the question
-// just asked: its timeout, or with a store at most the time left of the
-// same question cut off before. The caller holds w.mu.
+// just asked: its timeout with the player's extra time and the world's
+// /mintime, or with a store at most the time left of the same question
+// cut off before. The caller holds w.mu.
 func (s *session) questionTimeout(d script.Dialog) time.Duration {
+	timeout := s.w.shownTime(d.Timeout, s.extra)
 	if s.char == 0 {
-		return d.Timeout
+		return timeout
 	}
-	now := s.w.now()
+	now := s.w.clockNow(false)
 	k := questionKey{s.room, questionName(d)}
 	at, ok := s.questions[k]
-	if !ok || at.After(now.Add(d.Timeout)) {
-		at = now.Add(d.Timeout)
+	if !ok || at.After(now.Add(timeout)) {
+		at = now.Add(timeout)
 	}
 	if !ok && len(s.questions) >= maxQuestions {
 		first := slices.MinFunc(slices.Collect(maps.Keys(s.questions)), func(a, b questionKey) int {
 			return cmp.Or(s.questions[a].Compare(s.questions[b]), cmp.Compare(a.room, b.room), cmp.Compare(a.name, b.name))
 		})
 		if s.questions[first].After(now) {
-			return d.Timeout // every kept deadline still runs: this one is not kept
+			return timeout // every kept deadline still runs: this one is not kept
 		}
 		s.dropQuestion(first)
 	}

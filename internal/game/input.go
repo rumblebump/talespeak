@@ -120,6 +120,9 @@ func (s *session) choose(m ws.Message) []ws.Message {
 	if s.pending.Dialog.Ask {
 		return []ws.Message{{Type: "error", Message: "this question wants a typed answer"}}
 	}
+	if s.held() {
+		return s.refused(pausedText)
+	}
 	choices := m.Choices
 	if !s.pending.Dialog.Multiple {
 		choices = []int{m.Option}
@@ -137,6 +140,9 @@ func (s *session) choose(m ws.Message) []ws.Message {
 func (s *session) answer(m ws.Message) []ws.Message {
 	if s.pending == nil || m.ID != s.dialogID || !s.pending.Dialog.Ask {
 		return []ws.Message{{Type: "error", Message: "no such question"}}
+	}
+	if s.held() {
+		return s.refused(pausedText)
 	}
 	if len(m.Text) > MaxInputBytes {
 		return s.refused("That is too long: at most " + strconv.Itoa(MaxInputBytes) + " bytes.")
@@ -199,6 +205,9 @@ func (s *session) input(m ws.Message) []ws.Message {
 	if isCommand(text) {
 		return s.command(text)
 	}
+	if s.held() {
+		return []ws.Message{notice(pausedText)}
+	}
 	return s.run("on_input", text)
 }
 
@@ -219,6 +228,9 @@ func cleanInput(text string) string {
 func (s *session) click(m ws.Message) []ws.Message {
 	for _, it := range s.items {
 		if it.ID == m.Item {
+			if s.held() {
+				return []ws.Message{notice(pausedText)}
+			}
 			return s.run("on_click", it.ID)
 		}
 	}

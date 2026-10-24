@@ -138,6 +138,15 @@ type World struct {
 	auditLog   []store.AuditEntry // the latest actions without an audit store, the oldest first
 
 	broadcasts map[string]*budget // game master -> commands that reach other players they may send now
+
+	// The world's time (clock.go, T-0012).
+	pausedAt   time.Time     // when a game master paused the world; zero while it runs
+	pausedFor  time.Duration // how long it was paused before: the world clock is this far behind the wall clock
+	gameTime   time.Duration // the game time counted until gameSince
+	gameSince  time.Time     // when the game clock last started
+	gameRuns   bool          // the game clock runs: the world is not paused and a player is online
+	minTime    time.Duration // the shortest question timeout or shown timer (/mintime); 0 is off
+	clockDirty bool          // the world's time changed since the last save
 }
 
 // NewWorld compiles every room script of p and runs each top level once, so
@@ -163,6 +172,9 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Opti
 		}
 		if err == nil {
 			timers, err = w.store.RoomTimers(ctx, w.worldID)
+		}
+		if err == nil {
+			err = w.loadClock(ctx)
 		}
 		cancel()
 		if err != nil {
@@ -221,6 +233,8 @@ func (w *World) closeLocked() {
 		return
 	}
 	w.closed = true
+	w.checkGame() // stops the game clock
+	w.writeClock()
 	for s := range w.sessions {
 		s.stopTimers()
 	}
@@ -268,6 +282,10 @@ func (w *World) NewSession(client string, who ws.Who) (ws.Session, []ws.Message)
 		if s.char != 0 {
 			w.chars[s.char] = s
 		}
+		w.checkGame()
+	}
+	if !w.pausedAt.IsZero() {
+		s.out = append([]ws.Message{pauseMessage(true)}, s.out...) // before the countdowns, which stand still
 	}
 	return s, s.enterLocked(room, false)
 }

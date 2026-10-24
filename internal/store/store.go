@@ -101,7 +101,16 @@ type Member struct {
 	Account int64
 	Name    string
 	Role    string // MemberPlayer or MemberGM
+	// ExtraTime stretches the member's question timeouts and shown
+	// timers (T-0012): MinExtraTime to MaxExtraTime.
+	ExtraTime float64
 }
+
+// A member's extra-time factor: 1 is none, 3 gives three times as long.
+const (
+	MinExtraTime = 1
+	MaxExtraTime = 3
+)
 
 // Invite lets accounts join a world. Only a hash of its code is stored.
 type Invite struct {
@@ -141,12 +150,25 @@ type Save struct {
 	ProfileGen   int64
 	ProfileState []Change
 	Progress     *ProgressSave
+	// Clock, when not nil, is the world's time now (T-0012).
+	Clock *Clock
 }
 
 // Empty reports whether s writes nothing.
 func (s Save) Empty() bool {
 	return len(s.WorldState) == 0 && len(s.PlayerState) == 0 && s.Room == "" && len(s.Timers) == 0 &&
-		len(s.ProfileState) == 0 && s.Progress == nil
+		len(s.ProfileState) == 0 && s.Progress == nil && s.Clock == nil
+}
+
+// Clock is a world's time (T-0012). Timer deadlines are on the world
+// clock, the wall clock less the time the world spent paused, so a pause
+// stops every timer without rewriting one; game-time timers' deadlines
+// are on the game clock.
+type Clock struct {
+	PausedAt  time.Time     // when the running pause began; zero while the world runs
+	PausedFor time.Duration // how long the world was paused before, in all
+	Game      time.Duration // the game time counted
+	MinTime   time.Duration // the shortest question timeout or shown timer (/mintime); 0 is off
 }
 
 // Timer kinds.
@@ -166,6 +188,7 @@ type Timer struct {
 	Deadline  time.Time
 	Show      string // the label players see; "" for a secret timer
 	ReadOnly  bool   // started where state.world is read-only
+	Game      bool   // counts game time: Deadline is on the game clock (Clock.Game)
 	Delete    bool   // in a Save: the timer stopped or ran out
 }
 
@@ -313,6 +336,13 @@ type Worlds interface {
 	// Members lists the world's members, game masters first, then by
 	// name, at most limit.
 	Members(ctx context.Context, world int64, limit int) ([]Member, error)
+	// ExtraTime returns the member's extra-time factor (T-0012), or
+	// ErrNotFound when the account is no member.
+	ExtraTime(ctx context.Context, world, account int64) (float64, error)
+	// SetExtraTime sets the extra-time factor of the member whose account
+	// is named name in any letter case, and returns the account, or
+	// ErrNotFound when there is no such member.
+	SetExtraTime(ctx context.Context, world int64, name string, factor float64) (int64, error)
 
 	// CreateInvite stores an invite, and drops those expired at now or
 	// used up. It returns ErrInvites when the world has MaxLiveInvites.
@@ -337,4 +367,6 @@ type Worlds interface {
 	PlayerTimers(ctx context.Context, character int64) ([]Timer, error)
 	// RoomTimers returns the timers of the world's rooms.
 	RoomTimers(ctx context.Context, world int64) ([]Timer, error)
+	// WorldClock returns the world's time (T-0012); Save writes it.
+	WorldClock(ctx context.Context, world int64) (Clock, error)
 }

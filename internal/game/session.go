@@ -47,9 +47,11 @@ type session struct {
 	moves    int             // room.go moves done for the current message
 
 	timers      map[string]*timer         // the player's timers, by name
-	dialogTimer func() bool               // stops the open question's timeout, if it has one
+	dialogTimer *timer                    // the open question's timeout, if it has one
 	questions   map[questionKey]time.Time // deadlines of questions asked, with a store (lasting.go)
 	asked       questionKey               // the open question's entry in questions, if any
+	extra       float64                   // the player's extra-time factor (/extratime); 0 or 1 is none
+	timerList   []timerRef                // the timers /timers showed this game master last (timertools.go)
 
 	out        []ws.Message // collects output during one hook call
 	queue      []ws.Message // pushed output waiting for Pending
@@ -63,12 +65,15 @@ type session struct {
 	readOnlyWorld bool
 }
 
-// timer is one of the player's timers.
+// timer is one of the player's timers, a room's (roomTimer) or a
+// question's timeout.
 type timer struct {
-	deadline time.Time
-	stop     func() bool
-	show     string // the label the player sees, "" for a secret timer
-	readOnly bool   // started under on_change: on_timer cannot write state.world
+	deadline time.Time   // on the game clock with game, else on the world clock (clock.go)
+	stop     func() bool // disarms it; noStop while it is not armed
+	fire     func()      // what runs once it is due; it takes w.mu
+	show     string      // the label the player sees, "" for a secret timer
+	readOnly bool        // started under on_change: on_timer cannot write state.world
+	game     bool        // counts game time
 }
 
 // MaxMoves caps the rooms one player message can move through, so rooms
@@ -128,6 +133,7 @@ func (s *session) end() {
 	if len(s.w.sessions) == 0 {
 		s.w.lastLeft = s.w.now()
 	}
+	s.w.checkGame()
 	if s.char != 0 && s.w.chars[s.char] == s {
 		delete(s.w.chars, s.char)
 	}
@@ -256,7 +262,7 @@ func (s *session) drop() {
 func (s *session) unpend() {
 	s.forgetQuestion()
 	if s.dialogTimer != nil {
-		s.dialogTimer()
+		s.dialogTimer.stop()
 		s.dialogTimer = nil
 	}
 	s.pending = nil

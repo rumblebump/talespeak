@@ -61,7 +61,7 @@ func TestSandboxSurfaceIsExactly(t *testing.T) {
 		"timer", "timer.cancel", "timer.left", "timer.start",
 		"tonumber", "tostring", "type",
 		"ui", "ui.ask", "ui.dialog", "ui.image", "ui.items", "ui.select",
-		"unpack", "words", "words.normalize", "words.same", "world", "world.players", "xpcall",
+		"unpack", "words", "words.normalize", "words.same", "world", "world.paused", "world.players", "world.time", "xpcall",
 	}
 	slices.Sort(want)
 	got := reachable(r)

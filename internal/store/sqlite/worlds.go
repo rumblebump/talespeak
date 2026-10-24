@@ -419,6 +419,9 @@ func (s *Store) Save(ctx context.Context, sv store.Save) error {
 	if err := putProfile(ctx, tx, sv); err != nil {
 		return err
 	}
+	if err := putClock(ctx, tx, sv.World, sv.Clock); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 

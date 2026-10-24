@@ -40,7 +40,7 @@ func (s *Store) RemoveMember(ctx context.Context, world, account int64) (bool, e
 // Members lists the world's members, game masters first, then by name,
 // at most limit.
 func (s *Store) Members(ctx context.Context, world int64, limit int) ([]store.Member, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT a.id, a.name, m.role FROM world_members m JOIN accounts a ON a.id = m.account_id
+	rows, err := s.db.QueryContext(ctx, `SELECT a.id, a.name, m.role, m.extra_time FROM world_members m JOIN accounts a ON a.id = m.account_id
 		WHERE m.world_id = ? ORDER BY m.role = 'gm' DESC, a.name_key LIMIT ?`, world, limit)
 	if err != nil {
 		return nil, err
@@ -49,7 +49,7 @@ func (s *Store) Members(ctx context.Context, world int64, limit int) ([]store.Me
 	var list []store.Member
 	for rows.Next() {
 		var m store.Member
-		if err := rows.Scan(&m.Account, &m.Name, &m.Role); err != nil {
+		if err := rows.Scan(&m.Account, &m.Name, &m.Role, &m.ExtraTime); err != nil {
 			return nil, err
 		}
 		list = append(list, m)

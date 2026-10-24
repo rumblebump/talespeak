@@ -67,6 +67,7 @@ type Message struct {
 	From    string   `json:"from,omitempty"`
 	Ms      int64    `json:"ms,omitempty"`
 	Role    string   `json:"role,omitempty"`
+	Paused  bool     `json:"paused,omitempty"`
 }
 
 // Item is something the player can click.

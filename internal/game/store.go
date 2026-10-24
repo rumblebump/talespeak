@@ -109,6 +109,11 @@ func (s *session) load(who ws.Who) (string, error) {
 	}
 	s.member = role == store.MemberGM
 	s.gm = s.member && !s.asPlayer
+	if s.extra, err = w.store.ExtraTime(ctx, w.worldID, who.Account); errors.Is(err, store.ErrNotFound) {
+		s.extra = 1
+	} else if err != nil {
+		return "", err
+	}
 	s.char, s.id, s.name = c.ID, "p"+strconv.FormatInt(c.ID, 10), c.Name
 	s.state.Changed = s.changedState
 	s.restoreTimers(timers)
@@ -181,6 +186,7 @@ func (w *World) save(s *session) {
 	}
 	s.saveProfile(&sv)
 	sv.Timers = w.timerChanges()
+	w.saveClock(&sv)
 	if sv.Empty() && len(w.lost) == 0 {
 		return
 	}
@@ -203,6 +209,9 @@ func (w *World) save(s *session) {
 	w.unsaved, s.dirty, s.moved = nil, nil, false
 	s.savedProfile()
 	clear(w.timerSaves)
+	if sv.Clock != nil {
+		w.clockDirty = false
+	}
 }
 
 // keepLost keeps the failed save of a player who is leaving, merged with
