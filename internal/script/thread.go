@@ -86,6 +86,7 @@ func (r *Runtime) RunHook(host Host, env *Env, h Hook) (*Thread, error) {
 		p.RawSetString("id", lua.LString(h.PlayerID))
 	}
 	p.RawSetString("gm", lua.LBool(h.GM))
+	p.RawSetString("can", r.can(h.GM))
 	if host != nil {
 		p.RawSetString("room", lua.LString(host.Room()))
 	}

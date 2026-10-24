@@ -375,8 +375,9 @@ func TestInviteOnlyWorld(t *testing.T) {
 	if code := other.post("/api/invites", `{"uses":100,`+home+`}`, &inv); code != 200 {
 		t.Errorf("gm invite for players = %d", code)
 	}
-	if code := other.post("/api/invites", `{"gm":true,`+home+`}`, &e); code != 403 {
-		t.Errorf("a gm made a gm invite: %d", code)
+	// Outside edu mode a world's GM makes GMs too (edu: edu_floor_test.go).
+	if code := other.post("/api/invites", `{"gm":true,`+home+`}`, &inv); code != 200 || !inv.GM {
+		t.Errorf("a gm's gm invite in public mode = %d %+v", code, inv)
 	}
 	for _, body := range []string{`{"uses":101}`, `{"uses":-1}`, `{"days":31}`, `{"days":-1}`, `{}`, `{"world":0}`, `{"world":9999}`} {
 		if !strings.Contains(body, "world") && body != "{}" {

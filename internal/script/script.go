@@ -117,6 +117,8 @@ type Runtime struct {
 	modules map[string]*Script          // require's modules by name
 	loaded  map[*lua.LTable]*lua.LTable // each Instance's required modules, by its globals
 	closed  bool
+
+	canGM, canPlayer *lua.LFunction // player:can (perm.go)
 }
 
 // envState is what one Instance keeps, as last measured, plus what its
@@ -124,7 +126,8 @@ type Runtime struct {
 type envState struct {
 	kept      int64
 	sinceWalk int64
-	broken    bool // over PlayerMemory; every later call fails
+	broken    bool            // over PlayerMemory; every later call fails
+	perms     map[string]perm // what perm.define defined in this instance
 }
 
 // call is one stretch of Lua running: its budgets, and what Go functions
@@ -152,7 +155,8 @@ func New(limits Limits) *Runtime {
 	r := &Runtime{L: L, limits: limits, locked: map[*lua.LTable]bool{}, paused: map[*Thread]struct{}{}, envs: map[*lua.LTable]*envState{},
 		loaded: map[*lua.LTable]*lua.LTable{}}
 	r.lib = r.openSandbox()
-	r.shared = map[lua.LValue]struct{}{r.lib: {}, L.G.Global: {}, L.G.Registry: {}}
+	r.canGM, r.canPlayer = r.canFunc(true), r.canFunc(false)
+	r.shared = map[lua.LValue]struct{}{r.lib: {}, L.G.Global: {}, L.G.Registry: {}, r.canGM: {}, r.canPlayer: {}}
 	return r
 }
 

@@ -14,18 +14,22 @@ import (
 // connection's goroutine; timers call in from their own. w.mu guards every
 // field.
 type session struct {
-	w       *World
-	id      string // player.id: unique in the world while it runs, and for ever with a store
-	char    int64  // the character in the store; 0 without one
-	name    string
-	gm      bool  // a game master of the world: player.gm, and the GM commands
-	account int64 // the signed-in account; 0 without one
-	client  string
-	room    string
-	joined  int64 // when the player joined the world, for world.players
-	arrived int64 // when the player came into room, for room.players
-	closed  bool
-	leaving bool // on_leave runs: the player is no longer among room.players
+	w      *World
+	id     string // player.id: unique in the world while it runs, and for ever with a store
+	char   int64  // the character in the store; 0 without one
+	name   string
+	member bool // a game master of the world (world_members.role): may use /gm
+	gm     bool // GM mode is on: player.gm, and the GM commands; never without member
+	// asPlayer is set when the game master joined as a player (ws.Who), so
+	// GM mode starts off.
+	asPlayer bool
+	account  int64 // the signed-in account; 0 without one
+	client   string
+	room     string
+	joined   int64 // when the player joined the world, for world.players
+	arrived  int64 // when the player came into room, for room.players
+	closed   bool
+	leaving  bool // on_leave runs: the player is no longer among room.players
 
 	envs     map[string]*script.Env // room id -> this player's instance of its script
 	pending  *script.Thread         // the hook waiting in ui.dialog, if any

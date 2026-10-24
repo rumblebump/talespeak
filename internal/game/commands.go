@@ -42,13 +42,17 @@ type coreCommand struct {
 	name  string
 	usage string // how to type it, for /help
 	help  string
-	gm    bool
+	gm    bool // only in GM mode
+	// member is set for a command of every game master of the world, in
+	// GM mode or not: /gm.
+	member bool
 }
 
 // coreCommands are the engine's commands, in the order /help lists them.
 // A room script's command of the same name is never used.
 var coreCommands = []coreCommand{
 	{name: "help", usage: "/help", help: "what you can type here"},
+	{name: "gm", usage: "/gm [on|off]", help: "switch GM mode on or off", member: true},
 	{name: "players", usage: "/players", help: "who plays now, and where", gm: true},
 	{name: "rooms", usage: "/rooms", help: "the rooms of this world", gm: true},
 	{name: "go", usage: "/go ROOM", help: "go to a room yourself", gm: true},
@@ -101,7 +105,7 @@ func unknownCommand(name string) []ws.Message {
 func (s *session) command(text string) []ws.Message {
 	name, args := splitCommand(text)
 	if c := findCore(name); c != nil {
-		if c.gm && !s.gm {
+		if (c.gm && !s.gm) || (c.member && !s.member) {
 			return unknownCommand(name)
 		}
 		return s.runCore(name, args)
@@ -141,6 +145,8 @@ func (s *session) runCore(name, args string) []ws.Message {
 	switch name {
 	case "help":
 		return s.helpCommand()
+	case "gm":
+		return s.gmModeCommand(args)
 	case "players":
 		return s.playersCommand()
 	case "rooms":
@@ -263,12 +269,15 @@ func (s *session) helpCommand() []ws.Message {
 	var b strings.Builder
 	b.WriteString("You can type what you do, or one of these:")
 	for _, c := range coreCommands {
-		if !c.gm || s.gm {
+		if (!c.gm || s.gm) && (!c.member || s.member) {
 			b.WriteString("\n" + c.usage + ": " + c.help)
 		}
 	}
-	if s.gm {
-		b.WriteString("\n(You are a game master here: the other players see a mark when you act.)")
+	switch {
+	case s.gm:
+		b.WriteString("\n(GM mode is on: the other players see a mark when you act.)")
+	case s.member:
+		b.WriteString("\n(You are a game master here, playing as a player: /gm switches GM mode on.)")
 	}
 	var env *script.Env
 	if !s.w.closed {

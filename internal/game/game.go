@@ -233,7 +233,7 @@ func (w *World) closeLocked() {
 // world without a store places a new player without an account in the
 // start room.
 func (w *World) NewSession(client string, who ws.Who) (ws.Session, []ws.Message) {
-	s := &session{w: w, client: budgetKey(client), gm: who.GM, account: who.Account}
+	s := &session{w: w, client: budgetKey(client), member: who.GM, gm: who.GM && !who.AsPlayer, asPlayer: who.AsPlayer, account: who.Account}
 	s.state.Reserve = s.reserve
 	w.mu.Lock()
 	defer w.mu.Unlock()

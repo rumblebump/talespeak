@@ -82,7 +82,8 @@ func (s *Service) account(ctx context.Context, r *http.Request) (store.Account, 
 }
 
 // Auth tells the WebSocket endpoint who connects to which world (the
-// "world" query parameter): 401 without a sign-in, 404 for a world that
+// "world" query parameter, and "as=player" for a game master who plays
+// as a player): 401 without a sign-in, 404 for a world that
 // does not exist or has finished, 403 for one the account may not play.
 func (s *Service) Auth(r *http.Request) (ws.Who, int) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
@@ -113,5 +114,6 @@ func (s *Service) Auth(r *http.Request) (ws.Who, int) {
 		}
 		return ws.Who{}, http.StatusForbidden
 	}
-	return ws.Who{Account: a.ID, Name: a.Name, World: wd.ID, GM: role == store.MemberGM}, 0
+	return ws.Who{Account: a.ID, Name: a.Name, World: wd.ID, GM: role == store.MemberGM,
+		AsPlayer: r.URL.Query().Get("as") == "player"}, 0
 }

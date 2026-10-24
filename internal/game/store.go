@@ -93,7 +93,8 @@ func (s *session) load(who ws.Who) (string, error) {
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return "", err
 	}
-	s.gm = role == store.MemberGM
+	s.member = role == store.MemberGM
+	s.gm = s.member && !s.asPlayer
 	s.char, s.id, s.name = c.ID, "p"+strconv.FormatInt(c.ID, 10), c.Name
 	s.state.Changed = s.changedState
 	s.restoreTimers(timers)

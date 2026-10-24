@@ -204,6 +204,7 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("GET /api/worlds", s.get(s.worlds))
 	mux.HandleFunc("POST /api/worlds", s.post(s.createWorld))
 	mux.HandleFunc("POST /api/finish", s.post(s.finish))
+	mux.HandleFunc("GET /api/members", s.get(s.listMembers))
 	mux.HandleFunc("POST /api/members", s.post(s.members))
 	return mux
 }

@@ -163,7 +163,7 @@ func (r *Runtime) timerLeft(L *lua.LState) int {
 // included, in the order they came in: {{id = "p1", name = "traveler",
 // gm = false}, ...}.
 func (r *Runtime) roomPlayers(L *lua.LState) int {
-	L.Push(playerList(L, r.party(L).Players(), false))
+	L.Push(r.playerList(L, r.party(L).Players(), false))
 	return 1
 }
 
@@ -171,13 +171,13 @@ func (r *Runtime) roomPlayers(L *lua.LState) int {
 // the caller included, in the order they joined: {{id = "p1", name =
 // "traveler", room = "cell", gm = false}, ...}.
 func (r *Runtime) worldPlayers(L *lua.LState) int {
-	L.Push(playerList(L, r.party(L).WorldPlayers(), true))
+	L.Push(r.playerList(L, r.party(L).WorldPlayers(), true))
 	return 1
 }
 
 // playerList is list as a Lua list of player tables, with each player's
 // room when withRoom is set.
-func playerList(L *lua.LState, list []Player, withRoom bool) *lua.LTable {
+func (r *Runtime) playerList(L *lua.LState, list []Player, withRoom bool) *lua.LTable {
 	t := L.CreateTable(len(list), 0)
 	for i, p := range list {
 		e := L.CreateTable(0, 4)
@@ -187,6 +187,7 @@ func playerList(L *lua.LState, list []Player, withRoom bool) *lua.LTable {
 			e.RawSetString("room", lua.LString(p.Room))
 		}
 		e.RawSetString("gm", lua.LBool(p.GM))
+		e.RawSetString("can", r.can(p.GM))
 		t.RawSetInt(i+1, e)
 	}
 	return t

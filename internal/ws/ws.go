@@ -84,6 +84,10 @@ type Who struct {
 	// GM is set when the account is a game master of World
 	// (world_members.role), for player.gm and the GM commands.
 	GM bool
+	// AsPlayer is set when a game master joins as a player (the "as"
+	// query parameter is "player"): GM mode starts off, and /gm turns it
+	// on (T-0011).
+	AsPlayer bool
 }
 
 // Game is what a connection plays once it is welcomed.

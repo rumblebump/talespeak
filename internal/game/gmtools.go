@@ -211,7 +211,7 @@ func (w *World) RoleChanged(account int64, role string) int {
 	defer w.mu.Unlock()
 	n := 0
 	for s := range w.sessions {
-		if s.account == 0 || s.account != account || (role != "" && s.gm == (role == store.MemberGM)) {
+		if s.account == 0 || s.account != account || (role != "" && s.member == (role == store.MemberGM)) {
 			continue
 		}
 		s.end()
@@ -228,3 +228,43 @@ func (w *World) RoleChanged(account int64, role string) int {
 // roleChangedMessage is the last message of a session whose role in the
 // world changed.
 const roleChangedMessage = "Your role in this world has changed. Connecting again…"
+
+// gmModeCommand switches GM mode on or off ("" switches it over), like
+// sudo: a game master who plays as a player has no GM commands and
+// player.gm is false until GM mode is on. Every switch is in the audit
+// log, and the room sees it.
+func (s *session) gmModeCommand(args string) []ws.Message {
+	want := !s.gm
+	switch strings.ToLower(args) {
+	case "":
+	case "on":
+		want = true
+	case "off":
+		want = false
+	default:
+		return []ws.Message{notice("Type /gm on or /gm off.")}
+	}
+	if want == s.gm {
+		if want {
+			return []ws.Message{notice("GM mode is on already.")}
+		}
+		return []ws.Message{notice("GM mode is off already.")}
+	}
+	if s.slowDown() {
+		return []ws.Message{notice(slowDownMessage)}
+	}
+	detail := "off"
+	if want {
+		detail = "on"
+	}
+	if err := s.audit("gm mode", detail); err != nil {
+		return []ws.Message{{Type: "error", Message: auditFailed}}
+	}
+	s.gm = want
+	if want {
+		s.tellRoom(s.room, s.gmNotice("acts as the game master now."))
+		return []ws.Message{notice("GM mode is on: the game master commands work (/help lists them), and the other players see a mark when you act. /gm off plays as a player again.")}
+	}
+	s.tellRoom(s.room, s.gmNotice("plays as a player again."))
+	return []ws.Message{notice("GM mode is off: you play as a player. /gm on switches it back on.")}
+}

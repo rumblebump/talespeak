@@ -93,6 +93,13 @@ type Character struct {
 	Room string // where the player was last; "" before the first room
 }
 
+// Member is one account's membership of a world.
+type Member struct {
+	Account int64
+	Name    string
+	Role    string // MemberPlayer or MemberGM
+}
+
 // Invite lets accounts join a world. Only a hash of its code is stored.
 type Invite struct {
 	CodeHash  []byte
@@ -283,6 +290,9 @@ type Worlds interface {
 	// RemoveMember ends the account's membership of the world; it reports
 	// false when it was no member.
 	RemoveMember(ctx context.Context, world, account int64) (bool, error)
+	// Members lists the world's members, game masters first, then by
+	// name, at most limit.
+	Members(ctx context.Context, world int64, limit int) ([]Member, error)
 
 	// CreateInvite stores an invite, and drops those expired at now or
 	// used up. It returns ErrInvites when the world has MaxLiveInvites.
