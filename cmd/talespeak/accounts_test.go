@@ -229,7 +229,7 @@ func TestAccountBadArgs(t *testing.T) {
 		args []string
 		want string
 	}{
-		{nil, "want add, password or role"},
+		{nil, "want add, password, role or resetcode"},
 		{[]string{"frob", "-data", dir, "x"}, `unknown command "frob"`},
 		{[]string{"delete", "-data", dir, "x"}, "unknown command"},
 		{[]string{"add", "-data", dir, "-bogus", "x"}, "bogus"},

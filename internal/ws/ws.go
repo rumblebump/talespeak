@@ -88,6 +88,8 @@ type Who struct {
 	// query parameter is "player"): GM mode starts off, and /gm turns it
 	// on (T-0011).
 	AsPlayer bool
+	// Login names the sign-in session, never its token, for SignOut.
+	Login string
 }
 
 // Game is what a connection plays once it is welcomed.
@@ -184,6 +186,8 @@ type Server struct {
 	connectBurst int
 	rate         float64
 	burst        int
+	recheck      time.Duration
+	signins      signins // the open connections by account (signin.go)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -204,7 +208,7 @@ func New(version string, log *slog.Logger, opts ...Option) *Server {
 		idleTimeout: DefaultIdleTimeout, maxConns: DefaultMaxConns,
 		maxPerClient: DefaultMaxConnsPerClient, clientIP: peerIP,
 		connectRate: DefaultConnectRate, connectBurst: DefaultConnectBurst,
-		rate: DefaultRate, burst: DefaultBurst,
+		rate: DefaultRate, burst: DefaultBurst, recheck: DefaultRecheck,
 		ctx: ctx, cancel: cancel, perClient: map[string]int{}, connects: map[string]*bucket{},
 	}
 	for _, o := range opts {
@@ -270,6 +274,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.SetReadLimit(MaxMessageBytes)
+	defer s.watch(c, r, who)()
 	s.handle(s.ctx, c, client, who)
 }
 

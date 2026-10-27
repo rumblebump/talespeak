@@ -40,6 +40,7 @@ func defaults() limits {
 		messageBurst:      ws.DefaultBurst,
 		idleTimeout:       ws.DefaultIdleTimeout,
 		signInBurst:       account.DefaultAddressBurst,
+		signInRecheck:     ws.DefaultRecheck,
 		worldsPerAccount:  account.DefaultWorldsPerAccount,
 		maxWorlds:         account.DefaultMaxWorlds,
 		loadedWorlds:      hub.DefaultMaxLoaded,

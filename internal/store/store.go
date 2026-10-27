@@ -169,6 +169,9 @@ type Store interface {
 	Worlds
 	Packs
 	Audit
+	Emails
+	Tokens
+	Outbox
 
 	// Close releases the backend's resources.
 	Close() error
@@ -181,8 +184,8 @@ type Accounts interface {
 	// AccountByName returns the account named name in any letter case and
 	// its password hash, or ErrNotFound.
 	AccountByName(ctx context.Context, name string) (Account, string, error)
-	// SetPassword replaces the account's password hash and ends all its
-	// sign-in sessions.
+	// SetPassword replaces the account's password hash, ends all its
+	// sign-in sessions and drops its reset codes and links.
 	SetPassword(ctx context.Context, account int64, passwordHash string) error
 	// SetRole changes the account's role.
 	SetRole(ctx context.Context, account int64, role string) error
@@ -279,6 +282,9 @@ type Worlds interface {
 	// IsGM reports whether the account is a game master of an unfinished
 	// world.
 	IsGM(ctx context.Context, account int64) (bool, error)
+	// GMOf reports whether gm is a game master of an unfinished world
+	// that account is a member of.
+	GMOf(ctx context.Context, gm, account int64) (bool, error)
 	// FinishWorld ends the world: its state, its players' state and all
 	// its timers are deleted, and OpenWorld starts a new main world.
 	FinishWorld(ctx context.Context, world int64) error

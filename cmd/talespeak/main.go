@@ -5,7 +5,9 @@
 //	talespeak account add [-admin] NAME   add an account; the password is read from standard input
 //	talespeak account password NAME       change an account's password (standard input)
 //	talespeak account role NAME ROLE      make an account an admin or a player
+//	talespeak account resetcode NAME      print a one-time reset code for an account
 //	talespeak invite [-uses N] [-days D] [-gm] [-world ID]  print a new invite code to a world
+//	talespeak mail test ADDRESS           send a test mail with the SMTP settings (docs/admin-email.md)
 //	talespeak healthcheck  exit 0 if the local server reports healthy (used by Docker)
 //	talespeak version      print the version
 package main
@@ -29,6 +31,7 @@ import (
 	"github.com/rumblebump/talespeak/internal/clientip"
 	"github.com/rumblebump/talespeak/internal/game"
 	"github.com/rumblebump/talespeak/internal/hub"
+	"github.com/rumblebump/talespeak/internal/mail"
 	"github.com/rumblebump/talespeak/internal/pack"
 	"github.com/rumblebump/talespeak/internal/server"
 	"github.com/rumblebump/talespeak/internal/store"
@@ -60,13 +63,15 @@ func run(args []string) error {
 		return accountCmd(args, os.Stdin, os.Stdout)
 	case "invite":
 		return inviteCmd(args, os.Stdout)
+	case "mail":
+		return mailCmd(args, os.Getenv, os.Stdout)
 	case "healthcheck":
 		return healthcheck(healthURL(envOr("TALESPEAK_LISTEN", ":8080")))
 	case "version":
 		fmt.Println(version)
 		return nil
 	default:
-		return fmt.Errorf("unknown command %q (want serve, account, invite, healthcheck or version)", cmd)
+		return fmt.Errorf("unknown command %q (want serve, account, invite, mail, healthcheck or version)", cmd)
 	}
 }
 
@@ -106,6 +111,14 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
+	classCode, err := loadClassCode(os.Getenv, acc)
+	if err != nil {
+		return err
+	}
+	mailSet, err := loadMail(os.Getenv)
+	if err != nil {
+		return err
+	}
 	log := slog.Default()
 	ps, err := loadPacks(os.Getenv, lim.pack)
 	if err != nil {
@@ -134,19 +147,28 @@ func serve(args []string) error {
 		}})
 	defer worlds.Close()
 	go worlds.Run(ctx)
-	accounts := account.New(account.Config{Store: db, Registration: acc.registration, Edu: acc.mode == modeEdu, Create: acc.create, Home: home.ID,
-		Packs: ps.lobby(), Live: worlds, Runs: func(w store.World) (account.Pack, error) {
+	var outbox *mail.Outbox // nil with mail off: Kick does nothing
+	if mailSet.email {
+		outbox = mail.NewOutbox(db, func(ctx context.Context, m mail.Message) error { return mail.Send(ctx, mailSet.smtp, m) }, nil, log)
+		go outbox.Run(ctx)
+	}
+	var accounts *account.Service // the sockets ask it who connects; it tells them who signed out
+	sockets := ws.New(version, log, ws.WithClientIP(proxies.IP), ws.WithGame(worlds),
+		ws.WithAuth(func(r *http.Request) (ws.Who, int) { return accounts.Auth(r) }), ws.WithRecheck(lim.signInRecheck),
+		ws.WithMaxConns(lim.maxConns), ws.WithMaxConnsPerClient(lim.maxConnsPerClient),
+		ws.WithConnectRate(lim.connectRate, lim.connectBurst),
+		ws.WithRateLimit(lim.messageRate, lim.messageBurst), ws.WithIdleTimeout(lim.idleTimeout))
+	accounts = account.New(account.Config{Store: db, Registration: acc.registration, ClassCode: classCode, Edu: acc.mode == modeEdu,
+		Create: acc.create, Home: home.ID, Packs: ps.lobby(), Live: worlds, Runs: func(w store.World) (account.Pack, error) {
 			p, err := worlds.Pack(w)
 			if err != nil {
 				return account.Pack{}, err
 			}
 			return lobbyPack(p), nil
 		}, WorldsPerAccount: lim.worldsPerAccount, MaxWorlds: lim.maxWorlds,
+		Email: mailSet.email, PublicURL: mailSet.publicURL, Kick: outbox.Kick,
+		SignOut:  func(id int64, login string) { sockets.SignOut(id, login) },
 		ClientIP: proxies.IP, HTTPS: proxies.HTTPS, AddressBurst: lim.signInBurst, Log: log})
-	sockets := ws.New(version, log, ws.WithClientIP(proxies.IP), ws.WithGame(worlds), ws.WithAuth(accounts.Auth),
-		ws.WithMaxConns(lim.maxConns), ws.WithMaxConnsPerClient(lim.maxConnsPerClient),
-		ws.WithConnectRate(lim.connectRate, lim.connectBurst),
-		ws.WithRateLimit(lim.messageRate, lim.messageBurst), ws.WithIdleTimeout(lim.idleTimeout))
 	srv := &http.Server{
 		Addr: *listen,
 		Handler: server.New(server.Options{Version: version, Store: db, WebSocket: sockets, Assets: pack.AssetHandler(ps.all...),
@@ -160,7 +182,8 @@ func serve(args []string) error {
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	log.Info("talespeak started", "version", version, "listen", *listen, "data", *data, "pack", ps.main().Name(), "packs", len(ps.all),
-		"world", home.ID, "mode", acc.mode, "registration", acc.registration, "access", acc.world, "create", acc.create)
+		"world", home.ID, "mode", acc.mode, "registration", acc.registration, "access", acc.world, "create", acc.create,
+		"class code", classCode != "", "email", mailSet.email)
 
 	select {
 	case err := <-errc:

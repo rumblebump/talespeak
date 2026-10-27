@@ -13,8 +13,11 @@ import (
 
 // Registration settings: who may create an account.
 const (
-	RegistrationSelf = "self" // anyone, on the sign-in page
+	RegistrationSelf = "self" // anyone, on the sign-in page (with the class code, when one is set)
 	RegistrationOff  = "off"  // only admins, with the command line
+	// RegistrationSSO leaves new accounts to a single sign-on provider
+	// (OIDC, SAML: later tasks); until one is set up it is RegistrationOff.
+	RegistrationSSO = "sso"
 )
 
 // World access settings: which signed-in accounts may play the server's
@@ -62,12 +65,30 @@ type Store interface {
 	store.Accounts
 	store.Worlds
 	store.Audit
+	store.Emails
+	store.Tokens
 }
 
 // Config sets up a Service.
 type Config struct {
 	Store        Store
-	Registration string // RegistrationSelf or RegistrationOff
+	Registration string // RegistrationSelf, RegistrationOff or RegistrationSSO
+	// ClassCode, when set, is what registering needs besides a name and
+	// a password (RegistrationSelf only). It lets nobody into a world.
+	ClassCode string
+	// Providers check sign-ins on the sign-in form; nil is Local(Store).
+	Providers []Provider
+	// Email turns mail on: reset links by mail, and confirmed addresses
+	// for accounts that may have one (never edu mode's players). Mail
+	// goes into the store's outbox; Kick tells the outbox (nil: nothing
+	// to tell), and links start with PublicURL, never the Host header.
+	Email     bool
+	PublicURL string
+	Kick      func()
+	// SignOut ends the game connections of a sign-in (login, from
+	// ws.Who.Login) or, with login "", of all the account's: after a
+	// sign-out, a password change or a reset. Nil does nothing.
+	SignOut func(account int64, login string)
 	// Edu is edu mode: every world is private, listed only to its members
 	// and admins, and only admins and game masters create worlds.
 	Edu bool
@@ -118,7 +139,10 @@ type Service struct {
 	guessAcc *limiter // invite codes, per account
 	create   *limiter // new worlds, per client address
 	makeAcc  *limiter // new worlds, per account
-	codesAcc *limiter // new invites and join codes, per account
+	codesAcc *limiter // new invites, join codes and reset codes, per account
+	forgot   *limiter // forgotten passwords, per client address
+	mailAcc  *limiter // mails, per account
+	mailTo   *limiter // mails, per recipient address
 	packs    map[string]Pack
 }
 
@@ -158,6 +182,15 @@ func New(cfg Config) *Service {
 	if cfg.Live == nil {
 		cfg.Live = noLive{}
 	}
+	if cfg.Providers == nil {
+		cfg.Providers = []Provider{Local(cfg.Store)}
+	}
+	if cfg.Kick == nil {
+		cfg.Kick = func() {}
+	}
+	if cfg.SignOut == nil {
+		cfg.SignOut = func(int64, string) {}
+	}
 	packs := map[string]Pack{}
 	for _, p := range cfg.Packs {
 		packs[p.ID] = p
@@ -184,7 +217,12 @@ func New(cfg Config) *Service {
 		create:   newLimiter(cfg.AddressBurst, time.Minute, now),
 		makeAcc:  newLimiter(3, 10*time.Minute, now),
 		codesAcc: newLimiter(20, time.Minute, now),
-		packs:    packs,
+		forgot:   newLimiter(10, time.Minute, now),
+		// A mailbox gets a few mails at once, then one every 20 minutes,
+		// however many accounts ask for it.
+		mailAcc: newLimiter(3, 20*time.Minute, now),
+		mailTo:  newLimiter(3, 20*time.Minute, now),
+		packs:   packs,
 	}
 }
 
@@ -206,5 +244,11 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("POST /api/finish", s.post(s.finish))
 	mux.HandleFunc("GET /api/members", s.get(s.listMembers))
 	mux.HandleFunc("POST /api/members", s.post(s.members))
+	mux.HandleFunc("POST /api/password", s.post(s.changePassword))
+	mux.HandleFunc("POST /api/resetcode", s.post(s.makeResetCode))
+	mux.HandleFunc("POST /api/reset", s.post(s.reset))
+	mux.HandleFunc("POST /api/forgot", s.post(s.forgotPassword))
+	mux.HandleFunc("POST /api/email", s.post(s.setEmail))
+	mux.HandleFunc("POST /api/verify", s.post(s.verifyEmail))
 	return mux
 }

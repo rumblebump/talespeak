@@ -33,6 +33,7 @@ type limits struct {
 	messageBurst                int
 	idleTimeout                 time.Duration
 	signInBurst                 int
+	signInRecheck               time.Duration
 
 	worldsPerAccount, maxWorlds, loadedWorlds int
 	worldsPerClient                           int
@@ -57,6 +58,7 @@ func loadLimits(getenv func(string) string) (limits, error) {
 		messageBurst:      ws.DefaultBurst,
 		idleTimeout:       ws.DefaultIdleTimeout,
 		signInBurst:       account.DefaultAddressBurst,
+		signInRecheck:     ws.DefaultRecheck,
 		worldsPerAccount:  account.DefaultWorldsPerAccount,
 		maxWorlds:         account.DefaultMaxWorlds,
 		loadedWorlds:      hub.DefaultMaxLoaded,
@@ -141,6 +143,8 @@ func loadLimits(getenv func(string) string) (limits, error) {
 	// The client pings every 30 s, so less than 45 s would drop idle players.
 	duration("TALESPEAK_IDLE_TIMEOUT", &l.idleTimeout, 45*time.Second, 24*time.Hour)
 	count("TALESPEAK_SIGNIN_BURST", &l.signInBurst, 1, 1_000_000)
+	// How often an open game checks its sign-in again (internal/ws).
+	duration("TALESPEAK_SIGNIN_RECHECK", &l.signInRecheck, 10*time.Second, time.Hour)
 	count("TALESPEAK_WORLDS_PER_ACCOUNT", &l.worldsPerAccount, 1, 1000)
 	count("TALESPEAK_MAX_WORLDS", &l.maxWorlds, 1, 1_000_000)
 	count("TALESPEAK_LOADED_WORLDS", &l.loadedWorlds, 1, 10_000)

@@ -59,8 +59,8 @@ func loadAccess(getenv func(string) string) (access, error) {
 	}
 	var errs []error
 	if v := getenv("TALESPEAK_REGISTRATION"); v != "" {
-		if v != account.RegistrationSelf && v != account.RegistrationOff {
-			errs = append(errs, fmt.Errorf("TALESPEAK_REGISTRATION=%q: want self or off", v))
+		if v != account.RegistrationSelf && v != account.RegistrationOff && v != account.RegistrationSSO {
+			errs = append(errs, fmt.Errorf("TALESPEAK_REGISTRATION=%q: want self, off or sso", v))
 		}
 		a.registration = v
 	}
@@ -86,6 +86,40 @@ func loadAccess(getenv func(string) string) (access, error) {
 		a.create = v
 	}
 	return a, errors.Join(errs...)
+}
+
+// Class code bounds, in letters and digits: a code must be hard enough to
+// guess within the registration limit, and short enough to write on a
+// board.
+const (
+	minClassCode = 6
+	maxClassCode = 64
+)
+
+// loadClassCode reads TALESPEAK_CLASS_CODE, which registering needs when
+// set; only self-registration has a use for it.
+func loadClassCode(getenv func(string) string, a access) (string, error) {
+	code := getenv("TALESPEAK_CLASS_CODE")
+	if code == "" {
+		return "", nil
+	}
+	if a.registration != account.RegistrationSelf {
+		return "", fmt.Errorf("TALESPEAK_CLASS_CODE is set, but TALESPEAK_REGISTRATION is %s: the code is only for self-registration", a.registration)
+	}
+	n := 0
+	for _, r := range code {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			n++
+		case r == ' ', r == '-':
+		default:
+			return "", errors.New("TALESPEAK_CLASS_CODE: use only letters, digits, spaces and -")
+		}
+	}
+	if n < minClassCode || n > maxClassCode {
+		return "", fmt.Errorf("TALESPEAK_CLASS_CODE: want %d to %d letters and digits", minClassCode, maxClassCode)
+	}
+	return code, nil
 }
 
 // openData opens the database in the data directory, creating both.
@@ -235,10 +269,10 @@ func loadPacks(getenv func(string) string, lim pack.Limits) (packs, error) {
 	return ps, nil
 }
 
-// accountCmd runs "talespeak account add|password|role".
+// accountCmd runs "talespeak account add|password|role|resetcode".
 func accountCmd(args []string, stdin io.Reader, stdout io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("account: want add, password or role")
+		return errors.New("account: want add, password, role or resetcode")
 	}
 	sub, args := args[0], args[1:]
 	fl := flag.NewFlagSet("account "+sub, flag.ContinueOnError)
@@ -247,9 +281,9 @@ func accountCmd(args []string, stdin io.Reader, stdout io.Writer) error {
 	if err := fl.Parse(args); err != nil {
 		return err
 	}
-	want := map[string]int{"add": 1, "password": 1, "role": 2}[sub]
+	want := map[string]int{"add": 1, "password": 1, "role": 2, "resetcode": 1}[sub]
 	if want == 0 {
-		return fmt.Errorf("account: unknown command %q (want add, password or role)", sub)
+		return fmt.Errorf("account: unknown command %q (want add, password, role or resetcode)", sub)
 	}
 	if fl.NArg() != want {
 		return fmt.Errorf("account %s: want %d argument(s), got %q", sub, want, fl.Args())
@@ -309,6 +343,16 @@ func accountCmd(args []string, stdin io.Reader, stdout io.Writer) error {
 			return err
 		}
 		fmt.Fprintf(stdout, "%s is now %s\n", a.Name, role)
+	case "resetcode":
+		a, _, err := db.AccountByName(ctx, name)
+		if err != nil {
+			return fmt.Errorf("account resetcode %q: %w", name, err)
+		}
+		code, expires, err := account.CreateResetCode(ctx, db, a.ID, 0, time.Now())
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "%s  (reset code of %s, works once, until %s)\n", code, a.Name, expires.UTC().Format(time.RFC3339))
 	}
 	return nil
 }

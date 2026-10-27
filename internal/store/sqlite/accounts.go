@@ -52,8 +52,8 @@ func (s *Store) AccountByName(ctx context.Context, name string) (store.Account, 
 	return a, hash, err
 }
 
-// SetPassword replaces the account's password hash and ends all its
-// sign-in sessions.
+// SetPassword replaces the account's password hash, ends all its sign-in
+// sessions and drops its reset codes and links.
 func (s *Store) SetPassword(ctx context.Context, account int64, passwordHash string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -68,6 +68,9 @@ func (s *Store) SetPassword(ctx context.Context, account int64, passwordHash str
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM logins WHERE account_id = ?`, account); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM account_tokens WHERE account_id = ? AND kind IN ('code', 'reset')`, account); err != nil {
 		return err
 	}
 	return tx.Commit()
