@@ -78,6 +78,7 @@ browser (web/static)  --HTTP-->  internal/server  --/api-->  internal/account  -
 | `internal/store/sqlite/mail.go` | Confirmed email addresses, `account_tokens`, `mail_outbox` (a mail goes with its code), `GMOf` |
 | `internal/store/sqlite/timers.go` | Timers that last (T-0012): player timers and question deadlines (`player_timers`), room timers (`room_timers`), written by `Save` |
 | `internal/store/sqlite/profiles.go` | Profiles (T-0010): sheets, progress and exports, binding a character, migration snapshots and undo; `putProfile`, written by `Save` only while the profile's generation matches |
+| `internal/store/sqlite/clock.go` | A world's time (T-0012): pause, game clock and `/mintime` on `worlds` (`WorldClock`, written by `Save`), each member's extra time (`ExtraTime`, `SetExtraTime`) |
 
 A schema change is a new numbered file in `internal/store/sqlite/migrations/`; never edit an applied one.
 
@@ -113,8 +114,11 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `internal/game/host.go` | The session as `script.Host`: `flush`, `Say`, `DescribeRoom`, `Items`, `Go`, `Image`, state access |
 | `internal/game/commands.go` | Slash commands: a line starting with `/` never reaches `on_input`; dispatch to the engine's commands or the room script's (`on_command`), notices a pack cannot fake, the audit log, the broadcast rate limit, `/help` |
 | `internal/game/gmtools.go` | The GM commands `/players`, `/rooms`, `/go`, `/say`, `/reset` (`resetRoom`, `restart`) and `/audit`; `RoleChanged`; `/gm` (GM mode, `session.member` vs `session.gm`) |
+| `internal/game/gmtime.go` | The GM commands for the world's time: `/pause`, `/resume`, `/extratime`, `/mintime`; countdowns sent again on resume; parsing times (`parseDuration`) |
+| `internal/game/timertools.go` | The GM timer tools `/timers`, `/extend N TIME`, `/cancel N`: the numbered list a GM saw last, refusing numbers whose timer changed |
+| `internal/game/clock.go` | The world clock (stands still while paused) and the game clock (runs unpaused with players online); arming and disarming timers on them; extra time and `/mintime` (`shownTime`); `held` players while paused |
 | `internal/game/party.go` | What a room's players share: unique names, `room.players`/`world.players`, leaving (`on_leave`), room timers (one that runs out in an empty room waits, `due`, for the next player) |
-| `internal/game/push.go` | Output nobody asked for: the push queue (`ws.Pusher`), player timers, question timeouts |
+| `internal/game/push.go` | Output nobody asked for: the push queue (`ws.Pusher`), player timers (real or game time), question timeouts |
 | `internal/game/lasting.go` | Timers that last with a store: noting changes for the next save, restoring room timers at load and a player's at join, question deadlines by `questionName` |
 | `internal/game/world.go` | `state.world` and `on_change` delivery to other players |
 | `internal/game/store.go` | With a store: loading a character (and its timers), saving after every hook (timers included), keeping what a failed save lost, replaced sessions |
@@ -125,7 +129,7 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | File | What it does |
 | --- | --- |
 | `internal/script/script.go` | Package doc; `Limits`, errors, `Env`, `Runtime`, `New`, `Close`, `Compile`, `Instance`, `Release`, `Load` |
-| `internal/script/host.go` | What a script reaches the game through: the `Host` and `Party` interfaces, `Player`, `Voice`, `Item`, `Dialog` and its `Check` |
+| `internal/script/host.go` | What a script reaches the game through: the `Host`, `Party` and `Clock` interfaces, `Player`, `Voice`, `Item`, `Dialog` and its `Check` |
 | `internal/script/thread.go` | Hooks: `Run`, `RunHook`, `Resume`, `Answer`, `Expire`, `Cancel`; each on its own goroutine, paused until the player answers |
 | `internal/script/sandbox.go` | The allowlisted libraries (`openSandbox`): every global a script sees is registered here; read-only proxies, `newEnv` |
 | `internal/script/safelib.go` | The wrapped string and table functions (`find`, `sub`, `rep`, `concat`, `table.concat`, `table.sort`) with bounded arguments and results |
@@ -134,7 +138,7 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `internal/script/state.go` | `State`: `state.player` and `state.world` get/set/update, encoding and limits |
 | `internal/script/profile.go` | `state.profile`, `progress.export`/`complete` through the optional `ProfileHost`, the read-only `pack` table (`SetPack`) |
 | `internal/script/migrate.go` | `Migrate`: a ruleset migration's `migrate(sheet)` in a sandbox of its own |
-| `internal/script/timer.go` | `timer.*`, question timeouts, `room.players`, `world.players` |
+| `internal/script/timer.go` | `timer.*` (`game = true` through `Clock`), question timeouts, `room.players`, `world.players`, `world.paused`, `world.time` |
 | `internal/script/commands.go` | A room script's `commands` table and `on_command` hook (`Env.Commands`, `ValidCommand`) |
 | `internal/script/perm.go` | `perm.define` and `player:can`: pack permissions per instance, the engine's permissions only in GM mode |
 | `internal/script/require.go` | `require` and pack modules (`AddModule`) |
@@ -175,6 +179,7 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `web/static/play.js` | Part: starting and stopping a game, `receive` for every engine message, story lines and scrolling, timers, items |
 | `web/static/dialog.js` | Part: dialogs, multiple choice, typed answers, the input line with its history and keys |
 | `web/static/view.js` | Part: pictures, read aloud, large text and their labels |
+| `web/static/pause.js` | Part: a paused world (T-0012): countdowns stand still (`clockNow`, `endIn`), the open question's countdown from `question:` timer messages |
 | `web/static/clean.js` | Limits that match the engine, cleaning server data (`cleanCard`, `cleanItems`, `imageURL`, ...), settings, the page hash, clock text |
 | `web/static/api.js` | `api`: the only `fetch`, to the account API's fixed paths (`scripts/check-web.sh` allows no other) |
 | `web/static/storylog.js` | The story log kept in the browser per account and world (`loadLog`, `saveLog`, `forgetLogs`); session storage in edu mode |
@@ -238,6 +243,7 @@ Pack format: docs/content-format.md; patterns for pack authors: docs/pack-patter
 - **One lock per world.** `World.mu` guards the Lua runtime, every session's fields and all world state; every Lua call runs under it. Methods that need it held end in `Locked` or say "the caller holds w.mu". Nothing blocks while holding it.
 - **Hooks run on their own goroutine.** `ui.dialog`, `ui.select` and `ui.ask` block that goroutine until the player answers (never a coroutine yield). Timers and pushes call in from timer goroutines and take `w.mu` themselves.
 - **Every outside input is bounded where it enters:** WebSocket message size and rate (`ws`), API rates (`account/limit.go`), pack sizes (`pack.Limits`), Lua time and memory (`script.Limits`), per-client budgets (`game`).
+- **Timers count on the world's clocks** (`internal/game/clock.go`): a deadline is a time on the world clock (the wall clock less pauses) or, for game-time timers, on the game clock. Start and restart timers with `w.clockNow(game)` and `w.arm`, never `w.now()` and `w.after` directly, so `/pause` and game time stop them; a timer's `fire` checks `w.ready` first.
 - **Edu mode (kids):** every world is private, players join only with a code, and only admins and GMs create worlds, whatever the other settings say (docs/accounts.md). It is checked in `internal/account/worlds.go` (`mayPlay`, `mayKnow`, `mayCreate`, the lobby) and set up in `cmd/talespeak/accounts.go`; no pack, request or Lua may get around it.
 - **Core vs Lua:** the Go core is glue; game mechanics (turns, items, death, endings) are pack Lua; the core gains only generic primitives.
 - **Offline:** nothing loads from another origin, in the client or in packs (`scripts/check-web.sh`, `internal/pack/lint.go`).

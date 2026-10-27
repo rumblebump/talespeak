@@ -14,6 +14,7 @@ The browser client in `web/static/` is a renderer: it draws the messages the eng
 | `play.js` | The connection to a world, every engine message, story lines, timers, items |
 | `dialog.js` | Dialogs, multiple choice, typed answers and the input line |
 | `view.js` | Pictures, read aloud, large text |
+| `pause.js` | A paused world: a line saying so, countdowns that stand still until the game goes on |
 | `clean.js` | Limits that match the engine, cleaning server data, settings, the page address |
 | `api.js` | The only `fetch`: the account API |
 | `net.js` | The WebSocket to one world: reconnects with backoff (1 s doubling to 30 s), pings every 30 s, stops after 4001 (playing elsewhere) or when the player may no longer play |

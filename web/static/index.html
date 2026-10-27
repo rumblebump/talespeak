@@ -212,6 +212,8 @@
       </template>
     </nav>
 
+    <p class="paused" x-cloak x-show="paused" role="status">The game is paused: countdowns stop until the game master goes on.</p>
+
     <ul class="timers" x-cloak x-show="timers.length" aria-label="Timers">
       <template x-for="t in timerList" :key="t.id">
         <li x-text="t.text"></li>

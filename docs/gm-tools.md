@@ -36,11 +36,25 @@ What no pack, request or Lua lowers in edu mode, covered by `internal/account/ed
 | `/say TEXT` | GM | Every player online in the world reads TEXT, marked as the game master's |
 | `/reset room [ROOM]` | GM | Starts the room you are in (or ROOM) over for every player in it: questions they had open close and the room's question deadlines are forgotten, the room's timers stop (also those waiting for a player), the pack's `on_reset` clears what it keeps of the room, the players' instances of the room's script start over and `on_enter` runs again (for a player out of Lua time, as when joining, only with their next line). Players elsewhere keep what they have |
 | `/audit` | GM | The last 20 entries of the world's audit log, the latest first |
+| `/pause`, `/resume` | GM | Stops the game for everyone and goes on (below) |
+| `/timers` | GM | The timers that run in the world, numbered: the rooms' timers, then each online player's timers and open question with a time limit, with label, name and time left (at most 50) |
+| `/extend N TIME` | GM | Gives timer N of the last `/timers` list TIME more (`90`, `30s`, `5m`, `1m30s`, `1h`; at most a day in all). A timer that ran out and waits gets TIME from now |
+| `/cancel N` | GM | Stops timer N of the last `/timers` list; its `on_timer` does not run. For a question, the time limit goes and the question waits for its answer |
+| `/extratime [NAME FACTOR]` | GM | Gives a member of the world 1 to 3 times as long (`/extratime ann 1.5`); alone, lists the factors of the players online |
+| `/mintime [TIME\|off]` | GM | The world's minimum time (off by default): questions and shown timers shorter than that get that long, up to an hour (`/mintime 30s`); alone, says what it is |
 | a room's own | as the pack says | Packs add commands with a `commands` table and `on_command` ([lua-sandbox.md](lua-sandbox.md#commands)); the demo's clearing has `/skip`, `/turns` and `/free` for turns |
 
 Command names work in any letter case. The engine's commands also work while a question is open; a room's commands wait until it is answered.
 
-`/say`, `/reset`, `/gm` and a room's GM commands reach other players, so a GM may send five of them at once and then one a second. The count belongs to the GM's account, so connecting again does not refill it. When a GM resets a room, the Lua time of every player's `on_reset` is charged to the GM's connection.
+`/say`, `/reset`, `/gm`, `/pause`, `/resume`, `/extend`, `/cancel` and a room's GM commands reach other players, so a GM may send five of them at once and then one a second. The count belongs to the GM's account, so connecting again does not refill it. When a GM resets a room, the Lua time of every player's `on_reset` is charged to the GM's connection.
+
+## Time: pause, timers and extra time
+
+`/pause` stops the world's clock: every timer, room timer and question time limit stands still with the time it has left, also the timers of players who are away, and a paused world stays paused through a restart until a GM types `/resume`. Every player sees "paused the game" with the GM mark and a line that the game is paused, and their countdowns stop. While it is paused, what players type, click and answer, and the room's commands, get "The game is paused." and do nothing; `/help` works. A GM in GM mode still plays and acts (a GM playing as a player waits too). On `/resume` every countdown comes back with its time left. Game-time timers ([lua-sandbox.md](lua-sandbox.md)) stand still while the world is paused and also while nobody is online.
+
+`/timers` numbers the timers, and `/extend` and `/cancel` take a number from the last list the GM saw. A number whose timer ran out, stopped or was started again since is refused ("/timers lists them again"), so an old list never hits another timer. The players affected see the countdown change and a GM mark ("gave 5m more: \"Guards arrive\".", "stopped a secret timer."). Timers of players who are away wait in the database and are not listed.
+
+Extra time is a factor per member of the world, kept in `world_members.extra_time`: their question time limits and the timers shown to them that start from then on run that many times as long; a room timer takes the largest factor of the players in the room as it starts. `/mintime` is per world. Both leave secret timers alone, which packs use for their rules, and neither changes a timer that already runs (`/extend` does). With extra time and the minimum time, nothing runs longer than a day. For a kids' class, a teacher sets `/mintime 30s` once, and `/extratime` for a child who reads slowly.
 
 ## What players see
 
@@ -48,7 +62,7 @@ A GM's words and actions have a look a pack cannot copy: they come as `notice` m
 
 ## The audit log
 
-Every GM action is written to the world's audit log before it happens: `/say` with its text, `/go`, `/reset room`, `/gm` (`gm mode` on or off), a room's GM commands with what was typed after them, and every role change in the members list or `POST /api/members`. When the log cannot be written, the action does not happen and the GM is told so. The log keeps the last 1000 entries of each world and outlasts the world: ending it deletes the game state, not the log. GMs read it with `/audit`; admins also in the database (`audit_log`).
+Every GM action is written to the world's audit log before it happens: `/say` with its text, `/go`, `/reset room`, `/gm` (`gm mode` on or off), `/pause`, `/resume`, `/extend` and `/cancel` with the timer and the time, `/extratime` with the name and factor, `/mintime`, a room's GM commands with what was typed after them, and every role change in the members list or `POST /api/members`. When the log cannot be written, the action does not happen and the GM is told so. The log keeps the last 1000 entries of each world and outlasts the world: ending it deletes the game state, not the log. GMs read it with `/audit`; admins also in the database (`audit_log`).
 
 ## Changing roles while playing
 
