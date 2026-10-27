@@ -88,4 +88,6 @@ When the server shuts down it closes connections with 1001 (going away); the cli
 
 When the same account connects again (another tab or device), the older connection gets an `error` ("You are playing in another window or on another device now.") and closes with 4001; the client does not reconnect after it on its own.
 
+When the sign-in behind a connection ends or no longer lets it play the world (signing out, a password reset or change, an expired sign-in, a role taken away), the connection closes with 4002 ("signed out" or "sign-in changed"): at once for a sign-out, reset or change in the browser, otherwise at the next check, every `TALESPEAK_SIGNIN_RECHECK` (1 minute). The client asks `/api/me` and the lobby before it connects again, as after any close ([accounts.md](accounts.md)).
+
 Audio messages and further widgets (map, slider) are added here as their tasks land.

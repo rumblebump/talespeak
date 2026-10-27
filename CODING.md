@@ -26,9 +26,10 @@ browser (web/static)  --HTTP-->  internal/server  --/api-->  internal/account  -
 
 | File | What it does |
 | --- | --- |
-| `cmd/talespeak/main.go` | Commands (`serve`, `account`, `healthcheck`), wiring of every package in `serve`, env helpers |
+| `cmd/talespeak/main.go` | Commands (`serve`, `account`, `invite`, `mail`, `healthcheck`), wiring of every package in `serve`, env helpers |
 | `cmd/talespeak/config.go` | Resource limits from `TALESPEAK_*` env vars (`loadLimits`), byte sizes; list in docs/admin-limits.md |
-| `cmd/talespeak/accounts.go` | Server modes and who may register, play and create worlds (`access`); the installed packs and the main world (`packs`); `account` subcommands |
+| `cmd/talespeak/accounts.go` | Server modes and who may register, play and create worlds (`access`, the class code); the installed packs and the main world (`packs`); `account` subcommands (`resetcode` too) |
+| `cmd/talespeak/mail.go` | Mail settings (`loadMail`: `TALESPEAK_EMAIL_REGISTRATION`, `TALESPEAK_SMTP_*`, `TALESPEAK_PUBLIC_URL`) and `talespeak mail test ADDRESS` |
 
 ### internal/server: HTTP
 
@@ -50,8 +51,11 @@ browser (web/static)  --HTTP-->  internal/server  --/api-->  internal/account  -
 | `internal/account/password.go` | Package doc; argon2id `Hash` and `Verify` |
 | `internal/account/account.go` | Settings, `Config`, `Service`, `New`, `Handler` (all `/api/` routes) |
 | `internal/account/api.go` | API plumbing: `apiError` and `fail`, the `post` wrapper (same origin, JSON, size, timeout), `writeJSON`, `decode` |
-| `internal/account/me.go` | `GET /api/me`, the signed-in account, and `Auth` for the WebSocket (`ws.Who`) |
-| `internal/account/login.go` | Register, login, logout, the session cookie and token hashes |
+| `internal/account/me.go` | `GET /api/me`, the signed-in account, and `Auth` for the WebSocket (`ws.Who`, with its `Login`) |
+| `internal/account/login.go` | Register (class code, optional email), login through the providers, logout (ends that sign-in's games), the session cookie, token hashes and `loginID` |
+| `internal/account/provider.go` | `Provider`, the sign-in interface OIDC and SAML will implement; `Local`, the only provider so far (name or confirmed email and password) |
+| `internal/account/reset.go` | Reset codes (`POST /api/resetcode`: admins for anyone, edu GMs for their worlds' plain players), `POST /api/reset`, `POST /api/forgot` (mailed link, one answer for every name), `POST /api/password`; each ends the account's games (`Config.SignOut`) |
+| `internal/account/email.go` | `POST /api/email` and `POST /api/verify`: confirmed addresses (never edu players), the texts of the mails |
 | `internal/account/join.go` | `POST /api/join` with a code, `POST /api/invites` for admins and GMs |
 | `internal/account/worlds.go` | The lobby (`GET /api/worlds`, cards), who may play, see, invite, finish and create worlds, creating and ending worlds |
 | `internal/account/names.go` | `ValidName`, `ValidPassword`, `CreateInvite` |
@@ -63,10 +67,12 @@ browser (web/static)  --HTTP-->  internal/server  --/api-->  internal/account  -
 | File | What it does |
 | --- | --- |
 | `internal/store/store.go` | The interfaces game code uses (`Store`, `Accounts`, `Worlds`, `Packs`) and their records; `ErrNotFound`, `ErrNameTaken` |
+| `internal/store/mail.go` | `Emails`, `Tokens` (one-time codes, only their hashes) and `Outbox` (mail waiting, `MaxOutbox`) |
 | `internal/store/sqlite/sqlite.go` | SQLite backend (pure Go): `Open`, WAL, migrations from `internal/store/sqlite/migrations/`, settings |
 | `internal/store/sqlite/accounts.go` | Accounts, passwords, roles, login tokens |
 | `internal/store/sqlite/worlds.go` | Worlds, pack versions, invites, characters, saved `state.player`/`state.world` (`Save`), the GM audit log |
 | `internal/store/sqlite/members.go` | World members and their roles (`world_members`): `Member`, `AddMember`, `RemoveMember`, `Members` |
+| `internal/store/sqlite/mail.go` | Confirmed email addresses, `account_tokens`, `mail_outbox` (a mail goes with its code), `GMOf` |
 | `internal/store/sqlite/timers.go` | Timers that last (T-0012): player timers and question deadlines (`player_timers`), room timers (`room_timers`), written by `Save` |
 
 A schema change is a new numbered file in `internal/store/sqlite/migrations/`; never edit an applied one.
@@ -76,6 +82,15 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | File | What it does |
 | --- | --- |
 | `internal/ws/ws.go` | `Message` (every field of the protocol), `Who`, the `Game`/`Session`/`Pusher`/`Replacer` interfaces, `Server` with its options, origin check, connection and message rate limits, push loop, `Shutdown` |
+| `internal/ws/signin.go` | The sign-in behind each connection: `SignOut` closes a sign-in's connections at once, `WithRecheck` checks it again every minute; close code `StatusSignedOut` |
+
+### internal/mail: sending mail
+
+| File | What it does |
+| --- | --- |
+| `internal/mail/mail.go` | Package doc; `Config` (`Check`), `Send` with net/smtp (STARTTLS or TLS, never plain), `ValidAddress`, the mail's headers |
+| `internal/mail/outbox.go` | `Outbox`: sends what waits in the store outside any request (`Kick`, `Run`, `Flush`), retries with backoff, never logs an address |
+| `internal/mail/mailtest/mailtest.go` | A fake SMTP server in the test process (STARTTLS, TLS, AUTH PLAIN, failures) for tests of any package |
 
 ### internal/hub: the worlds of a server
 
@@ -140,6 +155,7 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `web/static/app.js` | The `game` Alpine component: its state and `init`; merges the parts below with `Object.defineProperties` (keeps getters) |
 | `web/static/lobby.js` | Part: sign-in, the account, the lobby and its world cards, join codes, invites, creating and ending worlds |
 | `web/static/members.js` | Part: a world's members on its card (`GET`/`POST /api/members`), the play as GM / as player buttons |
+| `web/static/password.js` | Part: forgot password, reset with a code or a mailed link (`#reset=`, `#verify=`), changing the password, an email address, reset codes for others, the class code and email at registration |
 | `web/static/play.js` | Part: starting and stopping a game, `receive` for every engine message, story lines and scrolling, timers, items |
 | `web/static/dialog.js` | Part: dialogs, multiple choice, typed answers, the input line with its history and keys |
 | `web/static/view.js` | Part: pictures, read aloud, large text and their labels |
@@ -195,6 +211,7 @@ Pack format: docs/content-format.md; patterns for pack authors: docs/pack-patter
 
 ## Rules that span files
 
+- **A sign-in that ends ends its games.** The WebSocket checks the sign-in at connect (`account.Service.Auth`), every `TALESPEAK_SIGNIN_RECHECK` after, and a sign-out, password change or reset closes the account's connections at once (`account.Config.SignOut` -> `ws.Server.SignOut`); the game session then ends as on any close.
 - **One lock per world.** `World.mu` guards the Lua runtime, every session's fields and all world state; every Lua call runs under it. Methods that need it held end in `Locked` or say "the caller holds w.mu". Nothing blocks while holding it.
 - **Hooks run on their own goroutine.** `ui.dialog`, `ui.select` and `ui.ask` block that goroutine until the player answers (never a coroutine yield). Timers and pushes call in from timer goroutines and take `w.mu` themselves.
 - **Every outside input is bounded where it enters:** WebSocket message size and rate (`ws`), API rates (`account/limit.go`), pack sizes (`pack.Limits`), Lua time and memory (`script.Limits`), per-client budgets (`game`).

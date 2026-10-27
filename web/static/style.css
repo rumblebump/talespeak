@@ -286,6 +286,10 @@ footer { padding: 0.75rem 1rem; text-align: center; color: var(--muted); font-si
   padding: 0.25rem 0.9rem;
   min-height: 2.25rem;
 }
+.account .links button.link { border: none; background: none; padding: 0; min-height: 0; color: var(--muted); text-decoration: underline; }
+.pw-notice, .pw-made { color: var(--accent); }
+.account-settings { margin: 1.5rem 0; }
+.account-settings summary { cursor: pointer; color: var(--accent); }
 .who { color: var(--fg); }
 .story .notice { color: var(--accent); }
 

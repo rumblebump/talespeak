@@ -28,6 +28,7 @@ An unset or empty variable keeps the default. A value that does not parse or is 
 | `TALESPEAK_WORLDS_PER_ADDRESS` | `4` | 1 to 10000 | Worlds besides the main one that the players of one address (an IPv6 /48) play at once. Each world counts the Lua time and memory budgets below on its own, so this caps what one network can use and keeps one network from holding every loaded world. A school behind one address whose classes play more worlds at once needs it higher |
 | `TALESPEAK_WORLD_IDLE` | `5m` | `10s` to `24h` | How long a world stays loaded after its last player left. Its timers keep their deadlines in the database through unloading and restarts (T-0012) |
 | `TALESPEAK_SIGNIN_BURST` | `40` | 1 to 1000000 | Accounts one address may register, sign-ins it may try and invite codes it may enter at once; after that one registration every 30 s, one sign-in every 5 s and one code every 30 s. Each account name also gets 10 sign-in tries at once, then one a minute ([accounts.md](accounts.md)) |
+| `TALESPEAK_SIGNIN_RECHECK` | `1m` | 10s to 1h | How often an open game checks its sign-in again. A sign-out, password change or reset ends the account's games at once; this catches what the server itself does not see: a password changed with the command line, a sign-in that expired, an account taken out of a world. The game then closes and the page asks the server what is left (signed out, or a new role) |
 
 Durations are Go durations (`250ms`, `2s`, `5m`). Sizes are bytes or a number with `KiB`, `MiB` or `GiB` (`512KiB`, `2MiB`).
 

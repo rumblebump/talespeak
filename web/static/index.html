@@ -38,12 +38,37 @@
       <p x-show="!canRegister">Sign in with the account your admin or teacher gave you.</p>
       <label>name <input x-ref="name" x-model="form.name" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="20" required></label>
       <label>password <input type="password" x-model="form.password" autocomplete="current-password" maxlength="128" required></label>
+      <label x-show="needsClassCode">class code (for a new account) <input x-model="form.classCode" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="80"></label>
+      <label x-show="canGiveEmail">email (optional, for a new account) <input type="email" x-model="form.email" autocomplete="email" maxlength="254"></label>
       <p class="actions">
         <button type="submit" :disabled="busy">sign in</button>
         <button type="button" x-show="canRegister" :disabled="busy" @click="register">new account</button>
       </p>
+      <p class="actions links">
+        <button type="button" class="link" @click="openForgot">forgot password?</button>
+        <button type="button" class="link" @click="openReset">I have a reset code</button>
+      </p>
       <p class="form-error" x-show="formError" x-text="formError" role="alert"></p>
     </form>
+
+    <form class="account" x-cloak x-show="showForgot" @submit.prevent="forgot" aria-label="Forgot password">
+      <h3>Forgot your password?</h3>
+      <p x-show="mailOn">Type your name or your confirmed email address. If the account has an address, a reset link comes by mail.</p>
+      <p x-show="!mailOn">This server sends no mail. Ask your teacher or an admin for a reset code, then choose "I have a reset code".</p>
+      <label x-show="mailOn">name or email <input x-model="pw.name" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="254"></label>
+      <p class="actions" x-show="mailOn"><button type="submit" :disabled="pw.busy">send a reset link</button></p>
+    </form>
+
+    <form class="account" x-cloak x-show="showReset" @submit.prevent="resetPassword" aria-label="Reset password">
+      <h3>New password with a reset code</h3>
+      <p>A reset code works once. Using it signs out the account everywhere else.</p>
+      <label>reset code <input x-model="pw.code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="40" required></label>
+      <label>new password <input type="password" x-model="pw.password" autocomplete="new-password" maxlength="128" required></label>
+      <p class="actions"><button type="submit" :disabled="pw.busy">set the new password</button></p>
+    </form>
+
+    <p class="account pw-notice" x-cloak x-show="showPwNotice" x-text="pw.notice" role="status"></p>
+    <p class="account form-error" x-cloak x-show="showPwError" x-text="pw.error" role="alert"></p>
 
     <section class="lobby" x-cloak x-show="showLobby" aria-labelledby="lobby-title">
       <h2 id="lobby-title">Worlds</h2>
@@ -125,6 +150,33 @@
         <p class="actions"><button type="submit" :disabled="busy">create</button></p>
       </form>
       <p class="form-error" x-show="formError" x-text="formError" role="alert"></p>
+
+      <details class="account-settings">
+        <summary>your account</summary>
+        <form class="account" @submit.prevent="changePassword" aria-label="Change password">
+          <h3>Change your password</h3>
+          <p>Your other devices are signed out.</p>
+          <label>current password <input type="password" x-model="pw.current" autocomplete="current-password" maxlength="128" required></label>
+          <label>new password <input type="password" x-model="pw.fresh" autocomplete="new-password" maxlength="128" required></label>
+          <p class="actions"><button type="submit" :disabled="pw.busy">change password</button></p>
+        </form>
+        <form class="account" x-show="mayAddEmail" @submit.prevent="addEmail" aria-label="Email address">
+          <h3>Email address</h3>
+          <p x-text="emailText"></p>
+          <label>email <input type="email" x-model="pw.email" autocomplete="email" maxlength="254" required></label>
+          <p class="actions">
+            <button type="submit" :disabled="pw.busy">send a confirmation link</button>
+            <button type="button" x-show="hasEmail" :disabled="pw.busy" @click="removeEmail">remove the address</button>
+          </p>
+        </form>
+        <form class="account" x-show="makesResetCodes" @submit.prevent="makeResetCode" aria-label="Reset code">
+          <h3>Reset code for someone else</h3>
+          <p>For a player who forgot their password: the code works once, for a day. Hand it over in person.</p>
+          <label>account name <input x-model="pw.who" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" required></label>
+          <p class="actions"><button type="submit" :disabled="pw.busy">make a reset code</button></p>
+          <p class="pw-made" x-show="pw.made" x-text="pw.made" role="status"></p>
+        </form>
+      </details>
     </section>
 
     <div class="account" x-cloak x-show="showReplaced">

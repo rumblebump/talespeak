@@ -107,7 +107,7 @@ export function lobby() {
       this.send("/api/login", { name: this.form.name.trim(), password: this.form.password });
     },
     register() {
-      this.send("/api/register", { name: this.form.name.trim(), password: this.form.password });
+      this.send("/api/register", this.registerBody()); // password.js: with the class code and email when asked
     },
     join() {
       this.send("/api/join", { code: this.form.code.trim() });
