@@ -2,7 +2,7 @@
 // input line with its history and keys. A part of the game component;
 // app.js merges it in.
 
-import { MAX_HISTORY, MAX_INPUT, cleanLine, msLeft, speakerName, text } from "/clean.js";
+import { MAX_HISTORY, MAX_INPUT, cleanLine, speakerName, text } from "/clean.js";
 
 /** dialog returns the methods and getters of this part. */
 export function dialog(speaker) {
@@ -28,7 +28,7 @@ export function dialog(speaker) {
         from: speakerName(msg.from),
         speech: "",
         hide: false,
-        end: msLeft(msg.ms) ? Date.now() + msLeft(msg.ms) : 0,
+        end: this.endIn(msg.ms),
       };
       this.now = Date.now();
       // A spoken question: always read aloud, and with hide only heard.

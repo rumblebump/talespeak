@@ -5,15 +5,21 @@
 //
 // Alpine's CSP build runs the page without 'unsafe-eval', so the HTML only
 // holds simple expressions and all logic lives in these modules: the
-// component's state here, its parts in lobby.js, play.js, dialog.js and
-// view.js, helpers in clean.js and api.js. Server text is untrusted: it is
-// only ever shown with x-text or textContent.
+// component's state here, its parts in lobby.js, members.js, password.js,
+// profiles.js, settings.js, play.js, dialog.js, view.js and pause.js,
+// helpers in clean.js and api.js. Server text is untrusted: it is only
+// ever shown with x-text or textContent.
 
 import Alpine from "/vendor/alpine-csp.js";
 import { dialog } from "/dialog.js";
 import { lobby } from "/lobby.js";
+import { members } from "/members.js";
+import { pause } from "/pause.js";
 import { loadSetting } from "/clean.js";
+import { password } from "/password.js";
 import { play } from "/play.js";
+import { profiles } from "/profiles.js";
+import { settings } from "/settings.js";
 import { createSpeaker } from "/speech.js";
 import { view } from "/view.js";
 
@@ -28,9 +34,15 @@ function game() {
     more: false, // the lobby has more worlds than it shows
     packs: [], // what the account may create worlds from
     world: 0, // the world played, or about to be
+    asPlayer: false, // a game master plays the world as a player (GM mode off)
+    membersOf: 0, // the world whose members the lobby shows, 0 for none
+    members: [], // its members: { name, role, change }
+    membersMakeGM: false, // the account may make its members game masters
+    membersAdd: false, // the account may add accounts by name (admins)
+    addMember: { name: "" },
     codes: {}, // world id -> the last join code made here: { text, code, copied }
-    newWorld: { pack: "", title: "", visibility: "public" },
-    form: { name: "", password: "", code: "" },
+    newWorld: { pack: "", title: "", visibility: "public", settings: {} }, // settings: name -> choice (settings.js)
+    form: { name: "", password: "", code: "", classCode: "", email: "" },
     formError: "",
     busy: false,
     state: "connecting",
@@ -49,6 +61,8 @@ function game() {
     largeText: false,
     canSpeak: false,
     timers: [], // shown countdowns: { id, title, end }, end in this browser's clock
+    paused: false, // a game master paused the world: countdowns stand still (pause.js)
+    frozenAt: 0, // when they stopped, on this browser's clock
     now: Date.now(),
     atEnd: true, // the story is scrolled to its end: new lines keep it there
     newBelow: false, // lines came in while the player read further up
@@ -66,12 +80,13 @@ function game() {
       speaker.onChange(() => {
         this.canSpeak = speaker.available();
       });
+      this.takeLinkCode(); // before loadMe, which clears the address of a signed-out page
       this.loadMe();
     },
   };
   // The parts in their own files add their methods and getters; getters
   // must be copied as getters, so not with Object.assign.
-  for (const part of [lobby(), play(speaker), dialog(speaker), view(speaker)]) {
+  for (const part of [lobby(), members(), password(), profiles(), settings(), play(speaker), dialog(speaker), view(speaker), pause()]) {
     Object.defineProperties(component, Object.getOwnPropertyDescriptors(part));
   }
   return component;

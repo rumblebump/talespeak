@@ -33,6 +33,8 @@ mkdir "$tmp/web"
   cp "web/$f" "$tmp/web/$f"
 done
 sed -i 's#href="https://github.com/rumblebump/talespeak"##' "$tmp/web/static/index.html"
+# An SVG names its namespace with a URL; nothing loads from it.
+[ ! -f "$tmp/web/static/icon.svg" ] || sed -i 's#^<svg xmlns="http://www.w3.org/2000/svg" #<svg #' "$tmp/web/static/icon.svg"
 
 # report MESSAGE: prints the matches read from stdin and fails, if there are any.
 report() {
@@ -62,7 +64,7 @@ EOF2
 report "URL assignments in web/ (above): the client never loads or opens a URL from script" <<EOF2
 $(grep -rnIE '\.(src|href|srcset|action|formAction|poster|data)[[:space:]]*=[^=]|location[[:space:]]*=[^=]|location\.(href|assign|replace)|window\.open|\.style\.|setProperty\(|new (Image|Audio|Worker|SharedWorker|EventSource|WebSocket)\(|importScripts|import\(|fetch\(|XMLHttpRequest|sendBeacon' "$tmp/web" |
 	grep -vE "^$tmp/web/static/api\.js:[0-9]+:    resp = await fetch\(apiPath, \{ \.\.\.init, credentials: \"same-origin\", cache: \"no-store\" \}\);\$" |
-	grep -vE "^$tmp/web/static/net\.js:[0-9]+:    const ws = new WebSocket\(scheme \+ location\.host \+ \"/ws\?world=\" \+ world\);\$" || true)
+	grep -vE "^$tmp/web/static/net\.js:[0-9]+:    const ws = new WebSocket\(scheme \+ location\.host \+ \"/ws\?world=\" \+ world \+ as\);\$" || true)
 EOF2
 
 scripts/vendor.sh check || fail=1

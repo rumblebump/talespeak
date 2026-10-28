@@ -60,6 +60,20 @@ type Party interface {
 	RoomTimerLeft(name string) (time.Duration, bool)
 }
 
+// Clock is what a Host tells of its world's time (T-0012). A Host without
+// it has a world that never pauses and has no game time: world.paused()
+// is false, world.time() is 0, and timer.start with game = true raises an
+// error.
+type Clock interface {
+	// Paused reports whether a game master paused the world.
+	Paused() bool
+	// GameTime is how long the world has run unpaused with players in it.
+	GameTime() time.Duration
+	// StartGameTimer is StartTimer, or with room StartRoomTimer, for a
+	// timer that counts game time instead of real time.
+	StartGameTimer(name string, d time.Duration, show string, room bool) error
+}
+
 // Player is a player as room.players and world.players list them.
 type Player struct {
 	ID   string

@@ -103,9 +103,12 @@ test("demo: trying the door while the guard watches", async ({ page }) => {
   await page.getByRole("button", { name: "Yes, quickly" }).click();
   await expect(story).toContainText("SLAP!");
   await expect(story).toContainText("After a few days, you die.");
+  // The main world's death setting is the demo's default: the player
+  // wakes up in the cell and plays on (lib/death.lua).
+  await expect(story).toContainText("You wake up on the straw of your cell.");
   await input.fill("search the straw");
   await input.press("Enter");
-  await expect(story).toContainText("The story has ended.");
+  await expect(story).not.toContainText("dead");
 });
 
 test("demo: caught on the stairs after leaving the cell", async ({ page }) => {
@@ -126,6 +129,9 @@ test("demo: caught on the stairs after leaving the cell", async ({ page }) => {
   await page.getByRole("button", { name: "stairs down" }).click();
   await page.getByRole("button", { name: "Yes, go down" }).click();
   await expect(story).toContainText("straight into the guard");
-  await expect(story).toContainText("THE END.");
-  await expect(page.getByRole("navigation")).toBeHidden();
+  // The demo's default death setting: the player wakes up in the cell,
+  // with the guard back at his post.
+  await expect(story).toContainText("You wake up on the straw of your cell.");
+  await expect(story.locator(".room-title").last()).toHaveText("A damp cell");
+  await expect(page.getByRole("button", { name: "sleepy guard" })).toBeVisible();
 });

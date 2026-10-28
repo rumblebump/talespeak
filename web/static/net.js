@@ -12,7 +12,8 @@ const REPLACED = 4001;
  * Connects to /ws on this page's origin for one world and keeps
  * reconnecting until stopped. Before each retry, canRetry is asked: false
  * stops (the player was signed out, or may no longer play).
- * @param {{ world: number, onOpen: () => void, onMessage: (msg: object) => void, onClose: (retryMs: number) => void,
+ * asPlayer connects a game master as a player: GM mode starts off.
+ * @param {{ world: number, asPlayer?: boolean, onOpen: () => void, onMessage: (msg: object) => void, onClose: (retryMs: number) => void,
  *           onReplaced: () => void, canRetry: () => Promise<boolean> }} handlers
  * @returns {{ send: (msg: object) => boolean, stop: () => void }}
  */
@@ -25,7 +26,8 @@ export function connect(handlers) {
     if (stopped) return;
     const scheme = location.protocol === "https:" ? "wss://" : "ws://";
     const world = Number.isSafeInteger(handlers.world) && handlers.world > 0 ? handlers.world : 0;
-    const ws = new WebSocket(scheme + location.host + "/ws?world=" + world);
+    const as = handlers.asPlayer === true ? "&as=player" : "";
+    const ws = new WebSocket(scheme + location.host + "/ws?world=" + world + as);
     socket = ws;
     let pinger;
 

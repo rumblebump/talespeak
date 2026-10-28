@@ -67,6 +67,7 @@ type Message struct {
 	From    string   `json:"from,omitempty"`
 	Ms      int64    `json:"ms,omitempty"`
 	Role    string   `json:"role,omitempty"`
+	Paused  bool     `json:"paused,omitempty"`
 }
 
 // Item is something the player can click.
@@ -84,6 +85,12 @@ type Who struct {
 	// GM is set when the account is a game master of World
 	// (world_members.role), for player.gm and the GM commands.
 	GM bool
+	// AsPlayer is set when a game master joins as a player (the "as"
+	// query parameter is "player"): GM mode starts off, and /gm turns it
+	// on (T-0011).
+	AsPlayer bool
+	// Login names the sign-in session, never its token, for SignOut.
+	Login string
 }
 
 // Game is what a connection plays once it is welcomed.
@@ -128,44 +135,6 @@ type Replacer interface {
 // elsewhere (in another tab or on another device).
 const StatusReplaced websocket.StatusCode = 4001
 
-// Option changes a Server's limits.
-type Option func(*Server)
-
-// WithIdleTimeout sets how long a client may stay silent.
-func WithIdleTimeout(d time.Duration) Option { return func(s *Server) { s.idleTimeout = d } }
-
-// WithMaxConns sets how many connections may be open at once.
-func WithMaxConns(n int) Option { return func(s *Server) { s.maxConns = n } }
-
-// WithMaxConnsPerClient sets how many connections one client address may hold.
-func WithMaxConnsPerClient(n int) Option { return func(s *Server) { s.maxPerClient = n } }
-
-// WithConnectRate sets how many connections one client address may open at
-// once (burst) and per second after that (rate).
-func WithConnectRate(rate float64, burst int) Option {
-	return func(s *Server) { s.connectRate, s.connectBurst = rate, burst }
-}
-
-// WithClientIP sets how the client address is found (for example behind a
-// reverse proxy). The default is the TCP peer address.
-func WithClientIP(f func(*http.Request) string) Option { return func(s *Server) { s.clientIP = f } }
-
-// WithAuth makes every connection sign in: auth tells who sent r before
-// the upgrade, or refuses it with an HTTP status (401, 403) when status is
-// not 0.
-func WithAuth(auth func(r *http.Request) (who Who, status int)) Option {
-	return func(s *Server) { s.auth = auth }
-}
-
-// WithGame sets what connections play. Without one, the server answers only
-// ping.
-func WithGame(g Game) Option { return func(s *Server) { s.game = g } }
-
-// WithRateLimit sets the per-connection message rate (per second) and burst.
-func WithRateLimit(rate float64, burst int) Option {
-	return func(s *Server) { s.rate, s.burst = rate, burst }
-}
-
 // Server accepts WebSocket connections and tracks them for shutdown.
 type Server struct {
 	version      string
@@ -180,6 +149,8 @@ type Server struct {
 	connectBurst int
 	rate         float64
 	burst        int
+	recheck      time.Duration
+	signins      signins // the open connections by account (signin.go)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -200,7 +171,7 @@ func New(version string, log *slog.Logger, opts ...Option) *Server {
 		idleTimeout: DefaultIdleTimeout, maxConns: DefaultMaxConns,
 		maxPerClient: DefaultMaxConnsPerClient, clientIP: peerIP,
 		connectRate: DefaultConnectRate, connectBurst: DefaultConnectBurst,
-		rate: DefaultRate, burst: DefaultBurst,
+		rate: DefaultRate, burst: DefaultBurst, recheck: DefaultRecheck,
 		ctx: ctx, cancel: cancel, perClient: map[string]int{}, connects: map[string]*bucket{},
 	}
 	for _, o := range opts {
@@ -266,6 +237,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.SetReadLimit(MaxMessageBytes)
+	defer s.watch(c, r, who)()
 	s.handle(s.ctx, c, client, who)
 }
 

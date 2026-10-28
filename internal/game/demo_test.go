@@ -116,6 +116,20 @@ func ended(t *testing.T, s ws.Session, text string, got []ws.Message) {
 	}
 }
 
+// died checks the guard killed the player in a world whose dead stay dead
+// (lib/death.lua): no items left, and any action only says so.
+func died(t *testing.T, s ws.Session, text string, got []ws.Message) {
+	t.Helper()
+	wantText(t, "death", text, "After a few days, you die.\nYou are dead. In this world, the dead stay dead.")
+	if items := lastItems(t, got); len(items) != 0 {
+		t.Fatalf("items after dying: %v", items)
+	}
+	after, _ := play(t, s, ws.Message{Type: "input", Text: "talk to the guard"})
+	if after != "You are dead. In this world, the dead stay dead." {
+		t.Fatalf("after dying: %q", after)
+	}
+}
+
 // escapeCell sends the guard away, opens the lock and walks out into the
 // corridor.
 func escapeCell(t *testing.T, s ws.Session) {
@@ -220,7 +234,7 @@ func TestDemoCorridorStairs(t *testing.T) {
 	text, got := play(t, s, ws.Message{Type: "choose", ID: got[0].ID, Option: 1})
 	wantText(t, "well", text, "straight into the guard")
 	wantText(t, "die", text, "After a few days, you die.")
-	ended(t, s, text, got)
+	died(t, s, text, got)
 }
 
 // leftAfterCell is how many actions the guard's countdown has left when
@@ -255,7 +269,7 @@ func TestDemoGuardCatchesInCorridor(t *testing.T) {
 	}
 	text, got := play(t, s, look)
 	wantText(t, "caught", text, "sees you standing in the corridor")
-	ended(t, s, text, got)
+	died(t, s, text, got)
 }
 
 // A wrong code gets a hint on the second try; the corridor keeps what the
@@ -295,7 +309,7 @@ func TestDemoGuardRoom(t *testing.T) {
 	}
 	text, got = play(t, s, ws.Message{Type: "input", Text: "hmm"})
 	wantText(t, "caught", text, "The door bangs open.")
-	ended(t, s, text, got)
+	died(t, s, text, got)
 }
 
 // Back in the cell after saying yes to Whisp, the cell is as the player
@@ -355,7 +369,7 @@ func TestDemoCaughtAtTheDoor(t *testing.T) {
 		wantText(t, "slap", text, "SLAP!")
 		wantText(t, "well", text, "deep well")
 		wantText(t, "die", text, "After a few days, you die.")
-		ended(t, s, text, got)
+		died(t, s, text, got)
 		s.Close()
 	}
 }
@@ -396,5 +410,5 @@ func TestDemoGuardSeesOpenLock(t *testing.T) {
 	text, got := play(t, s, ws.Message{Type: "click", Item: "lock"})
 	wantText(t, "seen", text, "He sees the open lock.")
 	wantText(t, "slap", text, "SLAP!")
-	ended(t, s, text, got)
+	died(t, s, text, got)
 }

@@ -24,6 +24,12 @@ func (e *apiError) Error() string { return e.msg }
 
 func fail(status int, msg string) error { return &apiError{status, msg} }
 
+// isAPI reports whether err is an answer for the player, not a failure.
+func isAPI(err error) bool {
+	var api *apiError
+	return errors.As(err, &api)
+}
+
 var (
 	errSignIn     = fail(http.StatusUnauthorized, "Sign in first.")
 	errBadRequest = fail(http.StatusBadRequest, "That request was not understood.")

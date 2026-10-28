@@ -60,7 +60,7 @@ func TestDemoWhispAsksEveryTime(t *testing.T) {
 	}
 	text, got := play(t, s, ws.Message{Type: "input", Text: "hmm"})
 	wantText(t, "caught", text, "sees you standing in the corridor")
-	ended(t, s, text, got)
+	died(t, s, text, got)
 }
 
 // Back in the cell, its open door leads out again, into the corridor as
@@ -112,7 +112,7 @@ func TestDemoEscapeOnLastAction(t *testing.T) {
 	if strings.Contains(text, "BOX ") {
 		t.Fatalf("the stone was lifted while caught: %q", text)
 	}
-	ended(t, s, text, got)
+	died(t, s, text, got)
 }
 
 // Turning back to the cell on the countdown's last action: Whisp's
@@ -151,7 +151,7 @@ func TestDemoWhispOnLastAction(t *testing.T) {
 			if roomOf(s) != c.room {
 				t.Fatalf("caught, then in %q", roomOf(s))
 			}
-			ended(t, s, text, got)
+			died(t, s, text, got)
 		})
 	}
 }

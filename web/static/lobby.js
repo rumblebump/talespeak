@@ -5,6 +5,8 @@
 import { cleanCard, cleanLine, setHash, text, worldFromHash } from "/clean.js";
 import { api } from "/api.js";
 import { forgetLogs } from "/storylog.js";
+import { cleanProfiles } from "/profiles.js";
+import { cleanSettings } from "/settings.js";
 
 /** lobby returns the methods and getters of this part. */
 export function lobby() {
@@ -52,7 +54,7 @@ export function lobby() {
     async loadLobby(page) {
       try {
         const l = await api(page > 1 ? "/api/worlds?page=" + page : "/api/worlds");
-        const got = Array.isArray(l.worlds) ? l.worlds.filter((c) => c && typeof c === "object").map(cleanCard).filter((c) => c.id) : [];
+        const got = Array.isArray(l.worlds) ? l.worlds.filter((c) => c && typeof c === "object").map((c) => ({ ...cleanCard(c), profiles: cleanProfiles(c.profiles) })).filter((c) => c.id) : [];
         if (page > 1) {
           const seen = new Set(this.worlds.map((c) => c.id));
           this.worlds = [...this.worlds, ...got.filter((c) => !seen.has(c.id))];
@@ -64,7 +66,13 @@ export function lobby() {
         this.packs = Array.isArray(l.packs)
           ? l.packs
               .filter((p) => p && typeof p.id === "string")
-              .map((p) => ({ id: p.id, title: text(p.title).slice(0, 120), description: text(p.description).slice(0, 300), version: text(p.version).slice(0, 64) }))
+              .map((p) => ({
+                id: p.id,
+                title: text(p.title).slice(0, 120),
+                description: text(p.description).slice(0, 300),
+                version: text(p.version).slice(0, 64),
+                settings: cleanSettings(p.settings),
+              }))
           : [];
         if (!this.packs.some((p) => p.id === this.newWorld.pack)) this.newWorld.pack = this.packs.length ? this.packs[0].id : "";
       } catch (err) {
@@ -107,7 +115,7 @@ export function lobby() {
       this.send("/api/login", { name: this.form.name.trim(), password: this.form.password });
     },
     register() {
-      this.send("/api/register", { name: this.form.name.trim(), password: this.form.password });
+      this.send("/api/register", this.registerBody()); // password.js: with the class code and email when asked
     },
     join() {
       this.send("/api/join", { code: this.form.code.trim() });
@@ -117,13 +125,26 @@ export function lobby() {
       this.send("/api/logout", {});
     },
 
-    // enter plays the world of card.
-    enter(card) {
+    // enter plays the world of card; a game master of it plays as a
+    // player with asPlayer (GM mode off until /gm).
+    enter(card, asPlayer) {
+      if (this.needsPick(card)) {
+        // A world on a ruleset: pick who plays first (profiles.js).
+        if (this.view !== "lobby") this.openLobby();
+        this.openPick(card);
+        return;
+      }
       this.stopGame();
+      this.asPlayer = asPlayer === true;
+      this.closeMembers();
       this.world = card.id;
       setHash(card.id);
       this.view = "play";
       this.startGame();
+    },
+
+    enterAsPlayer(card) {
+      this.enter(card, true);
     },
 
     // toLobby leaves the world for the lobby.
@@ -144,10 +165,12 @@ export function lobby() {
           pack: this.newWorld.pack,
           title: cleanLine(this.newWorld.title),
           visibility: this.newWorld.visibility === "private" ? "private" : "public",
+          settings: this.pickedSettings(),
         });
         const id = made.world && Number.isSafeInteger(made.world.id) ? made.world.id : 0;
         if (id && made.invite) this.keepCode(id, made.invite);
         this.newWorld.title = "";
+        this.newWorld.settings = {};
         await this.loadLobby();
       } catch (err) {
         this.formError = err.message;

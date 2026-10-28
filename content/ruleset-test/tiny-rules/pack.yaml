@@ -1,0 +1,6 @@
+# A ruleset for the tests: a character has a level, kept in state.profile.
+id: tiny-rules
+version: 1.0.0
+kind: ruleset
+title: Tiny Rules
+description: A level that goes up when a story says so.

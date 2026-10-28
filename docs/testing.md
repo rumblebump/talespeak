@@ -19,7 +19,7 @@ Every feature ships with its tests in the same pull request. Quick tests run on 
 - Table-driven tests, standard `testing` package only; no assertion library needed.
 - Mark slow tests with `if testing.Short() { t.Skip("integration") }`.
 - **Time is injected.** The engine reads time through a `Clock` interface, so tests for timers, deadlines, rate limits and code expiry move a fake clock instead of sleeping.
-- **No network.** Tests never reach the internet. The LLM sidecar, SMTP and later SSO are replaced by local fakes (`httptest.Server`, an in-process SMTP stub).
+- **No network.** Tests never reach the internet. The LLM sidecar, SMTP and later SSO are replaced by local fakes (`httptest.Server`, and for SMTP the in-process server of `internal/mail/mailtest`, with STARTTLS, TLS and a certificate made at start).
 - **Golden files** in `testdata/` for rendered room text and widget messages; update them with `go test ./... -update`.
 - The race detector runs on every full run, because worlds, timers and WebSocket sessions are concurrent.
 - Coverage is reported on full runs. There is no hard threshold; a new package without tests is flagged in review.
@@ -33,7 +33,7 @@ CGO_ENABLED=0 go build -o bin/talespeak ./cmd/talespeak
 cd e2e
 npm ci
 npx playwright install chromium
-npx playwright test                  # starts ../bin/talespeak three times: the test pack, the demo, and the demo for party tests
+npx playwright test                  # starts ../bin/talespeak for each server in playwright.config.js: the test pack, the demo, party tests, invites, the ruleset packs
 npx playwright test --ui             # watch and debug locally
 ```
 

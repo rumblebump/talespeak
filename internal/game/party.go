@@ -139,7 +139,7 @@ func roomTimerID(name string) string { return "room:" + name }
 func (w *World) timerMessage(name string, t *roomTimer) ws.Message {
 	m := ws.Message{Type: "timer", ID: roomTimerID(name)}
 	if t != nil && t.show != "" {
-		m.Title, m.Ms = t.show, max(t.deadline.Sub(w.now()).Milliseconds(), 1)
+		m.Title, m.Ms = t.show, max(t.deadline.Sub(w.clockNow(t.game)).Milliseconds(), 1)
 	}
 	return m
 }
@@ -148,6 +148,13 @@ func (w *World) timerMessage(name string, t *roomTimer) ws.Message {
 // They run during a hook, under w.mu. The players in the room hear of a
 // shown timer's change once the hook ends (announceTimers).
 func (s *session) StartRoomTimer(name string, d time.Duration, show string) error {
+	return s.startRoomTimer(name, d, show, false)
+}
+
+// startRoomTimer starts the room's timer name; a shown one gets the
+// largest extra time of the players in the room and the world's /mintime.
+// The caller holds w.mu.
+func (s *session) startRoomTimer(name string, d time.Duration, show string, game bool) error {
 	w, room := s.w, s.room
 	ts := w.roomTimers[room]
 	old := ts[name]
@@ -161,8 +168,12 @@ func (s *session) StartRoomTimer(name string, d time.Duration, show string) erro
 		ts = map[string]*roomTimer{}
 		w.roomTimers[room] = ts
 	}
-	t := &roomTimer{timer: timer{deadline: w.now().Add(d), show: show, readOnly: s.readOnlyWorld}, by: s, byChar: s.char}
-	t.stop = w.after(d, func() { w.fireRoom(room, name, t) })
+	if show != "" {
+		d = w.shownTime(d, w.roomFactor(room))
+	}
+	t := &roomTimer{timer: timer{deadline: w.clockNow(game).Add(d), show: show, readOnly: s.readOnlyWorld, game: game}, by: s, byChar: s.char}
+	t.fire = func() { w.fireRoom(room, name, t) }
+	w.arm(&t.timer)
 	ts[name] = t
 	w.noteRoomTimer(room, name, t)
 	if show != "" || (old != nil && old.show != "") {
@@ -190,7 +201,7 @@ func (s *session) RoomTimerLeft(name string) (time.Duration, bool) {
 	if t == nil {
 		return 0, false
 	}
-	return t.deadline.Sub(s.w.now()), true
+	return t.deadline.Sub(s.w.clockNow(t.game)), true
 }
 
 // dropRoomTimer forgets the room's timer name. The caller holds w.mu.
@@ -281,7 +292,7 @@ func (s *session) showRoomTimers(old, to string) {
 func (w *World) fireRoom(room, name string, t *roomTimer) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.closed || w.roomTimers[room][name] != t {
+	if w.closed || w.roomTimers[room][name] != t || !w.ready(&t.timer) {
 		return
 	}
 	list := w.inRoom(room)
@@ -289,8 +300,8 @@ func (w *World) fireRoom(room, name string, t *roomTimer) {
 		list = append(append([]*session{list[i]}, list[:i]...), list[i+1:]...)
 	}
 	if len(list) == 0 {
-		t.due, t.stop, t.by = true, func() bool { return false }, nil // by: keep no session that left
-		if t.show != "" {                                             // nobody sees it any more, nor will those who come in
+		t.due, t.stop, t.by = true, noStop, nil // by: keep no session that left
+		if t.show != "" {                       // nobody sees it any more, nor will those who come in
 			t.show = ""
 			w.noteRoomTimer(room, name, t)
 		}
@@ -307,7 +318,9 @@ func (w *World) fireRoom(room, name string, t *roomTimer) {
 		t.show = ""
 	}
 	for _, p := range list {
-		if p.runPushed(script.Hook{Name: "on_timer", Args: []string{name, "room"}, ReadOnlyWorld: t.readOnly}) {
+		// A GM it falls to runs it as a player: the starter's timer must
+		// not gain the GM's rights.
+		if p.runPushed(script.Hook{Name: "on_timer", Args: []string{name, "room"}, ReadOnlyWorld: t.readOnly, NoGM: !t.starter(p)}) {
 			return
 		}
 	}
@@ -316,7 +329,7 @@ func (w *World) fireRoom(room, name string, t *roomTimer) {
 	}
 	w.roomTimers[room][name] = t
 	w.noteRoomTimer(room, name, t)
-	t.stop = w.after(retryBusy, func() { w.fireRoom(room, name, t) })
+	t.stop = w.after(retryBusy, t.fire)
 }
 
 // stopRoomTimers stops every room timer. The caller holds w.mu.

@@ -137,6 +137,7 @@ main { flex: 1; padding: 1rem; max-width: 60rem; margin: 0 auto; width: 100%; }
 .timers li { unicode-bidi: isolate; }
 .timers { list-style: none; margin: 0.5rem 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 1.5rem; color: var(--warn); }
 .countdown { color: var(--warn); margin: 0 0 0.5rem; }
+.paused { color: var(--warn); font-weight: bold; margin: 0.5rem 0; }
 .dialog { border-left: 2px solid var(--accent); padding-left: 1rem; margin: 1rem 0; }
 .dialog-title { margin: 0 0 0.5rem; }
 .dialog-options { margin: 0; padding-left: 1.75rem; }
@@ -207,7 +208,7 @@ body[data-view="play"] .story {
   overscroll-behavior: contain;
 }
 body[data-view="play"] .items { flex: none; max-height: 30vh; overflow-y: auto; margin: 0.5rem 0 0; }
-body[data-view="play"] .timers { flex: none; }
+body[data-view="play"] .timers, body[data-view="play"] .paused { flex: none; }
 body[data-view="play"] .dialog { flex: none; max-height: 45vh; overflow-y: auto; margin: 0.5rem 0 0; }
 body[data-view="play"] footer { padding: 0.2rem 1rem; font-size: 0.7rem; }
 
@@ -286,6 +287,10 @@ footer { padding: 0.75rem 1rem; text-align: center; color: var(--muted); font-si
   padding: 0.25rem 0.9rem;
   min-height: 2.25rem;
 }
+.account .links button.link { border: none; background: none; padding: 0; min-height: 0; color: var(--muted); text-decoration: underline; }
+.pw-notice, .pw-made { color: var(--accent); }
+.account-settings { margin: 1.5rem 0; }
+.account-settings summary { cursor: pointer; color: var(--accent); }
 .who { color: var(--fg); }
 .story .notice { color: var(--accent); }
 
@@ -334,7 +339,28 @@ footer { padding: 0.75rem 1rem; text-align: center; color: var(--muted); font-si
   min-height: 2.25rem;
 }
 .card button.play { border-color: var(--accent); color: var(--accent); }
+.members { border-top: 1px solid var(--line); padding-top: 0.5rem; display: grid; gap: 0.4rem; }
+.members h4 { margin: 0; font-size: 0.9rem; color: var(--muted); }
+.members ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.3rem; }
+.members li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; overflow-wrap: anywhere; }
+.members form { display: flex; flex-wrap: wrap; align-items: end; gap: 0.4rem; }
+.members input { min-width: 0; }
 .copy { margin-left: 0.5rem; min-height: 1.75rem; font-size: 0.85rem; }
+/* Picking who plays a world on a ruleset (profiles.js). */
+.card-pick { border: 1px solid var(--line); border-radius: 3px; margin: 0; padding: 0.5rem 0.75rem; font-size: 0.9rem; }
+.card-pick label { display: block; overflow-wrap: anywhere; }
+.card-pick label.choice { display: flex; gap: 0.5rem; align-items: baseline; margin: 0.25rem 0; }
+.card-pick input { accent-color: var(--accent); }
+.card-pick input:not([type="radio"]) {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.3rem 0.5rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
 .account select {
   display: block;
   width: 100%;

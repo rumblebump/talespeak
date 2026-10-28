@@ -227,6 +227,38 @@ A game in levels that a party plays together, saved at the end of each level, is
 
 A restart is not everyone leaving: after one, the level goes on where it was.
 
+## Death and save points
+
+What dying means is the world's choice, not the engine's: the pack declares a `death` setting in `pack.yaml` ([content-format.md](content-format.md)), whoever creates a world picks it in the lobby, and its game master changes it with `/set death MODE`. The demo's `lib/death.lua`, for any pack to copy, reads it with `state.game.get("death")`:
+
+| Mode | What happens |
+| --- | --- |
+| `stay` | The player is dead for the rest of the world: every room they reach says so and does nothing else |
+| `revive` | The same, until a spell or another script action brings them back with `death.revive(player_id)`; the demo's game master types `/revive NAME` |
+| `respawn` | The player wakes up at once at their last save point, with the room's puzzle started over |
+
+```lua
+local death = require("death")
+
+function on_enter(player)
+  if death.blocked(player) then return end -- dead: nothing else happens
+  death.save_point(player)                 -- wake up here after dying
+end
+
+function on_input(player, text)
+  if death.blocked(player) then return end
+  if text == "jump" then death.die(player, "You fall.") end
+end
+
+function on_change(player, keys) death.on_change(player, keys) end -- hears of a revive
+```
+
+- **Who is dead** is in `state.world` (`dead_<player id>`), not `state.player`, so another player's hook (a healer's spell, the game master's `/revive`) can bring them back; `death.on_change` then tells the revived player and shows their room again.
+- **Save points** are a room id in `state.player` (`save_point`), set by the pack's own rooms with `death.save_point(player [, room])`; without one the player wakes up where they died. After a respawn, `death.respawned()` is true once in the room they wake up in, so it can reset its puzzle (the demo's cell puts the guard back and clears `solved_cell`).
+- **Changing the mode** while players are dead takes effect on their next action: switched to `respawn`, a dead player wakes up at their save point.
+- **The texts** are in `death.texts`; a pack changes them after `require`.
+- **A world can end** for everyone from a script: `world.finish("The kingdom is saved. THE END.")` ends it like ending it in the lobby, for example when the last player of a party dies in `stay` mode. The server's main world never ends this way.
+
 ## One module in several files
 
 A module that grows past about 500 lines can be split by function and still be one module to the rooms. The clockmaker's `case.lua` installs its parts at the end of its top level:

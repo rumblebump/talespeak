@@ -89,6 +89,9 @@ type World struct {
 	log  *slog.Logger
 	pack *pack.Pack
 
+	ruleset  *pack.Pack     // the ruleset the story runs on (profile.go); nil without one
+	profiles store.Profiles // where the players' profiles are, with a ruleset
+
 	mu       sync.Mutex // guards rt, budgets, sessions, every session's fields and closed, and every Lua call: gopher-lua states are not goroutine safe
 	rt       *script.Runtime
 	scripts  map[string]*script.Script // room id -> its compiled script
@@ -135,6 +138,22 @@ type World struct {
 	auditLog   []store.AuditEntry // the latest actions without an audit store, the oldest first
 
 	broadcasts map[string]*budget // game master -> commands that reach other players they may send now
+
+	// The world's time (clock.go, T-0012).
+	pausedAt    time.Time          // when a game master paused the world; zero while it runs
+	pausedFor   time.Duration      // how long it was paused before: the world clock is this far behind the wall clock
+	gameTime    time.Duration      // the game time counted until gameSince
+	gameSince   time.Time          // when the game clock last started
+	gameRuns    bool               // the game clock runs: the world is not paused and a player is online
+	minTime     time.Duration      // the shortest question timeout or shown timer (/mintime); 0 is off
+	clockDirty  bool               // the world's time changed since the last save
+	stateLimits script.StateLimits // of state.player, state.world and state.game
+	game        script.State       // state.game, with the world's settings (gamestate.go)
+	gameChanged []string           // state.game keys changed since the last save
+	gameUnsaved []string           // state.game keys a failed save did not write
+	finish      func(text string)  // ends the world for world.finish; nil: it cannot end from a script
+	finishText  string             // what world.finish said, shown when the world ends
+	finishing   bool               // world.finish was called: the world ends soon
 }
 
 // NewWorld compiles every room script of p and runs each top level once, so
@@ -145,7 +164,9 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Opti
 		budgets: map[string]*budget{}, now: time.Now, after: afterFunc, clientMemory: DefaultClientMemory, clientEnvs: map[string]map[*script.Env]struct{}{},
 		clientState: map[string]int64{}, roomTimers: map[string]map[string]*roomTimer{}, timerNews: map[roomTimerKey]struct{}{},
 		timerDue: map[roomTimerKey]*session{}, chars: map[int64]*session{}, lost: map[int64]store.Save{}, timerSaves: map[timerKey]timerSave{}}
-	w.world = script.State{World: true, Reserve: w.reserveWorld, Changed: w.change}
+	w.stateLimits = limits.State.OrDefault()
+	w.world = script.State{World: true, Reserve: w.reserveWorld, Changed: w.change, Limits: w.stateLimits}
+	w.game = script.State{Game: true, Reserve: w.reserveWorld, Changed: w.changeGame, Limits: w.stateLimits, Choices: p.SettingChoices()}
 	WithClientBudget(DefaultClientRate, DefaultClientBurst)(w)
 	for _, o := range opts {
 		o(w)
@@ -159,7 +180,13 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Opti
 			err = w.world.Load(vals)
 		}
 		if err == nil {
+			err = w.loadGame(ctx)
+		}
+		if err == nil {
 			timers, err = w.store.RoomTimers(ctx, w.worldID)
+		}
+		if err == nil {
+			err = w.loadClock(ctx)
 		}
 		cancel()
 		if err != nil {
@@ -167,8 +194,11 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Opti
 			return nil, fmt.Errorf("world state: %w", err)
 		}
 	}
-	for _, name := range slices.Sorted(maps.Keys(p.Modules)) {
-		sc, err := w.rt.Compile("lib/"+name+".lua", p.Modules[name])
+	w.rt.SetPack(w.packInfo())
+	w.applySettings()
+	modules := w.modules()
+	for _, name := range slices.Sorted(maps.Keys(modules)) {
+		sc, err := w.rt.Compile("lib/"+name+".lua", modules[name])
 		if err == nil {
 			err = w.rt.AddModule(name, sc)
 		}
@@ -216,6 +246,8 @@ func (w *World) closeLocked() {
 		return
 	}
 	w.closed = true
+	w.checkGame() // stops the game clock
+	w.writeClock()
 	for s := range w.sessions {
 		s.stopTimers()
 	}
@@ -233,8 +265,8 @@ func (w *World) closeLocked() {
 // world without a store places a new player without an account in the
 // start room.
 func (w *World) NewSession(client string, who ws.Who) (ws.Session, []ws.Message) {
-	s := &session{w: w, client: budgetKey(client), gm: who.GM, account: who.Account}
-	s.state.Reserve = s.reserve
+	s := &session{w: w, client: budgetKey(client), member: who.GM, gm: who.GM && !who.AsPlayer, asPlayer: who.AsPlayer, account: who.Account}
+	s.state.Reserve, s.state.Limits = s.reserve, w.stateLimits
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	room := w.pack.Start
@@ -263,6 +295,10 @@ func (w *World) NewSession(client string, who ws.Who) (ws.Session, []ws.Message)
 		if s.char != 0 {
 			w.chars[s.char] = s
 		}
+		w.checkGame()
+	}
+	if !w.pausedAt.IsZero() {
+		s.out = append([]ws.Message{pauseMessage(true)}, s.out...) // before the countdowns, which stand still
 	}
 	return s, s.enterLocked(room, false)
 }
@@ -316,14 +352,19 @@ func (w *World) CloseIfEmpty() bool {
 }
 
 // End sends every player away with msg, as if they left, and closes the
-// world: their connections close after msg.
+// world: their connections close after msg. A world that world.finish
+// ends shows its text first.
 func (w *World) End(msg string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	last := []ws.Message{{Type: "error", Message: msg}}
+	if w.finishText != "" {
+		last = append([]ws.Message{{Type: "text", Text: w.finishText}}, last...)
+	}
 	for s := range w.sessions {
 		s.end()
 		s.lagged = true // Pending reports the session over: the connection closes
-		s.queue, s.queueBytes = []ws.Message{{Type: "error", Message: msg}}, 0
+		s.queue, s.queueBytes = last, 0
 		if s.notify != nil {
 			s.notify()
 		}

@@ -1,0 +1,7 @@
+# Tiny Rules 2: the level moved into a stats table, with courage next to
+# it. migrations/2.lua moves 1.x sheets.
+id: tiny-rules
+version: 2.0.0
+kind: ruleset
+title: Tiny Rules
+description: Level and courage.

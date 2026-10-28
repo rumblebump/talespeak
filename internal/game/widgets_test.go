@@ -24,6 +24,7 @@ func shippedDemo(t *testing.T) *World {
 		t.Fatal(err)
 	}
 	t.Cleanup(w.Close)
+	setSetting(t, w, "death", "stay") // the story ends when the guard catches the player
 	return w
 }
 
@@ -82,7 +83,7 @@ func TestDemoMatchesProtocolDoc(t *testing.T) {
 	got = send(t, s, `{"type":"click","item":"scratches"}`)
 	if len(got) != 2 || !strings.HasPrefix(got[0], `{"type":"text","text":"You roll `) ||
 		(!strings.HasPrefix(got[1], `{"type":"image","text":"A map scratched`) && !strings.HasPrefix(got[1], `{"type":"image","text":"Faint scratches`)) ||
-		!strings.Contains(got[1], `"url":"/packs/demo/1.1.0/assets/wall-map-`) {
+		!strings.Contains(got[1], `"url":"/packs/demo/1.2.0/assets/wall-map-`) {
 		t.Fatalf("image:\n%s", strings.Join(got, "\n"))
 	}
 }
@@ -206,7 +207,7 @@ func TestImageMessage(t *testing.T) {
 		t.Fatal("Image(wall-map-clear.png) = false")
 	}
 	m := sess.flush()
-	if len(m) != 1 || m[0].Type != "image" || m[0].URL != "/packs/demo/1.1.0/assets/wall-map-clear.png" || m[0].Text != "cap" {
+	if len(m) != 1 || m[0].Type != "image" || m[0].URL != "/packs/demo/1.2.0/assets/wall-map-clear.png" || m[0].Text != "cap" {
 		t.Errorf("image message = %+v", m)
 	}
 }

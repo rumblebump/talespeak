@@ -1,6 +1,6 @@
 # WebSocket protocol
 
-The browser talks to the engine over one WebSocket per world at `/ws?world=ID` on the same origin, where `ID` is the world's id from the lobby ([accounts.md](accounts.md)). Upgrades from another origin are refused. The upgrade needs the sign-in cookie: without it the server answers 401, 404 for a world that does not exist, has ended or is private and not joined (or no `world`), and 403 for a world the account sees but may not play (its pack is not installed). A player who cannot join after the upgrade (the server has too many worlds loaded, their address plays too many worlds at once, the world's pack is not installed, the world could not load) gets an `error` and the connection closes (1008). When a world ends, its players get an `error` ("This world has ended.") and their connections close (1008); the client then finds the world gone from the lobby and goes back to it.
+The browser talks to the engine over one WebSocket per world at `/ws?world=ID` on the same origin, where `ID` is the world's id from the lobby ([accounts.md](accounts.md)); a game master adds `&as=player` to play with GM mode off ([gm-tools.md](gm-tools.md#gm-mode)). Upgrades from another origin are refused. The upgrade needs the sign-in cookie: without it the server answers 401, 404 for a world that does not exist, has ended or is private and not joined (or no `world`), and 403 for a world the account sees but may not play (its pack is not installed). A player who cannot join after the upgrade (the server has too many worlds loaded, their address plays too many worlds at once, the world's pack is not installed, the world could not load) gets an `error` and the connection closes (1008). When a world ends, its players get an `error` ("This world has ended.") and their connections close (1008); the client then finds the world gone from the lobby and goes back to it.
 
 Every message, in both directions, is one JSON object with a `type` field.
 
@@ -36,7 +36,8 @@ Per-client limits count IPv6 clients by their /64 network; the Lua time budget c
 | server → client | `select` | `id`, `title`, `options` (1 to 9 strings), `min`, `max`, `speak`, `hide`, `from`, `ms` | A question where the player picks `min` (0 when absent) to `max` options |
 | server → client | `ask` | `id`, `title`, `strict`, `speak`, `hide`, `from`, `ms` | A question the player answers by typing. `strict`: no typing help (no autocorrect, autocomplete or suggestions, clickable items hidden), for spelling practice and riddles |
 | server → client | `close` | `id` | The question with this `id` is gone without an answer: its time ran out, or a timer moved the player. Answers to it get an `error` |
-| server → client | `timer` | `id`, `title`, `ms` | A countdown to show: `title` is its label (1 to 100 bytes), `ms` the time left in milliseconds (at most a day). The same `id` replaces it; without `ms` it is removed. Only timers a script shows are sent; secret ones are not. A room's timer, which every player in the room sees, has the id `room:<name>`; a player's own timer has its plain name. After `welcome`, the engine sends the countdowns that still run for the player. A client shows at most 20 |
+| server → client | `timer` | `id`, `title`, `ms` | A countdown to show: `title` is its label (1 to 100 bytes), `ms` the time left in milliseconds (at most a day). The same `id` replaces it; without `ms` it is removed. Only timers a script shows are sent; secret ones are not. A room's timer, which every player in the room sees, has the id `room:<name>`; a player's own timer has its plain name. After `welcome`, the engine sends the countdowns that still run for the player. A client shows at most 20. The id `question:<dialog id>` is the countdown of that open question instead: a game master gave more time (`ms`) or took the limit off (no `ms`) |
+| server → client | `pause` | `paused` | A game master paused the world (`paused` true) or let it go on (`paused` missing): while it is paused, countdowns stand still, and what the player types, clicks or answers gets "The game is paused.". On going on, the engine sends every countdown again with its time left. A player who joins a paused world gets it first |
 | client → server | `choose` | `id`, `option` (1-based) for `dialog`; `id`, `choices` (list of option numbers) for `select` | The answer to the open dialog or select |
 | client → server | `answer` | `id`, `text` | The typed answer to the open `ask` |
 | client → server | `input` | `text` | A line the player typed, outside a question; runs the room's `on_input`. A line that starts with `/` is a command instead ([gm-tools.md](gm-tools.md)), and never reaches `on_input`: the engine's own commands (`/help`, and the game master's) work also while a question is open; a room's commands (`on_command`) need it answered first |
@@ -75,7 +76,7 @@ Playing the demo:
 < {"type":"text","text":"You step back from the door. The guard yawns."}
 > {"type":"click","item":"scratches"}
 < {"type":"text","text":"You roll 14: in the dim light the scratches turn into a map."}
-< {"type":"image","text":"A map scratched into the wall. An X marks the end of the corridor.","url":"/packs/demo/1.1.0/assets/wall-map-clear.png"}
+< {"type":"image","text":"A map scratched into the wall. An X marks the end of the corridor.","url":"/packs/demo/1.2.0/assets/wall-map-clear.png"}
 ```
 
 The demo's exchange is checked byte for byte by `TestDemoMatchesProtocolDoc` (the dice roll aside).
@@ -87,5 +88,7 @@ The demo's exchange is checked byte for byte by `TestDemoMatchesProtocolDoc` (th
 When the server shuts down it closes connections with 1001 (going away); the client reconnects with backoff (1 s doubling to 30 s), and asks `/api/me` first, so a sign-in that ended shows the sign-in page instead of retrying.
 
 When the same account connects again (another tab or device), the older connection gets an `error` ("You are playing in another window or on another device now.") and closes with 4001; the client does not reconnect after it on its own.
+
+When the sign-in behind a connection ends or no longer lets it play the world (signing out, a password reset or change, an expired sign-in, a role taken away), the connection closes with 4002 ("signed out" or "sign-in changed"): at once for a sign-out, reset or change in the browser, otherwise at the next check, every `TALESPEAK_SIGNIN_RECHECK` (1 minute). The client asks `/api/me` and the lobby before it connects again, as after any close ([accounts.md](accounts.md)).
 
 Audio messages and further widgets (map, slider) are added here as their tasks land.

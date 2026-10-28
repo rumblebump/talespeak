@@ -1,0 +1,10 @@
+# The second story: only for characters who finished Forest Start.
+id: dragon-isle
+version: 1.0.0
+title: Dragon Isle
+description: Where the fox leads.
+start: beach
+ruleset: { id: tiny-rules, version: "^1.0" }
+continues:
+  - { id: forest-start, version: ">=1.0", completed: true }
+imports: [flags.rescued_fox]

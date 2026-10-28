@@ -115,6 +115,7 @@ var (
 	errEnded  = errors.New("This world has ended. Go back to the lobby.")
 	errNoPack = errors.New("This world's pack is not installed on this server.")
 	errNoVer  = errors.New("This world needs another version of its pack than this server has.")
+	errNoRule = errors.New("This world's ruleset is not installed on this server.")
 	errFull   = errors.New("The server has too many worlds open right now. Try again in a few minutes.")
 	errLoad   = errors.New("This world could not be loaded. Try again later.")
 	errClosed = errors.New("The server is shutting down.")
@@ -340,8 +341,11 @@ func (h *Hub) Pack(w store.World) (*pack.Pack, error) {
 	switch {
 	case errors.As(err, &nv):
 		return nil, errNoVer
-	case err != nil:
+	case err != nil || p.IsRuleset():
 		return nil, errNoPack
+	}
+	if _, err := h.cfg.Packs.Ruleset(p); err != nil {
+		return nil, errNoRule
 	}
 	return p, nil
 }

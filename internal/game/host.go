@@ -55,6 +55,11 @@ func (s *session) PlayerState() *script.State { return &s.state }
 
 func (s *session) WorldState() *script.State { return &s.w.world }
 
+// GameState, GameMaster and Finish implement script.Game (gamestate.go).
+func (s *session) GameState() *script.State { return &s.w.game }
+
+func (s *session) GameMaster() bool { return s.gm }
+
 // reserve accounts for state.player growing by delta bytes: the world and
 // the player's client address share the limits of script memory. The
 // caller holds w.mu.

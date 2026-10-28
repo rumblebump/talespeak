@@ -65,7 +65,7 @@ func TestDemoCorridorStayUp(t *testing.T) {
 	}
 	text, got = play(t, s, look)
 	wantText(t, "caught", text, "sees you standing in the corridor")
-	ended(t, s, text, got)
+	died(t, s, text, got)
 }
 
 // Back in the cell, the countdown goes on from where it was, and the guard
@@ -85,7 +85,7 @@ func TestDemoCaughtBackInCell(t *testing.T) {
 	}
 	text, got := play(t, s, look)
 	wantText(t, "seen", text, "He sees the open lock.")
-	ended(t, s, text, got)
+	died(t, s, text, got)
 }
 
 // The guard's countdown is one for all rooms: leaving the corridor on its
@@ -107,7 +107,7 @@ func TestDemoGuardCountsInEveryRoom(t *testing.T) {
 	if roomOf(s) != "guardroom" {
 		t.Fatalf("caught, then moved to %q", roomOf(s))
 	}
-	ended(t, s, text, got)
+	died(t, s, text, got)
 }
 
 // Every player has their own rooms: one player's stone and countdown do

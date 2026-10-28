@@ -33,6 +33,7 @@ type limits struct {
 	messageBurst                int
 	idleTimeout                 time.Duration
 	signInBurst                 int
+	signInRecheck               time.Duration
 
 	worldsPerAccount, maxWorlds, loadedWorlds int
 	worldsPerClient                           int
@@ -57,6 +58,7 @@ func loadLimits(getenv func(string) string) (limits, error) {
 		messageBurst:      ws.DefaultBurst,
 		idleTimeout:       ws.DefaultIdleTimeout,
 		signInBurst:       account.DefaultAddressBurst,
+		signInRecheck:     ws.DefaultRecheck,
 		worldsPerAccount:  account.DefaultWorldsPerAccount,
 		maxWorlds:         account.DefaultMaxWorlds,
 		loadedWorlds:      hub.DefaultMaxLoaded,
@@ -127,6 +129,7 @@ func loadLimits(getenv func(string) string) (limits, error) {
 		l.luaClientMemory = min(l.luaClientMemory, l.script.StateMemory)
 	}
 	size("TALESPEAK_LUA_CLIENT_MEMORY", &l.luaClientMemory, 64<<10, 4<<30)
+	stateLimits(&l.script.State, size, count)
 	size("TALESPEAK_PACK_IMAGE_MAX", &l.pack.AssetBytes, 1<<10, 64<<20)
 	size("TALESPEAK_PACK_IMAGES_TOTAL", &l.pack.AssetsBytes, 1<<10, 4<<30)
 	count("TALESPEAK_MAX_CONNS", &l.maxConns, 1, 1_000_000)
@@ -141,6 +144,8 @@ func loadLimits(getenv func(string) string) (limits, error) {
 	// The client pings every 30 s, so less than 45 s would drop idle players.
 	duration("TALESPEAK_IDLE_TIMEOUT", &l.idleTimeout, 45*time.Second, 24*time.Hour)
 	count("TALESPEAK_SIGNIN_BURST", &l.signInBurst, 1, 1_000_000)
+	// How often an open game checks its sign-in again (internal/ws).
+	duration("TALESPEAK_SIGNIN_RECHECK", &l.signInRecheck, 10*time.Second, time.Hour)
 	count("TALESPEAK_WORLDS_PER_ACCOUNT", &l.worldsPerAccount, 1, 1000)
 	count("TALESPEAK_MAX_WORLDS", &l.maxWorlds, 1, 1_000_000)
 	count("TALESPEAK_LOADED_WORLDS", &l.loadedWorlds, 1, 10_000)
@@ -153,6 +158,9 @@ func loadLimits(getenv func(string) string) (limits, error) {
 	if l.luaClientMemory > l.script.StateMemory {
 		errs = append(errs, fmt.Errorf("TALESPEAK_LUA_CLIENT_MEMORY (%s) is larger than TALESPEAK_LUA_STATE_MEMORY (%s)", formatBytes(l.luaClientMemory), formatBytes(l.script.StateMemory)))
 	}
+	if st := l.script.State; int64(st.ValueBytes) > min(st.PlayerBytes, st.WorldBytes, st.GameBytes) {
+		errs = append(errs, fmt.Errorf("TALESPEAK_STATE_VALUE_MAX (%s) is larger than TALESPEAK_STATE_PLAYER_MAX, TALESPEAK_STATE_WORLD_MAX or TALESPEAK_STATE_GAME_MAX: no value that large would fit", formatBytes(int64(st.ValueBytes))))
+	}
 	if l.pack.AssetsBytes < l.pack.AssetBytes {
 		errs = append(errs, fmt.Errorf("TALESPEAK_PACK_IMAGES_TOTAL (%s) is smaller than TALESPEAK_PACK_IMAGE_MAX (%s)", formatBytes(l.pack.AssetsBytes), formatBytes(l.pack.AssetBytes)))
 	}
@@ -160,6 +168,27 @@ func loadLimits(getenv func(string) string) (limits, error) {
 		errs = append(errs, fmt.Errorf("TALESPEAK_MAX_CONNS_PER_CLIENT (%d) is larger than TALESPEAK_MAX_CONNS (%d)", l.maxConnsPerClient, l.maxConns))
 	}
 	return l, errors.Join(errs...)
+}
+
+// stateLimits reads the TALESPEAK_STATE_* limits of state.player,
+// state.world and state.game (T-0018) with loadLimits' size and count.
+func stateLimits(l *script.StateLimits, size func(string, *int64, int64, int64), count func(string, *int, int, int)) {
+	lo, hi := script.MinStateLimits, script.MaxStateLimits
+	sizeInt := func(key string, dst *int, lo, hi int) { // a size that fits an int
+		n := int64(*dst)
+		size(key, &n, int64(lo), int64(hi))
+		*dst = int(n)
+	}
+	count("TALESPEAK_STATE_KEY_BYTES", &l.KeyBytes, lo.KeyBytes, hi.KeyBytes)
+	sizeInt("TALESPEAK_STATE_VALUE_MAX", &l.ValueBytes, lo.ValueBytes, hi.ValueBytes)
+	count("TALESPEAK_STATE_DEPTH", &l.Depth, lo.Depth, hi.Depth)
+	size("TALESPEAK_STATE_PLAYER_MAX", &l.PlayerBytes, lo.PlayerBytes, hi.PlayerBytes)
+	count("TALESPEAK_STATE_PLAYER_KEYS", &l.PlayerKeys, lo.PlayerKeys, hi.PlayerKeys)
+	size("TALESPEAK_STATE_WORLD_MAX", &l.WorldBytes, lo.WorldBytes, hi.WorldBytes)
+	count("TALESPEAK_STATE_WORLD_KEYS", &l.WorldKeys, lo.WorldKeys, hi.WorldKeys)
+	size("TALESPEAK_STATE_GAME_MAX", &l.GameBytes, lo.GameBytes, hi.GameBytes)
+	count("TALESPEAK_STATE_GAME_KEYS", &l.GameKeys, lo.GameKeys, hi.GameKeys)
+	count("TALESPEAK_STATE_WRITES", &l.Writes, lo.Writes, hi.Writes)
 }
 
 var byteUnits = []struct {

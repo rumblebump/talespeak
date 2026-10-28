@@ -42,19 +42,33 @@ type coreCommand struct {
 	name  string
 	usage string // how to type it, for /help
 	help  string
-	gm    bool
+	gm    bool // only in GM mode
+	// member is set for a command of every game master of the world, in
+	// GM mode or not: /gm.
+	member bool
 }
 
 // coreCommands are the engine's commands, in the order /help lists them.
 // A room script's command of the same name is never used.
 var coreCommands = []coreCommand{
 	{name: "help", usage: "/help", help: "what you can type here"},
+	{name: "gm", usage: "/gm [on|off]", help: "switch GM mode on or off", member: true},
 	{name: "players", usage: "/players", help: "who plays now, and where", gm: true},
 	{name: "rooms", usage: "/rooms", help: "the rooms of this world", gm: true},
 	{name: "go", usage: "/go ROOM", help: "go to a room yourself", gm: true},
 	{name: "say", usage: "/say TEXT", help: "tell every player something, as the game master", gm: true},
 	{name: "reset", usage: "/reset room [ROOM]", help: "start a room over for everyone in it", gm: true},
 	{name: "audit", usage: "/audit", help: "what game masters did here last", gm: true},
+	// The world's time (T-0012, gmtime.go and timertools.go).
+	{name: "pause", usage: "/pause", help: "stop the game for everyone: timers and questions wait, players wait for /resume", gm: true},
+	{name: "resume", usage: "/resume", help: "go on after /pause", gm: true},
+	{name: "timers", usage: "/timers", help: "the timers that run here, numbered", gm: true},
+	{name: "extend", usage: "/extend N TIME", help: "give timer N of /timers more time, such as /extend 3 5m", gm: true},
+	{name: "cancel", usage: "/cancel N", help: "stop timer N of /timers", gm: true},
+	{name: "extratime", usage: "/extratime [NAME FACTOR]", help: "give a player 1 to 3 times as long for questions and shown timers", gm: true},
+	{name: "mintime", usage: "/mintime [TIME|off]", help: "the shortest time a question or shown timer gives here", gm: true},
+	// The world's settings (T-0018, settings.go).
+	{name: "set", usage: "/set [NAME VALUE]", help: "the world's settings, or change one", gm: true},
 }
 
 func findCore(name string) *coreCommand {
@@ -101,7 +115,7 @@ func unknownCommand(name string) []ws.Message {
 func (s *session) command(text string) []ws.Message {
 	name, args := splitCommand(text)
 	if c := findCore(name); c != nil {
-		if c.gm && !s.gm {
+		if (c.gm && !s.gm) || (c.member && !s.member) {
 			return unknownCommand(name)
 		}
 		return s.runCore(name, args)
@@ -123,6 +137,9 @@ func (s *session) command(text string) []ws.Message {
 	if s.pending != nil {
 		return []ws.Message{{Type: "error", Message: "Answer the open question first."}}
 	}
+	if s.held() {
+		return []ws.Message{notice(pausedText)}
+	}
 	if cmd.GM {
 		if s.slowDown() {
 			return []ws.Message{notice(slowDownMessage)}
@@ -141,6 +158,8 @@ func (s *session) runCore(name, args string) []ws.Message {
 	switch name {
 	case "help":
 		return s.helpCommand()
+	case "gm":
+		return s.gmModeCommand(args)
 	case "players":
 		return s.playersCommand()
 	case "rooms":
@@ -153,6 +172,10 @@ func (s *session) runCore(name, args string) []ws.Message {
 		return s.resetCommand(args)
 	case "audit":
 		return s.auditCommand()
+	case "pause", "resume", "timers", "extend", "cancel", "extratime", "mintime":
+		return s.timeCommand(name, args)
+	case "set": // the world's settings (settings.go)
+		return s.setCommand(args)
 	default:
 		return unknownCommand(name)
 	}
@@ -263,12 +286,15 @@ func (s *session) helpCommand() []ws.Message {
 	var b strings.Builder
 	b.WriteString("You can type what you do, or one of these:")
 	for _, c := range coreCommands {
-		if !c.gm || s.gm {
+		if (!c.gm || s.gm) && (!c.member || s.member) {
 			b.WriteString("\n" + c.usage + ": " + c.help)
 		}
 	}
-	if s.gm {
-		b.WriteString("\n(You are a game master here: the other players see a mark when you act.)")
+	switch {
+	case s.gm:
+		b.WriteString("\n(GM mode is on: the other players see a mark when you act.)")
+	case s.member:
+		b.WriteString("\n(You are a game master here, playing as a player: /gm switches GM mode on.)")
 	}
 	var env *script.Env
 	if !s.w.closed {

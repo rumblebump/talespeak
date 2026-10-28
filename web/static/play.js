@@ -2,7 +2,7 @@
 // story lines and their scrolling, timers and clickable items. A part of
 // the game component; app.js merges it in.
 
-import { MAX_LINES, MAX_TEXT, MAX_TIMERS, NEAR_BOTTOM, cleanItems, cleanLine, clockText, msLeft, speakerName, text } from "/clean.js";
+import { MAX_LINES, MAX_TEXT, MAX_TIMERS, NEAR_BOTTOM, cleanItems, cleanLine, clockText, speakerName, text } from "/clean.js";
 import { api } from "/api.js";
 import { connect } from "/net.js";
 import { loadLog, saveLog } from "/storylog.js";
@@ -43,6 +43,7 @@ export function play(speaker) {
       }
       conn = connect({
         world: this.world,
+        asPlayer: this.asPlayer,
         onOpen: () => this.setStatus("online", "connected"),
         onMessage: (msg) => this.receive(msg),
         onClose: (retryMs) => {
@@ -88,6 +89,7 @@ export function play(speaker) {
       this.closeDialog();
       this.sent = null;
       this.timers = []; // the next session sends those that still run
+      this.setPaused(false); // and says whether the world is paused
     },
 
     // wire sends msg to the engine; false when there is no connection.
@@ -119,6 +121,7 @@ export function play(speaker) {
           else if (this.history.length === 0) this.addLine("Type /help to see what you can type.", "server", true);
           this.items = [];
           this.timers = [];
+          this.setPaused(false);
           this.closeDialog();
           break;
         case "room":
@@ -141,7 +144,11 @@ export function play(speaker) {
           this.showPicture(msg);
           break;
         case "timer":
-          this.setTimer(msg);
+          if (text(msg.id).startsWith("question:")) this.setQuestionTimer(msg);
+          else this.setTimer(msg);
+          break;
+        case "pause":
+          this.setPaused(msg.paused === true);
           break;
         case "close":
           // The engine ended the question: its timeout passed, or the
@@ -253,21 +260,21 @@ export function play(speaker) {
     setTimer(msg) {
       const id = text(msg.id);
       const rest = this.timers.filter((t) => t.id !== id);
-      const ms = msLeft(msg.ms);
-      if (ms) {
-        rest.push({ id, title: cleanLine(text(msg.title)).slice(0, 100), end: Date.now() + ms });
+      const end = this.endIn(msg.ms);
+      if (end) {
+        rest.push({ id, title: cleanLine(text(msg.title)).slice(0, 100), end });
         this.now = Date.now();
       }
       this.timers = rest.slice(-MAX_TIMERS);
     },
 
     get timerList() {
-      return this.timers.map((t) => ({ id: t.id, text: t.title + " " + clockText(t.end - this.now) }));
+      return this.timers.map((t) => ({ id: t.id, text: t.title + " " + clockText(t.end - this.clockNow) }));
     },
 
     get dialogCountdown() {
       if (!this.dialog || !this.dialog.end) return "";
-      return "time left: " + clockText(this.dialog.end - this.now);
+      return "time left: " + clockText(this.dialog.end - this.clockNow) + (this.paused ? " (paused)" : "");
     },
 
     // Items
