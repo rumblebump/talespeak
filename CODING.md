@@ -88,7 +88,8 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 
 | File | What it does |
 | --- | --- |
-| `internal/ws/ws.go` | `Message` (every field of the protocol), `Who`, the `Game`/`Session`/`Pusher`/`Replacer` interfaces, `Server` with its options, origin check, connection and message rate limits, push loop, `Shutdown` |
+| `internal/ws/ws.go` | `Message` (every field of the protocol), `Who`, the `Game`/`Session`/`Pusher`/`Replacer` interfaces, `Server`, origin check, connection and message rate limits, push loop, `Shutdown` |
+| `internal/ws/options.go` | `Option` and the `With...` options of a `Server`: limits, client address, sign-in, game |
 | `internal/ws/signin.go` | The sign-in behind each connection: `SignOut` closes a sign-in's connections at once, `WithRecheck` checks it again every minute; close code `StatusSignedOut` |
 
 ### internal/mail: sending mail

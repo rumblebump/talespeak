@@ -35,7 +35,7 @@ Done 2026-10-28 (design calls 9 to 12): `state.game` per world (migration 0009, 
 Still open after it:
 - The chat ring (last 10 messages per world, never stored) and the edu chat filter and GM transcript on strings written to `state.world`/`state.game`: need the filter of T-0006 (and T-0011's transcript). docs/lua-sandbox.md warns pack authors meanwhile.
 - Inventory per character, ruleset version and world, and moving it to another world on finishing: needs T-0010's rulesets and compatibility rules.
-- "The GM log shows" refused writes: they go to the server log now ("state write refused", once per hook); a GM-visible view comes with T-0011's GM tools.
+- "The GM log shows" refused writes: they go to the server log now ("state write refused", once per hook); a GM-visible view of them is still open (T-0011 is done without it).
 - `state.game` is per world (Carl's design call), not per pack as the acceptance line first said.
 - Read-only data shared by all players of a world (below) is not done.
 
