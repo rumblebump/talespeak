@@ -94,7 +94,7 @@ func (s *Store) CreateToken(ctx context.Context, t store.Token, m *store.Mail, n
 		if mail.Expires.IsZero() || mail.Expires.After(t.Expires) {
 			mail.Expires = t.Expires // a link never arrives after it stopped working
 		}
-		if err := addMail(ctx, tx, mail, t.Hash, now); err != nil {
+		if err := addMail(ctx, tx, mail, t.Hash, t.Kind, now); err != nil {
 			return err
 		}
 	}
@@ -102,14 +102,23 @@ func (s *Store) CreateToken(ctx context.Context, t store.Token, m *store.Mail, n
 }
 
 // addMail puts m into the outbox, tied to the token with hash (nil for
-// none): it goes when the token goes.
-func addMail(ctx context.Context, tx *sql.Tx, m store.Mail, hash []byte, now time.Time) error {
+// none) of kind: it goes when the token goes.
+func addMail(ctx context.Context, tx *sql.Tx, m store.Mail, hash []byte, kind string, now time.Time) error {
 	var n int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM mail_outbox`).Scan(&n); err != nil {
 		return err
 	}
 	if n >= store.MaxOutbox {
 		return store.ErrOutboxFull
+	}
+	if kind == store.TokenVerify {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM mail_outbox o JOIN account_tokens t ON t.token_hash = o.token_hash
+			WHERE t.kind = ?`, store.TokenVerify).Scan(&n); err != nil {
+			return err
+		}
+		if n >= store.MaxVerifyOutbox {
+			return store.ErrOutboxFull
+		}
 	}
 	next := m.Next
 	if next.IsZero() {

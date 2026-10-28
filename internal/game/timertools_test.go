@@ -148,3 +148,45 @@ func TestExtendWaitingRoomTimer(t *testing.T) {
 		t.Errorf("at the new deadline: %q", got)
 	}
 }
+
+// /timers, /extend and /cancel while the world is paused: the list shows
+// the time left on each timer's own clock, an extended timer stays
+// stopped until /resume and then runs its time left plus the extension,
+// and a cancelled one never fires.
+func TestTimerToolsWhilePaused(t *testing.T) {
+	_, c, gm, p := timeWorld(t)
+	input(p, "start")
+	input(p, "game")
+	c.Advance(10 * time.Second)
+	input(gm, "/pause")
+	pending(t, p)
+	c.Advance(time.Hour)
+	list := strings.Join(notices(input(gm, "/timers")), "")
+	for _, want := range []string{`1. traveler 2: "Guards" (guards), 50s left`, `2. traveler 2: "Tick" (tick), 50s left`} {
+		if !strings.Contains(list, want) {
+			t.Errorf("/timers while paused lacks %q:\n%s", want, list)
+		}
+	}
+	if n := notices(input(gm, "/extend 1 1m")); len(n) != 1 || n[0] != "server: Done: 1m50s left." {
+		t.Errorf("/extend while paused = %v", n)
+	}
+	input(gm, "/cancel 2")
+	c.Advance(time.Hour)
+	if got := texts(pending(t, p)); strings.Contains(got, "up ") {
+		t.Fatalf("a timer fired while paused: %q", got)
+	}
+	input(gm, "/resume")
+	pending(t, p)
+	c.Advance(109 * time.Second)
+	if got := texts(pending(t, p)); strings.Contains(got, "up ") {
+		t.Fatalf("too early: %q", got)
+	}
+	c.Advance(time.Second)
+	if got := texts(pending(t, p)); !strings.Contains(got, "up guards nil") || strings.Contains(got, "up tick") {
+		t.Errorf("after resume: %q", got)
+	}
+	c.Advance(time.Hour)
+	if got := texts(pending(t, p)); strings.Contains(got, "up tick") {
+		t.Errorf("the cancelled game timer fired: %q", got)
+	}
+}

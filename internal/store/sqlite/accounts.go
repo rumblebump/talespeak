@@ -52,6 +52,16 @@ func (s *Store) AccountByName(ctx context.Context, name string) (store.Account, 
 	return a, hash, err
 }
 
+// AccountByID returns the account with id, or store.ErrNotFound.
+func (s *Store) AccountByID(ctx context.Context, id int64) (store.Account, error) {
+	var a store.Account
+	err := s.db.QueryRowContext(ctx, `SELECT id, name, role FROM accounts WHERE id = ?`, id).Scan(&a.ID, &a.Name, &a.Role)
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.Account{}, store.ErrNotFound
+	}
+	return a, err
+}
+
 // SetPassword replaces the account's password hash, ends all its sign-in
 // sessions and drops its reset codes and links.
 func (s *Store) SetPassword(ctx context.Context, account int64, passwordHash string) error {

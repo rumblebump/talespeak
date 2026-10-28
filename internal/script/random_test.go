@@ -40,3 +40,43 @@ func TestMathRandomErrors(t *testing.T) {
 		}
 	}
 }
+
+// The bounds of math.random's arguments are allowed; past them is an
+// error.
+func TestMathRandomBounds(t *testing.T) {
+	out, err := hook(t, `
+local a = math.random(2^53)
+local b = math.random(-2^53, 2^53)
+local c = math.random(-2^53, -2^53)
+say(tostring(a >= 1 and a <= 2^53) .. " " .. tostring(b >= -2^53 and b <= 2^53) .. " " .. tostring(c == -2^53))`)
+	if err != nil || strings.Join(out, "|") != "say:true true true" {
+		t.Errorf("bounds: %v, %v", out, err)
+	}
+	for _, body := range []string{`math.random(2^53 + 2)`, `math.random(-2^53 - 2, 0)`, `math.random(1/0)`} {
+		if _, err := hook(t, body); err == nil || !strings.Contains(err.Error(), "out of range") {
+			t.Errorf("%s: %v", body, err)
+		}
+	}
+}
+
+// No script changes math.random for another: the math table is the
+// sandbox's, read-only; and two runtimes (two worlds) draw different
+// numbers, so neither follows a seed the other set.
+func TestMathRandomShared(t *testing.T) {
+	if _, err := hook(t, `math.random = function() return 4 end`); err == nil {
+		t.Error("a script replaced math.random")
+	}
+	if _, err := hook(t, `rawset(math, "random", function() return 4 end)`); err == nil {
+		t.Error("a script replaced math.random with rawset")
+	}
+	draw := func() string {
+		out, err := hook(t, `local t = {} for i = 1, 8 do t[i] = tostring(math.random(1e9)) end say(table.concat(t, ","))`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(out, "|")
+	}
+	if a, b := draw(), draw(); a == b {
+		t.Errorf("two runtimes drew the same numbers: %s", a)
+	}
+}

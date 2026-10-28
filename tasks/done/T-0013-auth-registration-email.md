@@ -40,5 +40,9 @@ Done in T-0013 (2026-10-27, design call 15):
 - Ending games: `account.Config.SignOut` -> `ws.Server.SignOut` closes the connections of a sign-in (logout) or of the account (reset, password change) with close code 4002; `ws.WithRecheck` re-runs the sign-in check every minute and catches command-line changes, expiry and lost membership.
 - Client: `web/static/password.js` (forgot password, reset with a code or `#reset=` link, `#verify=` links, change password, email address, reset codes for others; class code and email at registration).
 
+From the final security review (2026-10-28), fixed: a `#verify=` link waits for a click on **confirm the address** (a mail scanner opening it confirmed an address for whoever typed it); confirmation mails take at most half the outbox (`store.MaxVerifyOutbox`), so reset links still go out; a sign-out between the upgrade's sign-in check and the connection being watched no longer leaves the connection open until the next recheck (`ws.watch` checks once more).
+
+Also fixed then: a reset code a GM made is checked again when it is used (`codeStillAllowed`, `store.AccountByID`): once the player became a GM or an admin, or left the maker's worlds, it is refused.
+
 Still open: SSO providers (OIDC, SAML: later tasks); a route to delete an account (none exists yet; the recheck would end its games within a minute); reset codes made by GMs are logged with slog but not in a world's audit log (they belong to no one world); an email change does not notify the old address.
 

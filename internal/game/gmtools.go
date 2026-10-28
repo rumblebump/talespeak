@@ -250,6 +250,11 @@ func (s *session) gmModeCommand(args string) []ws.Message {
 		}
 		return []ws.Message{notice("GM mode is off already.")}
 	}
+	if s.pending != nil {
+		// The waiting hook has player.gm and player:can of the mode it
+		// started in: switching now would leave them stale.
+		return []ws.Message{notice("Answer the question first, then switch GM mode.")}
+	}
 	if s.slowDown() {
 		return []ws.Message{notice(slowDownMessage)}
 	}

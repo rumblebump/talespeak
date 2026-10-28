@@ -70,9 +70,10 @@ func (s *session) enterLocked(room string, moved bool) []ws.Message {
 	return s.after(th, err)
 }
 
-// hook is h for the player: their name, id and GM role.
+// hook is h for the player: their name, id and GM mode (none with
+// h.NoGM).
 func (s *session) hook(h script.Hook) script.Hook {
-	h.Player, h.PlayerID, h.GM = s.name, s.id, s.gm
+	h.Player, h.PlayerID, h.GM = s.name, s.id, s.gm && !h.NoGM
 	return h
 }
 

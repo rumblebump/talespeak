@@ -33,12 +33,18 @@ export function password() {
       } catch {
         // a sandboxed page may refuse; the code is used once anyway
       }
-      if (link.kind === "reset") {
-        this.pw.view = "reset";
-        this.pw.code = link.code;
-      } else {
-        this.pwSend("/api/verify", { code: link.code }, (me) => this.show(me));
-      }
+      // A verify link waits for a click: a mail scanner that opens the
+      // link must not confirm an address for whoever typed it.
+      this.pw.view = link.kind;
+      this.pw.code = link.code;
+    },
+
+    verifyEmail() {
+      this.pwSend("/api/verify", { code: this.pw.code }, (me) => {
+        this.pw.view = "";
+        this.pw.code = "";
+        this.show(me);
+      });
     },
 
     // pwSend posts body to path and passes the answer to then; a
@@ -134,6 +140,9 @@ export function password() {
     },
     get showForgot() {
       return this.pw.view === "forgot" && this.view === "signin";
+    },
+    get showVerify() {
+      return this.pw.view === "verify" && (this.view === "signin" || this.view === "lobby");
     },
     get showReset() {
       return this.pw.view === "reset" && (this.view === "signin" || this.view === "lobby");

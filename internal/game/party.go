@@ -318,7 +318,9 @@ func (w *World) fireRoom(room, name string, t *roomTimer) {
 		t.show = ""
 	}
 	for _, p := range list {
-		if p.runPushed(script.Hook{Name: "on_timer", Args: []string{name, "room"}, ReadOnlyWorld: t.readOnly}) {
+		// A GM it falls to runs it as a player: the starter's timer must
+		// not gain the GM's rights.
+		if p.runPushed(script.Hook{Name: "on_timer", Args: []string{name, "room"}, ReadOnlyWorld: t.readOnly, NoGM: !t.starter(p)}) {
 			return
 		}
 	}

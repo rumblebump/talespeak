@@ -165,7 +165,7 @@ func TestRecheckOff(t *testing.T) {
 	a := &switchAuth{who: Who{Account: 7, Login: "a"}}
 	_, url := newServer(t, WithGame(newFakeGame()), WithAuth(a.auth), WithRecheck(0))
 	conn := dialWelcomed(t, url)
-	if !alive(t, conn) || a.count() != 1 {
-		t.Fatalf("auth calls = %d, want only the one at the upgrade", a.count())
+	if !alive(t, conn) || a.count() != 2 {
+		t.Fatalf("auth calls = %d, want the one at the upgrade and the one once watched", a.count())
 	}
 }

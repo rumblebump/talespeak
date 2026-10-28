@@ -27,6 +27,7 @@ type Thread struct {
 	noWait        bool            // started while the player had a question open: it may not wait
 	updating      bool            // running the function of state.world.update: it may not wait
 	readOnlyWorld bool            // on_change: state.world writes are refused
+	noGM          bool            // Hook.NoGM: state.game writes are refused, whatever the Host says
 	writes        int             // state.player.set calls, across its dialogs
 	refusedTold   bool            // the Host heard of a refused write (Refusals)
 	loading       map[string]bool // modules this hook is running now, for require's cycle check
@@ -50,8 +51,13 @@ type Hook struct {
 	Player string
 	// PlayerID, when not "", is the player's id in the world, player.id.
 	PlayerID string
-	// GM is player.gm: the player is a game master of the world.
-	GM   bool
+	// GM is player.gm: the player is a game master of the world in GM
+	// mode.
+	GM bool
+	// NoGM runs the hook without the player's GM rights (player.gm false,
+	// no engine permissions, no state.game writes): for a room timer
+	// another player started, which only falls to this one.
+	NoGM bool
 	Args []string
 	// NoWait refuses ui.dialog, ui.select and ui.ask in the hook: the
 	// engine runs it while the player has a question open already, for a
@@ -179,7 +185,7 @@ func (r *Runtime) Paused() int { return len(r.paused) }
 // waits.
 func (r *Runtime) start(host Host, env *lua.LTable, fn *lua.LFunction, h Hook, args ...lua.LValue) (*Thread, error) {
 	co, _ := r.L.NewThread()
-	th := &Thread{co: co, env: env, resume: make(chan *answer), events: make(chan result), noWait: h.NoWait, readOnlyWorld: h.ReadOnlyWorld}
+	th := &Thread{co: co, env: env, resume: make(chan *answer), events: make(chan result), noWait: h.NoWait, readOnlyWorld: h.ReadOnlyWorld, noGM: h.NoGM}
 	r.begin(host, th, r.limits.Time)
 	go th.main(r.cur.ctx, fn, args)
 	return r.wait(th)

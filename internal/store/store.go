@@ -227,6 +227,8 @@ type Accounts interface {
 	// AccountByName returns the account named name in any letter case and
 	// its password hash, or ErrNotFound.
 	AccountByName(ctx context.Context, name string) (Account, string, error)
+	// AccountByID returns the account with id, or ErrNotFound.
+	AccountByID(ctx context.Context, id int64) (Account, error)
 	// SetPassword replaces the account's password hash, ends all its
 	// sign-in sessions and drops its reset codes and links.
 	SetPassword(ctx context.Context, account int64, passwordHash string) error

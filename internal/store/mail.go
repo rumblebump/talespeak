@@ -40,10 +40,16 @@ type Mail struct {
 // requests cannot fill the disk while the mail server is down.
 const MaxOutbox = 1000
 
+// MaxVerifyOutbox is how many of them may be links that confirm an
+// address: anyone may ask for those, so the rest stays free for reset
+// links.
+const MaxVerifyOutbox = MaxOutbox / 2
+
 var (
 	// ErrEmailTaken refuses an address another account has confirmed.
 	ErrEmailTaken = errors.New("store: email address taken")
-	// ErrOutboxFull refuses a mail past MaxOutbox.
+	// ErrOutboxFull refuses a mail past MaxOutbox (MaxVerifyOutbox for
+	// a confirmation link).
 	ErrOutboxFull = errors.New("store: outbox full")
 )
 

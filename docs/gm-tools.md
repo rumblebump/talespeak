@@ -29,7 +29,7 @@ What no pack, request or Lua lowers in edu mode, covered by `internal/account/ed
 | Command | Who | What it does |
 | --- | --- | --- |
 | `/help` | everyone | Lists what the player may type: these commands, and the commands of the room they are in |
-| `/gm [on\|off]` | GM, in GM mode or not | Switches GM mode on or off; `/gm` alone switches it over |
+| `/gm [on\|off]` | GM, in GM mode or not | Switches GM mode on or off; `/gm` alone switches it over. Not while a question is open ("Answer the question first"): the hook waiting on it keeps the `player.gm` and `player:can` it started with |
 | `/players` | GM | Who is online, in which room, and who is GM |
 | `/rooms` | GM | The pack's rooms with their ids |
 | `/go ROOM` | GM | Goes to a room (by its id from `/rooms`) yourself, as `room.go` would; its `on_enter` runs |

@@ -72,7 +72,7 @@ func (r *Runtime) gameSet(L *lua.LState) int {
 	s := r.gameState(L)
 	key := stateKey(L, s)
 	v := L.Get(2)
-	if !g.GameMaster() {
+	if !g.GameMaster() || (r.cur.thread != nil && r.cur.thread.noGM) {
 		return r.setResult(L, "state.game.set", errNotGM)
 	}
 	if choices, ok := s.Choices[key]; ok {

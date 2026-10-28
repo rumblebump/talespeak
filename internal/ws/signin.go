@@ -53,6 +53,14 @@ func (s *Server) watch(c *websocket.Conn, r *http.Request, who Who) func() {
 	}
 	s.signins.conns[who.Account][c] = who.Login
 	s.signins.mu.Unlock()
+	if s.auth != nil {
+		// A SignOut between the first check and now found nothing to
+		// close: ask once more.
+		if now, status := s.auth(r); signInChanged(who, now, status) {
+			s.log.Info("websocket closed: its sign-in changed as it opened", "account", who.Account, "world", who.World, "status", status)
+			go c.Close(StatusSignedOut, "sign-in changed")
+		}
+	}
 	done := make(chan struct{})
 	if s.auth != nil && s.recheck > 0 {
 		// Only the request's cookie and query are read again, under a
@@ -85,16 +93,22 @@ func (s *Server) recheckLoop(c *websocket.Conn, r *http.Request, who Who, done <
 			return
 		case <-t.C:
 		}
-		now, status := s.auth(r)
-		if status >= 500 {
-			continue
-		}
-		if status != 0 || now.Account != who.Account || now.World != who.World || now.GM != who.GM || now.Login != who.Login {
+		if now, status := s.auth(r); signInChanged(who, now, status) {
 			s.log.Info("websocket closed: its sign-in changed", "account", who.Account, "world", who.World, "status", status)
 			c.Close(StatusSignedOut, "sign-in changed")
 			return
 		}
 	}
+}
+
+// signInChanged reports whether a check of the sign-in, answering now
+// and status, no longer gives who. A server error (the database busy) is
+// no answer.
+func signInChanged(who, now Who, status int) bool {
+	if status >= 500 {
+		return false
+	}
+	return status != 0 || now.Account != who.Account || now.World != who.World || now.GM != who.GM || now.Login != who.Login
 }
 
 // SignOut closes the connections of account opened with the sign-in

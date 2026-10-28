@@ -47,9 +47,13 @@ func TestExtraTime(t *testing.T) {
 	ctx := context.Background()
 	s := fresh(t)
 	w, _ := s.OpenWorld(ctx, "demo", "", nil)
-	other, _ := s.CreateWorld(ctx, store.NewWorld{PackID: "demo", PackVersion: "1.0.0", Visibility: store.VisibilityPublic})
 	ann := mustAccount(t, s, "Ann", store.RolePlayer)
 	bob := mustAccount(t, s, "Bob", store.RolePlayer)
+	// Another world, where Bob is a member and Ann is not.
+	other, err := s.CreateWorld(ctx, store.NewWorld{PackID: "demo", PackVersion: "1.0.0", Visibility: store.VisibilityPublic, CreatedBy: bob.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := s.AddMember(ctx, w.ID, ann.ID, store.MemberPlayer); err != nil {
 		t.Fatal(err)
 	}

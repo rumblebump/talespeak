@@ -20,7 +20,7 @@ Talespeak does not run its own mail server. It is an SMTP client (Go's standard 
 
 The connection to the SMTP server is always encrypted: STARTTLS (port 587) or TLS from the start (port 465). A server that offers neither gets no mail and no password; Talespeak has no setting for plain text.
 
-Mails wait in an outbox in the database and are sent outside any request, so a slow or unreachable mail server never slows down sign-in or the game. A mail that fails is tried again after 1, 2, 4, ... minutes (at most 30 between tries, 8 tries in all). A reset link's mail goes when its link stops working (after an hour, or once used or replaced), so a late mail never brings a dead link, and the code in its text is not kept longer than that. At most 1000 mails wait; past that new ones are refused until the outbox drains.
+Mails wait in an outbox in the database and are sent outside any request, so a slow or unreachable mail server never slows down sign-in or the game. A mail that fails is tried again after 1, 2, 4, ... minutes (at most 30 between tries, 8 tries in all). A reset link's mail goes when its link stops working (after an hour, or once used or replaced), so a late mail never brings a dead link, and the code in its text is not kept longer than that. At most 1000 mails wait, and at most 500 of them confirm addresses (which anyone may ask for), so reset links always find room; past that new ones are refused until the outbox drains.
 
 Talespeak sends only two kinds of mail, each naming the account it is for and nothing else (no chat, nothing about other players):
 

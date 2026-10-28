@@ -67,6 +67,12 @@
       <p class="actions"><button type="submit" :disabled="pw.busy">set the new password</button></p>
     </form>
 
+    <form class="account" x-cloak x-show="showVerify" @submit.prevent="verifyEmail" aria-label="Confirm email">
+      <h3>Confirm your email address</h3>
+      <p>This link confirms an email address for an account here. Only confirm it if you added this address yourself.</p>
+      <p class="actions"><button type="submit" :disabled="pw.busy">confirm the address</button></p>
+    </form>
+
     <p class="account pw-notice" x-cloak x-show="showPwNotice" x-text="pw.notice" role="status"></p>
     <p class="account form-error" x-cloak x-show="showPwError" x-text="pw.error" role="alert"></p>
 

@@ -128,6 +128,31 @@ func CreateResetCode(ctx context.Context, st store.Tokens, account, by int64, no
 	return groupCode(code), expires, nil
 }
 
+// codeStillAllowed refuses a reset code that a game master made when its
+// maker may no longer make it for a (a was made a GM or an admin since,
+// or left the maker's worlds): the code is used up, and works no more.
+// Codes from admins and the command line always work.
+func (s *Service) codeStillAllowed(ctx context.Context, t store.Token, a *store.Account) error {
+	if t.Kind != store.TokenCode || t.CreatedBy == 0 {
+		return nil
+	}
+	by, err := s.cfg.Store.AccountByID(ctx, t.CreatedBy)
+	if errors.Is(err, store.ErrNotFound) {
+		return errBadReset
+	}
+	if err != nil || by.Role == store.RoleAdmin {
+		return err
+	}
+	if err := s.mayResetFor(ctx, &by, a); err != nil {
+		if isAPI(err) {
+			s.cfg.Log.Info("reset code refused: its maker may no longer make it", "account", a.ID, "code by", by.ID)
+			return errBadReset
+		}
+		return err
+	}
+	return nil
+}
+
 // mayResetFor refuses a game master a reset code for anyone but a plain
 // player of one of their worlds: never an admin, never a game master
 // (themselves included).
@@ -187,6 +212,9 @@ func (s *Service) reset(w http.ResponseWriter, r *http.Request) (any, error) {
 		return nil, errBadReset
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err := s.codeStillAllowed(r.Context(), t, &a); err != nil {
 		return nil, err
 	}
 	if err := s.newPassword(r.Context(), a.ID, hash); err != nil {
