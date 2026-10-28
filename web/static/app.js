@@ -6,9 +6,9 @@
 // Alpine's CSP build runs the page without 'unsafe-eval', so the HTML only
 // holds simple expressions and all logic lives in these modules: the
 // component's state here, its parts in lobby.js, members.js, password.js,
-// profiles.js, play.js, dialog.js, view.js and pause.js, helpers in
-// clean.js and api.js. Server text is untrusted: it is only ever shown
-// with x-text or textContent.
+// profiles.js, settings.js, play.js, dialog.js, view.js and pause.js,
+// helpers in clean.js and api.js. Server text is untrusted: it is only
+// ever shown with x-text or textContent.
 
 import Alpine from "/vendor/alpine-csp.js";
 import { dialog } from "/dialog.js";
@@ -19,6 +19,7 @@ import { loadSetting } from "/clean.js";
 import { password } from "/password.js";
 import { play } from "/play.js";
 import { profiles } from "/profiles.js";
+import { settings } from "/settings.js";
 import { createSpeaker } from "/speech.js";
 import { view } from "/view.js";
 
@@ -40,7 +41,7 @@ function game() {
     membersAdd: false, // the account may add accounts by name (admins)
     addMember: { name: "" },
     codes: {}, // world id -> the last join code made here: { text, code, copied }
-    newWorld: { pack: "", title: "", visibility: "public" },
+    newWorld: { pack: "", title: "", visibility: "public", settings: {} }, // settings: name -> choice (settings.js)
     form: { name: "", password: "", code: "", classCode: "", email: "" },
     formError: "",
     busy: false,
@@ -85,7 +86,7 @@ function game() {
   };
   // The parts in their own files add their methods and getters; getters
   // must be copied as getters, so not with Object.assign.
-  for (const part of [lobby(), members(), password(), profiles(), play(speaker), dialog(speaker), view(speaker), pause()]) {
+  for (const part of [lobby(), members(), password(), profiles(), settings(), play(speaker), dialog(speaker), view(speaker), pause()]) {
     Object.defineProperties(component, Object.getOwnPropertyDescriptors(part));
   }
   return component;

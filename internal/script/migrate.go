@@ -40,7 +40,7 @@ func Migrate(limits Limits, name, src string, sheet map[string][]byte) (map[stri
 	}
 	in := r.L.NewTable()
 	for k, v := range sheet {
-		d := decoder{L: r.L}
+		d := decoder{L: r.L, depth: r.limits.State.Depth}
 		val, rest, err := d.value(v, 0)
 		if err != nil || len(rest) != 0 {
 			return nil, fmt.Errorf("%w: key %s of the sheet", errDamaged, strconv.Quote(k))
@@ -62,12 +62,12 @@ func Migrate(limits Limits, name, src string, sheet map[string][]byte) (map[stri
 	if !ok {
 		return nil, fmt.Errorf("%w: %s: migrate must return the sheet, a table", ErrScript, name)
 	}
-	return encodeSheet(name, out)
+	return encodeSheet(name, out, r.limits.State)
 }
 
 // encodeSheet encodes a migrated sheet: string keys of state.player's
-// size, values it can keep, within its key count and size.
-func encodeSheet(name string, t *lua.LTable) (map[string][]byte, error) {
+// size, values it can keep, within its key count and size (lim).
+func encodeSheet(name string, t *lua.LTable, lim StateLimits) (map[string][]byte, error) {
 	sheet := map[string][]byte{}
 	var size int64
 	var errs []error
@@ -76,11 +76,11 @@ func encodeSheet(name string, t *lua.LTable) (map[string][]byte, error) {
 			return
 		}
 		key, ok := k.(lua.LString)
-		if !ok || key == "" || len(key) > MaxStateKeyBytes {
-			errs = append(errs, fmt.Errorf("%w: %s: sheet keys are strings of 1 to %d bytes", ErrScript, name, MaxStateKeyBytes))
+		if !ok || key == "" || len(key) > lim.KeyBytes {
+			errs = append(errs, fmt.Errorf("%w: %s: sheet keys are strings of 1 to %d bytes", ErrScript, name, lim.KeyBytes))
 			return
 		}
-		e := encoder{}
+		e := encoder{max: lim.ValueBytes, depth: lim.Depth}
 		if err := e.value(v, 0); err != nil {
 			errs = append(errs, fmt.Errorf("%w: %s: key %s: %v", ErrScript, name, strconv.Quote(string(key)), err))
 			return
@@ -88,10 +88,10 @@ func encodeSheet(name string, t *lua.LTable) (map[string][]byte, error) {
 		sheet[string(key)] = e.buf
 		size += int64(len(key) + len(e.buf))
 		switch {
-		case len(sheet) > MaxPlayerStateKeys:
-			errs = append(errs, fmt.Errorf("%w: %s: the sheet has more than %d keys", ErrScript, name, MaxPlayerStateKeys))
-		case size > MaxPlayerStateBytes:
-			errs = append(errs, fmt.Errorf("%w: %s: the sheet is larger than %d bytes", ErrScript, name, MaxPlayerStateBytes))
+		case len(sheet) > lim.PlayerKeys:
+			errs = append(errs, fmt.Errorf("%w: %s: the sheet has more than %d keys", ErrScript, name, lim.PlayerKeys))
+		case size > lim.PlayerBytes:
+			errs = append(errs, fmt.Errorf("%w: %s: the sheet is larger than %d bytes", ErrScript, name, lim.PlayerBytes))
 		}
 	})
 	if len(errs) > 0 {

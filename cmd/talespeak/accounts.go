@@ -166,7 +166,11 @@ func (ps packs) ids() []string {
 }
 
 func lobbyPack(p *pack.Pack) account.Pack {
-	return account.Pack{ID: p.ID, Title: p.Title, Description: p.Description, Version: p.Version}
+	ap := account.Pack{ID: p.ID, Title: p.Title, Description: p.Description, Version: p.Version}
+	for _, s := range p.Settings {
+		ap.Settings = append(ap.Settings, account.Setting{Name: s.Name, Label: s.Label, Choices: s.Choices, Default: s.Default})
+	}
+	return ap
 }
 
 // installed lists the packs as the store records them.

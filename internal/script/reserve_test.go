@@ -78,7 +78,7 @@ func TestDecodeRefusesLargeArrays(t *testing.T) {
 		{"arrays adding up", append(append([]byte{tagTable, tagInt, 2}, table(maxStateScan)...), append([]byte{tagInt, 4}, append(table(maxStateScan), tagEnd)...)...), false},
 	} {
 		start := time.Now()
-		d := decoder{L: L}
+		d := decoder{L: L, depth: MaxStateDepth}
 		_, rest, err := d.value(tt.b, 0)
 		if tt.ok && (err != nil || len(rest) != 0) || !tt.ok && !errors.Is(err, errDamaged) {
 			t.Errorf("%s: rest %d, err = %v", tt.name, len(rest), err)

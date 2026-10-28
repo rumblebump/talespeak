@@ -109,7 +109,7 @@ func (s *session) loadProfile(p *store.Profile, sheet map[string][]byte) error {
 		return nil
 	}
 	sp := &sessionProfile{id: p.ID, gen: p.Generation}
-	sp.state.Reserve = s.reserve
+	sp.state.Reserve, sp.state.Limits = s.reserve, s.w.stateLimits
 	if err := sp.state.Load(sheet); err != nil {
 		return err
 	}

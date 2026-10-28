@@ -67,6 +67,8 @@ var coreCommands = []coreCommand{
 	{name: "cancel", usage: "/cancel N", help: "stop timer N of /timers", gm: true},
 	{name: "extratime", usage: "/extratime [NAME FACTOR]", help: "give a player 1 to 3 times as long for questions and shown timers", gm: true},
 	{name: "mintime", usage: "/mintime [TIME|off]", help: "the shortest time a question or shown timer gives here", gm: true},
+	// The world's settings (T-0018, settings.go).
+	{name: "set", usage: "/set [NAME VALUE]", help: "the world's settings, or change one", gm: true},
 }
 
 func findCore(name string) *coreCommand {
@@ -172,6 +174,8 @@ func (s *session) runCore(name, args string) []ws.Message {
 		return s.auditCommand()
 	case "pause", "resume", "timers", "extend", "cancel", "extratime", "mintime":
 		return s.timeCommand(name, args)
+	case "set": // the world's settings (settings.go)
+		return s.setCommand(args)
 	default:
 		return unknownCommand(name)
 	}

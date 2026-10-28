@@ -35,12 +35,15 @@ type Limits struct {
 	// StateMemory is how many bytes all Instances of the world together
 	// may keep.
 	StateMemory int64
+	// State bounds state.player, state.world and state.game; zero fields
+	// are DefaultStateLimits. The game gives its States the same limits.
+	State StateLimits
 }
 
 // DefaultLimits suit story scripts: they describe, branch and wait, so
 // anything near these limits is a bug or an attack. A word list of 10000
 // entries keeps about 1.5 MiB.
-var DefaultLimits = Limits{Time: 100 * time.Millisecond, CallMemory: 32 << 20, PlayerMemory: 4 << 20, StateMemory: 256 << 20}
+var DefaultLimits = Limits{Time: 100 * time.Millisecond, CallMemory: 32 << 20, PlayerMemory: 4 << 20, StateMemory: 256 << 20, State: DefaultStateLimits}
 
 const (
 	// MaxScriptBytes is the largest script Load accepts.
@@ -152,6 +155,7 @@ func New(limits Limits) *Runtime {
 	if limits.PlayerMemory <= 0 || limits.PlayerMemory > limits.StateMemory {
 		limits.PlayerMemory = limits.StateMemory
 	}
+	limits.State = limits.State.OrDefault()
 	r := &Runtime{L: L, limits: limits, locked: map[*lua.LTable]bool{}, paused: map[*Thread]struct{}{}, envs: map[*lua.LTable]*envState{},
 		loaded: map[*lua.LTable]*lua.LTable{}}
 	r.lib = r.openSandbox()

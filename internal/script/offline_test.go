@@ -51,6 +51,7 @@ func TestSandboxSurfaceIsExactly(t *testing.T) {
 		"math.sin", "math.sinh", "math.sqrt", "math.tan", "math.tanh",
 		"next", "pairs", "pcall", "progress", "progress.complete", "progress.export", "rawequal", "rawget", "rawset", "require",
 		"room", "room.describe", "room.go", "room.players", "say", "select", "setmetatable", "state", "state.player", "state.player.get", "state.player.set",
+		"state.game", "state.game.get", "state.game.set",
 		"state.profile", "state.profile.get", "state.profile.set",
 		"state.world", "state.world.get", "state.world.set", "state.world.update",
 		"perm", "perm.define",
@@ -61,7 +62,7 @@ func TestSandboxSurfaceIsExactly(t *testing.T) {
 		"timer", "timer.cancel", "timer.left", "timer.start",
 		"tonumber", "tostring", "type",
 		"ui", "ui.ask", "ui.dialog", "ui.image", "ui.items", "ui.select",
-		"unpack", "words", "words.normalize", "words.same", "world", "world.paused", "world.players", "world.time", "xpcall",
+		"unpack", "words", "words.normalize", "words.same", "world", "world.finish", "world.paused", "world.players", "world.time", "xpcall",
 	}
 	slices.Sort(want)
 	got := reachable(r)

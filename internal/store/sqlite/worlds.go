@@ -133,6 +133,9 @@ func (s *Store) CreateWorld(ctx context.Context, nw store.NewWorld) (store.World
 	if _, err := tx.ExecContext(ctx, `INSERT INTO world_members (world_id, account_id, role) VALUES (?, ?, ?)`, id, nw.CreatedBy, store.MemberGM); err != nil {
 		return store.World{}, err
 	}
+	if err := put(ctx, tx, gameQueries, id, nw.GameState); err != nil {
+		return store.World{}, err
+	}
 	w, err := world(ctx, tx, id)
 	if err != nil {
 		return store.World{}, err
@@ -227,6 +230,7 @@ func (s *Store) FinishWorld(ctx context.Context, world int64) error {
 	}
 	for _, q := range []string{
 		`DELETE FROM world_state WHERE world_id = ?`,
+		`DELETE FROM game_state WHERE world_id = ?`,
 		`DELETE FROM player_state WHERE character_id IN (SELECT id FROM characters WHERE world_id = ?)`,
 		`DELETE FROM invites WHERE world_id = ?`,
 		`DELETE FROM room_timers WHERE world_id = ?`,
@@ -406,6 +410,9 @@ func (s *Store) Save(ctx context.Context, sv store.Save) error {
 		return err
 	}
 	if err := put(ctx, tx, playerQueries, sv.Character, sv.PlayerState); err != nil {
+		return err
+	}
+	if err := put(ctx, tx, gameQueries, sv.World, sv.GameState); err != nil {
 		return err
 	}
 	if sv.Room != "" && sv.Character != 0 {

@@ -22,11 +22,18 @@ local searched = false
 wrong = 0      -- wrong answers to the riddle
 opened = false -- the lock is open
 cups = 0       -- cups of water from the guard's current bottle
-ended = false  -- the story is over
 left = false   -- the player went out into the corridor
 
 function on_enter(player)
+  me = player
   room.describe()
+  if death.blocked(player) then
+    return
+  end
+  if death.respawned() then -- caught: the cell starts over (lib/rooms.lua die)
+    opened, cups, wrong, left = false, 0, 0, false
+  end
+  death.save_point(player)
   if left then
     show_items()
     say("Your old cell. Outside, the guard's stool is still empty.")
@@ -87,8 +94,7 @@ end
 -- act runs before every action. It counts the guard's time away, brings
 -- him back, and returns false when the action does not happen.
 function act()
-  if ended then
-    say("The story has ended. Reload the page to play again.")
+  if death.blocked(me) then
     return false
   end
   local away = guard_away()
@@ -228,7 +234,7 @@ function caught()
   say("SLAP! The guard's hand shoots through the bars. Everything goes black.")
   say("When you wake up, three other guards stand over you. They drag you down endless stairs and throw you into a deep well.")
   say("The walls are smooth and wet. There is no way up. After a few days, you die.")
-  finish()
+  die()
 end
 
 function escaped()
@@ -238,12 +244,6 @@ function escaped()
   say("You push the cell door open and tiptoe out, past the empty stool.")
   left = true
   room.go("corridor")
-end
-
-function finish()
-  ended = true
-  ui.items({})
-  say("THE END. Reload the page to play again.")
 end
 
 function look_at_wall()

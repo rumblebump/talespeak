@@ -70,6 +70,8 @@ type Pack struct {
 	Start string `yaml:"start"`
 	// Manifest is kind, ruleset, continues, imports and exports (ruleset.go).
 	Manifest `yaml:",inline"`
+	// Settings are the choices each world of the pack makes (settings.go).
+	Settings []Setting        `yaml:"settings"`
 	Rooms    map[string]*Room `yaml:"-"`
 	// Assets are the pack's images by file name, from assets/.
 	Assets map[string]*Asset `yaml:"-"`
@@ -145,6 +147,7 @@ func LoadLimits(fsys fs.FS, limits Limits) (*Pack, error) {
 		fail("pack.yaml", "description: at most %d bytes of text", MaxPackDescriptionBytes)
 	}
 	errs = append(errs, checkManifest(p)...)
+	errs = append(errs, checkSettings(p.Settings)...)
 
 	files, err := fs.Glob(fsys, "rooms/*.yaml")
 	if err != nil {

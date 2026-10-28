@@ -62,6 +62,9 @@ type NewWorld struct {
 	// created, this one included; 0 has no limit. Total is how many
 	// unfinished worlds the server may have.
 	PerAccount, Total int
+	// GameState is the world's first state.game: the settings picked in
+	// the lobby (T-0018).
+	GameState []Change
 }
 
 // WorldInfo is a world as an account sees it in the lobby.
@@ -122,7 +125,7 @@ type Invite struct {
 	Expires   time.Time
 }
 
-// Change is one key of state.player or state.world: Value is its encoding
+// Change is one key of state.player, state.world or state.game: Value is its encoding
 // (package script), nil removes the key.
 type Change struct {
 	Key   string
@@ -137,6 +140,9 @@ type Save struct {
 	Character   int64 // 0: no player state and no position in this save
 	PlayerState []Change
 	Room        string // the character's room; "" leaves it as it is
+
+	// GameState is the world's state.game.
+	GameState []Change
 
 	// Timers started, changed or stopped, of any character of the world
 	// and of its rooms.
@@ -157,7 +163,7 @@ type Save struct {
 // Empty reports whether s writes nothing.
 func (s Save) Empty() bool {
 	return len(s.WorldState) == 0 && len(s.PlayerState) == 0 && s.Room == "" && len(s.Timers) == 0 &&
-		len(s.ProfileState) == 0 && s.Progress == nil && s.Clock == nil
+		len(s.GameState) == 0 && len(s.ProfileState) == 0 && s.Progress == nil && s.Clock == nil
 }
 
 // Clock is a world's time (T-0012). Timer deadlines are on the world
@@ -322,8 +328,9 @@ type Worlds interface {
 	// GMOf reports whether gm is a game master of an unfinished world
 	// that account is a member of.
 	GMOf(ctx context.Context, gm, account int64) (bool, error)
-	// FinishWorld ends the world: its state, its players' state and all
-	// its timers are deleted, and OpenWorld starts a new main world.
+	// FinishWorld ends the world: its state (state.world and state.game),
+	// its players' state and all its timers are deleted, and OpenWorld
+	// starts a new main world. The audit log stays.
 	FinishWorld(ctx context.Context, world int64) error
 
 	// Member returns the account's role in the world, or ErrNotFound.
@@ -361,6 +368,8 @@ type Worlds interface {
 	PlayerState(ctx context.Context, character int64) (map[string][]byte, error)
 	// WorldState returns what the world keeps in state.world.
 	WorldState(ctx context.Context, world int64) (map[string][]byte, error)
+	// GameState returns what the world keeps in state.game.
+	GameState(ctx context.Context, world int64) (map[string][]byte, error)
 	// Save writes what one hook call changed, all of it or nothing.
 	Save(ctx context.Context, s Save) error
 	// PlayerTimers returns the character's timers and question deadlines.

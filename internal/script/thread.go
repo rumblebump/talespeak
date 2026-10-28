@@ -28,6 +28,7 @@ type Thread struct {
 	updating      bool            // running the function of state.world.update: it may not wait
 	readOnlyWorld bool            // on_change: state.world writes are refused
 	writes        int             // state.player.set calls, across its dialogs
+	refusedTold   bool            // the Host heard of a refused write (Refusals)
 	loading       map[string]bool // modules this hook is running now, for require's cycle check
 }
 

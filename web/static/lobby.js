@@ -6,6 +6,7 @@ import { cleanCard, cleanLine, setHash, text, worldFromHash } from "/clean.js";
 import { api } from "/api.js";
 import { forgetLogs } from "/storylog.js";
 import { cleanProfiles } from "/profiles.js";
+import { cleanSettings } from "/settings.js";
 
 /** lobby returns the methods and getters of this part. */
 export function lobby() {
@@ -65,7 +66,13 @@ export function lobby() {
         this.packs = Array.isArray(l.packs)
           ? l.packs
               .filter((p) => p && typeof p.id === "string")
-              .map((p) => ({ id: p.id, title: text(p.title).slice(0, 120), description: text(p.description).slice(0, 300), version: text(p.version).slice(0, 64) }))
+              .map((p) => ({
+                id: p.id,
+                title: text(p.title).slice(0, 120),
+                description: text(p.description).slice(0, 300),
+                version: text(p.version).slice(0, 64),
+                settings: cleanSettings(p.settings),
+              }))
           : [];
         if (!this.packs.some((p) => p.id === this.newWorld.pack)) this.newWorld.pack = this.packs.length ? this.packs[0].id : "";
       } catch (err) {
@@ -158,10 +165,12 @@ export function lobby() {
           pack: this.newWorld.pack,
           title: cleanLine(this.newWorld.title),
           visibility: this.newWorld.visibility === "private" ? "private" : "public",
+          settings: this.pickedSettings(),
         });
         const id = made.world && Number.isSafeInteger(made.world.id) ? made.world.id : 0;
         if (id && made.invite) this.keepCode(id, made.invite);
         this.newWorld.title = "";
+        this.newWorld.settings = {};
         await this.loadLobby();
       } catch (err) {
         this.formError = err.message;

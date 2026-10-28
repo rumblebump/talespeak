@@ -131,6 +131,7 @@ func (r *Runtime) openSandbox() *lua.LTable {
 	shared.RawSetString("update", L.NewFunction(r.stateUpdate))
 	state.RawSetString("world", r.readOnly(shared))
 	r.openProfile(lib, state)
+	r.openGame(state, world) // state.game, world.finish
 	lib.RawSetString("state", r.readOnly(state))
 	timer := L.NewTable()
 	timer.RawSetString("start", L.NewFunction(r.timerStart))

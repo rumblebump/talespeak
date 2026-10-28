@@ -143,11 +143,16 @@ func serve(args []string) error {
 	if err != nil {
 		return fmt.Errorf("main world of %s: %w", ps.mainID, err)
 	}
-	worlds := hub.New(hub.Config{Store: db, Packs: ps.cat, Home: home.ID, MaxLoaded: lim.loadedWorlds, Idle: lim.worldIdle,
+	var worlds *hub.Hub
+	worlds = hub.New(hub.Config{Store: db, Packs: ps.cat, Home: home.ID, MaxLoaded: lim.loadedWorlds, Idle: lim.worldIdle,
 		PerClient: lim.worldsPerClient, Log: log,
 		Load: func(w store.World, p *pack.Pack) (*game.World, error) {
-			return game.NewWorld(p, lim.script, log.With("world", w.ID), game.WithClientBudget(lim.luaClientRate, lim.luaClientBurst),
-				game.WithClientMemory(lim.luaClientMemory), game.WithStore(db, w.ID), game.WithAudit(db), game.WithRuleset(ps.ruleset(p), db))
+			opts := []game.Option{game.WithClientBudget(lim.luaClientRate, lim.luaClientBurst),
+				game.WithClientMemory(lim.luaClientMemory), game.WithStore(db, w.ID), game.WithAudit(db), game.WithRuleset(ps.ruleset(p), db)}
+			if w.ID != home.ID { // the main world never ends from a script, as from the lobby
+				opts = append(opts, game.WithFinish(func(string) { finishWorld(worlds, db, w.ID, log) }))
+			}
+			return game.NewWorld(p, lim.script, log.With("world", w.ID), opts...)
 		}})
 	defer worlds.Close()
 	go worlds.Run(ctx)
@@ -206,6 +211,24 @@ func serve(args []string) error {
 		return err
 	}
 	return nil
+}
+
+// finishWorld ends world id for world.finish, like ending it in the lobby:
+// its players are sent away, then its state is deleted (the audit log
+// stays) and the lobby no longer lists it.
+func finishWorld(worlds *hub.Hub, db store.Worlds, id int64, log *slog.Logger) {
+	err := worlds.Finish(id, func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return db.FinishWorld(ctx, id)
+	})
+	switch {
+	case errors.Is(err, store.ErrNotFound): // ended meanwhile
+	case err != nil:
+		log.Error("world did not finish", "world", id, "err", err)
+	default:
+		log.Info("world finished by its script", "world", id)
+	}
 }
 
 // healthURL turns a listen address like ":8080" or "0.0.0.0:8080" into a local URL.

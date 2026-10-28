@@ -36,6 +36,8 @@ type Pack struct {
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
 	Version     string `json:"version"`
+	// Settings are what a new world of the pack picks (settings.go).
+	Settings []Setting `json:"settings,omitempty"`
 }
 
 // Live is what the lobby needs from the worlds that are loaded.
@@ -267,6 +269,9 @@ type createRequest struct {
 	Pack       string `json:"pack"`
 	Title      string `json:"title"`
 	Visibility string `json:"visibility"`
+	// Settings are the picks of the pack's settings by name; a setting
+	// left out gets its default.
+	Settings map[string]string `json:"settings"`
 }
 
 // Created is what POST /api/worlds answers: the new world, and its join
@@ -296,6 +301,10 @@ func (s *Service) createWorld(w http.ResponseWriter, r *http.Request) (any, erro
 	if !ok {
 		return nil, fail(http.StatusBadRequest, "Pick one of the packs.")
 	}
+	game, err := settingsState(p, q.Settings)
+	if err != nil {
+		return nil, err
+	}
 	title, ok := cleanTitle(q.Title)
 	if !ok {
 		return nil, fail(http.StatusBadRequest, "A world's name is one line of at most "+strconv.Itoa(MaxWorldTitle)+" characters.")
@@ -317,7 +326,7 @@ func (s *Service) createWorld(w http.ResponseWriter, r *http.Request) (any, erro
 		perAccount = 0
 	}
 	wd, err := s.cfg.Store.CreateWorld(r.Context(), store.NewWorld{PackID: p.ID, PackVersion: p.Version, Title: title,
-		Visibility: q.Visibility, CreatedBy: a.ID, PerAccount: perAccount, Total: s.cfg.MaxWorlds})
+		Visibility: q.Visibility, CreatedBy: a.ID, PerAccount: perAccount, Total: s.cfg.MaxWorlds, GameState: game})
 	switch {
 	case errors.Is(err, store.ErrAccountWorlds):
 		return nil, fail(http.StatusConflict, "You have "+strconv.Itoa(perAccount)+" worlds already. End one before you start another.")

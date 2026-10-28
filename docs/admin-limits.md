@@ -13,6 +13,16 @@ An unset or empty variable keeps the default. A value that does not parse or is 
 | `TALESPEAK_LUA_PLAYER_MEMORY` | `4MiB` | `64KiB` to `1GiB` | Memory one player's script state in one room may keep; past it that player's state in that room starts over ("script hit its limits"); when unset and `TALESPEAK_LUA_STATE_MEMORY` is lower, that value |
 | `TALESPEAK_LUA_CLIENT_MEMORY` | `64MiB` | `64KiB` to `4GiB`, at most the world limit | Memory the players of one address (IPv6: one /48) may keep together in one world, so a few addresses with many connections cannot fill it; past it more players from that address are told to try later; when unset and `TALESPEAK_LUA_STATE_MEMORY` is lower, that value |
 | `TALESPEAK_LUA_STATE_MEMORY` | `256MiB` | `1MiB` to `4GiB`, at least the player limit | Memory all players' script state in one world may keep together; past it new players are told the world is full until others leave |
+| `TALESPEAK_STATE_KEY_BYTES` | `64` | 32 to 255 | Bytes of one key of `state.player`, `state.world` or `state.game` ([lua-sandbox.md](lua-sandbox.md)) |
+| `TALESPEAK_STATE_VALUE_MAX` | `16KiB` | `1KiB` to `1MiB`, at most each total below | One value a script keeps, as encoded |
+| `TALESPEAK_STATE_DEPTH` | `8` | 2 to 32 | Tables in tables in one kept value |
+| `TALESPEAK_STATE_PLAYER_MAX` | `256KiB` | `4KiB` to `64MiB` | All one character keeps in `state.player` (keys and encoded values) |
+| `TALESPEAK_STATE_PLAYER_KEYS` | `500` | 10 to 100000 | Keys of one character's `state.player` |
+| `TALESPEAK_STATE_WORLD_MAX` | `4MiB` | `4KiB` to `1GiB` | All one world keeps in `state.world` |
+| `TALESPEAK_STATE_WORLD_KEYS` | `5000` | 10 to 1000000 | Keys of one world's `state.world` |
+| `TALESPEAK_STATE_GAME_MAX` | `1MiB` | `4KiB` to `64MiB` | All one world keeps in `state.game`, its settings included |
+| `TALESPEAK_STATE_GAME_KEYS` | `1000` | 30 to 100000 | Keys of one world's `state.game` |
+| `TALESPEAK_STATE_WRITES` | `50` | 1 to 10000 | `set` and `update` calls of all three in one hook, its questions included. A world writes to the database at most once per hook, whatever this is |
 | `TALESPEAK_PACK_IMAGE_MAX` | `2MiB` | `1KiB` to `64MiB` | One image in a pack's `assets/` |
 | `TALESPEAK_PACK_IMAGES_TOTAL` | `64MiB` | `1KiB` to `4GiB`, at least the image maximum | All images of one pack (they are kept in memory) |
 | `TALESPEAK_MAX_CONNS` | `1000` | 1 to 1000000 | Open WebSocket connections |
@@ -42,5 +52,7 @@ Durations are Go durations (`250ms`, `2s`, `5m`). Sizes are bytes or a number wi
 - "Too many players from your network": a large school behind one address with a heavy pack; raise `TALESPEAK_LUA_CLIENT_MEMORY`. A player keeps the script state of the last 4 rooms they entered, so a pack with a word list in several rooms costs up to 4 times as much per player.
 - The engine port reachable from a LAN without Caddy in front: set `TALESPEAK_TRUSTED_PROXIES` to the proxy's own address, or to `::1/128` when nothing proxies. By default the private ranges are trusted, so a device on the same network could send any `X-Forwarded-For` and get a fresh address for every per-client limit.
 - More than one domain, or the engine port reachable without Caddy: `TALESPEAK_HOSTS` (comma-separated host names, no scheme or port) lists the names the engine answers. A request for any other `Host` gets 421, so a page on another domain cannot point its name at the server (DNS rebinding) and read it. IP addresses and `localhost` always work, for health checks. `deploy/compose.yml` sets it to `TALESPEAK_DOMAIN`; unset or empty, every name is answered.
+
+**State limits** (`TALESPEAK_STATE_*`) bound what packs keep in the database, so no pack fills the disk. A write past one fails in the script (`set` returns nil and the reason, which the room's script can say or log), never in the engine. They also count toward the Lua memory limits above. Raise them for packs that need more. Lower them only on a new server: stored state larger than a limit is refused when it loads (a world whose `state.world` or `state.game` is too large does not load, a character whose `state.player` is too large cannot join) until the limit is raised again. A pack written for larger limits than a server has gets nil and the reason from its writes there, so pack authors should stay within the defaults.
 
 **Fixed on purpose:** limits that are part of the pack format are the same on every server, so a pack that works on one works on all: at most 9 dialog options, 20 clickable items, title and option lengths, 4000 bytes per `say`, 500 bytes per typed line, 256 KiB per script, 64 KiB per YAML file. They are listed in [lua-sandbox.md](lua-sandbox.md), [content-format.md](content-format.md) and [websocket-protocol.md](websocket-protocol.md).

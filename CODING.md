@@ -58,7 +58,8 @@ browser (web/static)  --HTTP-->  internal/server  --/api-->  internal/account  -
 | `internal/account/reset.go` | Reset codes (`POST /api/resetcode`: admins for anyone, edu GMs for their worlds' plain players), `POST /api/reset`, `POST /api/forgot` (mailed link, one answer for every name), `POST /api/password`; each ends the account's games (`Config.SignOut`) |
 | `internal/account/email.go` | `POST /api/email` and `POST /api/verify`: confirmed addresses (never edu players), the texts of the mails |
 | `internal/account/join.go` | `POST /api/join` with a code, `POST /api/invites` for admins and GMs |
-| `internal/account/worlds.go` | The lobby (`GET /api/worlds`, cards), who may play, see, invite, finish and create worlds, creating and ending worlds |
+| `internal/account/worlds.go` | The lobby (`GET /api/worlds`, cards, packs with their settings), who may play, see, invite, finish and create worlds, creating and ending worlds |
+| `internal/account/settings.go` | A new world's settings (T-0018): the lobby's `Setting`, checking `POST /api/worlds` picks and writing them as the world's first `state.game` |
 | `internal/account/names.go` | `ValidName`, `ValidPassword`, `CreateInvite` |
 | `internal/account/members.go` | `GET` and `POST /api/members`: a world's members, who may change whose role (admins, GMs for their players, the edu floor), live players reconnect with the new role |
 | `internal/account/profiles.go` | Profiles in the lobby: the card's `profiles` (`addProfiles`) and `POST /api/profiles` picking or making a character for a world |
@@ -73,7 +74,8 @@ browser (web/static)  --HTTP-->  internal/server  --/api-->  internal/account  -
 | `internal/store/profiles.go` | The `Profiles` interface and its records: `Profile`, `Progress`, `Bind`, `ProgressSave`; `ErrProfiles`, `ErrProfileChanged` |
 | `internal/store/sqlite/sqlite.go` | SQLite backend (pure Go): `Open`, WAL, migrations from `internal/store/sqlite/migrations/`, settings |
 | `internal/store/sqlite/accounts.go` | Accounts, passwords, roles, login tokens |
-| `internal/store/sqlite/worlds.go` | Worlds, pack versions, invites, characters, saved `state.player`/`state.world` (`Save`), the GM audit log |
+| `internal/store/sqlite/worlds.go` | Worlds, pack versions, invites, characters, saved `state.player`/`state.world`/`state.game` (`Save`), the GM audit log, `FinishWorld` |
+| `internal/store/sqlite/gamestate.go` | `state.game` per world (`game_state`, T-0018): loading it and the rows `Save` writes |
 | `internal/store/sqlite/members.go` | World members and their roles (`world_members`): `Member`, `AddMember`, `RemoveMember`, `Members` |
 | `internal/store/sqlite/mail.go` | Confirmed email addresses, `account_tokens`, `mail_outbox` (a mail goes with its code), `GMOf` |
 | `internal/store/sqlite/timers.go` | Timers that last (T-0012): player timers and question deadlines (`player_timers`), room timers (`room_timers`), written by `Save` |
@@ -107,7 +109,7 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 
 | File | What it does |
 | --- | --- |
-| `internal/game/game.go` | Package doc; `World` (fields and the `w.mu` lock), options, `NewWorld`, `NewSession`, `Close`, idle checks and `End` |
+| `internal/game/game.go` | Package doc; `World` (fields and the `w.mu` lock), options, `NewWorld`, `NewSession`, `Close`, idle checks and `End` (with the `world.finish` text) |
 | `internal/game/budget.go` | Per-client Lua time and script memory budgets: `ClientKey`, `timed`, `charged`, `release`; `ErrBusy`, `ErrClientFull` |
 | `internal/game/session.go` | `session` (one player, its fields), `Handle` dispatching `choose`/`input`/`click`/`answer`, `Close`, the player's room script instances (`env`, `start`, `free`, `victim`), pending questions |
 | `internal/game/input.go` | Entering rooms (`enterLocked`, `place`), answering questions, typed lines and clicks, running hooks (`run`, `after`) and the error text players read |
@@ -121,6 +123,8 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `internal/game/push.go` | Output nobody asked for: the push queue (`ws.Pusher`), player timers (real or game time), question timeouts |
 | `internal/game/lasting.go` | Timers that last with a store: noting changes for the next save, restoring room timers at load and a player's at join, question deadlines by `questionName` |
 | `internal/game/world.go` | `state.world` and `on_change` delivery to other players |
+| `internal/game/gamestate.go` | `state.game` (T-0018): loading it, the pack's setting defaults, noting changes for the next save, `world.finish` (`WithFinish`), refused state writes |
+| `internal/game/settings.go` | The GM command `/set`: list, show and change the world's settings, audited, every player told |
 | `internal/game/store.go` | With a store: loading a character (and its timers), saving after every hook (timers included), keeping what a failed save lost, replaced sessions |
 | `internal/game/profile.go` | A world on a ruleset (`WithRuleset`): its modules and `pack` info, checking and loading the player's profile at join, `state.profile`, `progress.*` and saving them |
 
@@ -135,7 +139,9 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `internal/script/safelib.go` | The wrapped string and table functions (`find`, `sub`, `rep`, `concat`, `table.concat`, `table.sort`) with bounded arguments and results |
 | `internal/script/ui.go` | Output to the player: `say`, `room.describe`, `room.go`, `ui.dialog`, `ui.select`, `ui.ask`, `ui.items`, `ui.image`; `ValidItemID` |
 | `internal/script/words.go` | `words.normalize` and `words.same` |
-| `internal/script/state.go` | `State`: `state.player` and `state.world` get/set/update, encoding and limits |
+| `internal/script/state.go` | `State`: `state.player`, `state.world` and `state.game` get/set/update, encoding, checking writes against the limits |
+| `internal/script/statelimits.go` | `StateLimits` (sizes, key counts, depth, writes per hook) with their defaults and bounds; `Refusals` |
+| `internal/script/game.go` | `state.game` (only a GM in GM mode writes it, settings keep to their choices) and `world.finish`; the `Game` interface; `EncodeString` |
 | `internal/script/profile.go` | `state.profile`, `progress.export`/`complete` through the optional `ProfileHost`, the read-only `pack` table (`SetPack`) |
 | `internal/script/migrate.go` | `Migrate`: a ruleset migration's `migrate(sheet)` in a sandbox of its own |
 | `internal/script/timer.go` | `timer.*` (`game = true` through `Clock`), question timeouts, `room.players`, `world.players`, `world.paused`, `world.time` |
@@ -153,6 +159,7 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | File | What it does |
 | --- | --- |
 | `internal/pack/pack.go` | Package doc; `Pack` (with the `Manifest` inline), `Room`, `Item`, `Limits`; `Load` reads `pack.yaml`, rooms, scripts, lib modules and checks them; content hash |
+| `internal/pack/settings.go` | `settings:` in `pack.yaml` (T-0018): `Setting`, checking names, choices, labels and defaults, `ValidChoice` |
 | `internal/pack/assets.go` | Pack images in memory, `AssetHandler` for `/packs/`, `AssetURL`, `Image` |
 | `internal/pack/catalog.go` | `Catalog` of installed packs and versions: `Newest`, `Pick`, `Match` |
 | `internal/pack/ruleset.go` | Rulesets and continuations (T-0010): `Manifest` (`kind`, `ruleset`, `continues`, `imports`, `exports`), its checks, ruleset migrations, `Catalog.Ruleset` and `Catalog.Check` |
@@ -176,6 +183,7 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | `web/static/members.js` | Part: a world's members on its card (`GET`/`POST /api/members`), the play as GM / as player buttons |
 | `web/static/password.js` | Part: forgot password, reset with a code or a mailed link (`#reset=`, `#verify=`), changing the password, an email address, reset codes for others, the class code and email at registration |
 | `web/static/profiles.js` | Part: who plays a world on a ruleset, picking or making a character on its card (`cleanProfiles`, `pickProfile`) |
+| `web/static/settings.js` | Part: a new world's settings in the New world form (`cleanSettings`, the picks sent to `POST /api/worlds`) |
 | `web/static/play.js` | Part: starting and stopping a game, `receive` for every engine message, story lines and scrolling, timers, items |
 | `web/static/dialog.js` | Part: dialogs, multiple choice, typed answers, the input line with its history and keys |
 | `web/static/view.js` | Part: pictures, read aloud, large text and their labels |
@@ -194,7 +202,8 @@ A schema change is a new numbered file in `internal/store/sqlite/migrations/`; n
 | --- | --- |
 | `content/content.go` | Embeds the demo pack into the binary (`Demo`) |
 | `content/demo/scripts/` | The demo escape: cell, corridor, guard room, clearing |
-| `content/demo/lib/rooms.lua` | Demo helpers: Whisp, the guard's countdown, solved rooms, the key box code |
+| `content/demo/lib/rooms.lua` | Demo helpers: Whisp, the guard's countdown, solved rooms, the key box code, dying and the GM's `/revive` |
+| `content/demo/lib/death.lua` | Three death modes from the world's `death` setting (stay, revive, respawn at a save point), for any pack to copy |
 | `content/demo/lib/round.lua` | Free and turn-based rounds in a room, for any pack to copy |
 | `content/demo/lib/items.lua` | Shared, split and used-up items and effects, for any pack to copy |
 | `content/clockmaker/scripts/` | The co-op case "The Clockmaker's Silence": one script per location |

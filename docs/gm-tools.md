@@ -42,11 +42,13 @@ What no pack, request or Lua lowers in edu mode, covered by `internal/account/ed
 | `/cancel N` | GM | Stops timer N of the last `/timers` list; its `on_timer` does not run. For a question, the time limit goes and the question waits for its answer |
 | `/extratime [NAME FACTOR]` | GM | Gives a member of the world 1 to 3 times as long (`/extratime ann 1.5`); alone, lists the factors of the players online |
 | `/mintime [TIME\|off]` | GM | The world's minimum time (off by default): questions and shown timers shorter than that get that long, up to an hour (`/mintime 30s`); alone, says what it is |
-| a room's own | as the pack says | Packs add commands with a `commands` table and `on_command` ([lua-sandbox.md](lua-sandbox.md#commands)); the demo's clearing has `/skip`, `/turns` and `/free` for turns |
+| `/set [NAME [VALUE]]` | GM | The world's settings (`settings:` in the pack's `pack.yaml`, [content-format.md](content-format.md)): `/set` lists them with their values and choices, `/set NAME` shows one, `/set NAME VALUE` changes it. Every player online reads that the game master set it; scripts read the new value with `state.game.get(NAME)` from their next hook on |
+| a room's own | as the pack says | Packs add commands with a `commands` table and `on_command` ([lua-sandbox.md](lua-sandbox.md#commands)); the demo's clearing has `/skip`, `/turns` and `/free` for turns, and its cell, corridor and guard room `/revive NAME`, which brings a dead player back when the world's `death` setting is `revive` |
 
 Command names work in any letter case. The engine's commands also work while a question is open; a room's commands wait until it is answered.
 
-`/say`, `/reset`, `/gm`, `/pause`, `/resume`, `/extend`, `/cancel` and a room's GM commands reach other players, so a GM may send five of them at once and then one a second. The count belongs to the GM's account, so connecting again does not refill it. When a GM resets a room, the Lua time of every player's `on_reset` is charged to the GM's connection.
+`/say`, `/reset`, `/gm`, `/set`, `/pause`, `/resume`, `/extend`, `/cancel` and a room's GM commands reach other players, so a GM may send five of them at once and then one a second. The count belongs to the GM's account, so connecting again does not refill it. When a GM resets a room, the Lua time of every player's `on_reset` is charged to the GM's connection.
+
 
 ## Time: pause, timers and extra time
 
@@ -62,7 +64,7 @@ A GM's words and actions have a look a pack cannot copy: they come as `notice` m
 
 ## The audit log
 
-Every GM action is written to the world's audit log before it happens: `/say` with its text, `/go`, `/reset room`, `/gm` (`gm mode` on or off), `/pause`, `/resume`, `/extend` and `/cancel` with the timer and the time, `/extratime` with the name and factor, `/mintime`, a room's GM commands with what was typed after them, and every role change in the members list or `POST /api/members`. When the log cannot be written, the action does not happen and the GM is told so. The log keeps the last 1000 entries of each world and outlasts the world: ending it deletes the game state, not the log. GMs read it with `/audit`; admins also in the database (`audit_log`).
+Every GM action is written to the world's audit log before it happens: `/say` with its text, `/go`, `/reset room`, `/gm` (`gm mode` on or off), `/pause`, `/resume`, `/extend` and `/cancel` with the timer and the time, `/extratime` with the name and factor, `/mintime`, `/set` with the setting and its new value, a room's GM commands with what was typed after them, and every role change in the members list or `POST /api/members`. A pack ending the world with `world.finish` is written too (`world.finish` with its text). When the log cannot be written, the action does not happen and the GM is told so. The log keeps the last 1000 entries of each world and outlasts the world: ending it (in the lobby or with `world.finish`) deletes the game state, `state.game` included, not the log. GMs read it with `/audit`; admins also in the database (`audit_log`).
 
 ## Changing roles while playing
 

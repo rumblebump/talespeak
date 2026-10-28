@@ -90,14 +90,14 @@ func (r *Runtime) progressExport(L *lua.LState) int {
 	name := L.CheckString(1)
 	var value []byte
 	if v := L.Get(2); v != lua.LNil {
-		e := encoder{}
+		e := encoder{max: r.limits.State.ValueBytes, depth: r.limits.State.Depth}
 		if err := e.value(v, 0); err != nil {
 			return r.setResult(L, "progress.export", err)
 		}
 		value = e.buf
 	}
-	if th := r.cur.thread; th.writes+1 > MaxStateWrites {
-		return r.setResult(L, "progress.export", limited("more than %d writes in one hook", MaxStateWrites))
+	if th := r.cur.thread; th.writes+1 > r.limits.State.Writes {
+		return r.setResult(L, "progress.export", limited("more than %d writes in one hook", r.limits.State.Writes))
 	}
 	r.cur.thread.writes++
 	if err := h.Export(name, value); err != nil {

@@ -11,8 +11,9 @@ import (
 	"github.com/rumblebump/talespeak/internal/ws"
 )
 
-// What lasts in a world with a store: state.world, each character's
-// state.player and room, and the timers (lasting.go), read when the world
+// What lasts in a world with a store: state.world, state.game
+// (gamestate.go), each character's state.player and room, and the timers
+// (lasting.go), read when the world
 // starts or the player joins, and written after every hook, in one
 // transaction per hook call.
 
@@ -174,6 +175,11 @@ func (w *World) save(s *session) {
 		v, _ := w.world.Encoded(k)
 		sv.WorldState = append(sv.WorldState, store.Change{Key: k, Value: v})
 	}
+	gameKeys := w.gameKeys()
+	for _, k := range gameKeys {
+		v, _ := w.game.Encoded(k)
+		sv.GameState = append(sv.GameState, store.Change{Key: k, Value: v})
+	}
 	if s.char != 0 {
 		sv.Character = s.char
 		for _, k := range s.dirty {
@@ -200,7 +206,7 @@ func (w *World) save(s *session) {
 	})
 	if err != nil {
 		w.log.Error("saving state failed", "world", w.worldID, "character", s.char, "err", err)
-		w.unsaved = keys
+		w.unsaved, w.gameUnsaved = keys, gameKeys
 		if s.leaving && s.char != 0 && (len(sv.PlayerState) > 0 || sv.Room != "") {
 			w.keepLost(store.Save{World: w.worldID, Character: s.char, PlayerState: sv.PlayerState, Room: sv.Room})
 		}
@@ -208,6 +214,7 @@ func (w *World) save(s *session) {
 	}
 	w.unsaved, s.dirty, s.moved = nil, nil, false
 	s.savedProfile()
+	w.gameUnsaved = nil
 	clear(w.timerSaves)
 	if sv.Clock != nil {
 		w.clockDirty = false

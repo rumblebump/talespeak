@@ -155,6 +155,15 @@
         </label>
         <p class="muted" x-show="newPackDescription" x-text="newPackDescription"></p>
         <label>name (optional) <input x-model="newWorld.title" autocomplete="off" maxlength="40" :placeholder="newPackTitle"></label>
+        <template x-for="s in newSettings" :key="newWorld.pack + '/' + s.name">
+          <label><span x-text="s.label"></span>
+            <select @change="pickSetting(s, $event)">
+              <template x-for="c in s.choices" :key="c">
+                <option :value="c" :selected="settingPicked(s, c)" x-text="c"></option>
+              </template>
+            </select>
+          </label>
+        </template>
         <fieldset x-show="!isEdu">
           <legend>who can play</legend>
           <label class="choice"><input type="radio" value="public" x-model="newWorld.visibility"> public: listed here for everyone</label>
