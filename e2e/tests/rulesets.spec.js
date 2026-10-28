@@ -8,13 +8,6 @@ import { RULESET_URL } from "../playwright.config.js";
 const story = (page) => page.locator(".story");
 const uniqueTitle = () => "World " + Math.random().toString(36).slice(2, 8);
 
-// allowFavicon lets the browser's request for /favicon.ico, which the
-// server does not have, fail without failing the test; it comes at no
-// fixed time, after the first visit to this server's origin.
-function allowFavicon(page) {
-  page.allowedErrors = [/status of 404/];
-}
-
 async function createWorld(page, title, pack) {
   const form = page.getByRole("form", { name: "New world" });
   await form.getByLabel("pack").selectOption({ label: pack + " (1.0.0)" });
@@ -26,18 +19,17 @@ async function createWorld(page, title, pack) {
 }
 
 test("a new character finishes Forest Start, then plays Dragon Isle", async ({ page }) => {
-  allowFavicon(page);
   await signUp(page, RULESET_URL);
   await page.goto(RULESET_URL + "/");
   await expect(status(page)).toHaveText("pick a world");
   // Rulesets are not offered as worlds.
   const packs = page.getByRole("form", { name: "New world" }).getByLabel("pack");
-  await expect(packs.locator("option")).toHaveText(["The damp cell (1.1.0)", "Dragon Isle (1.0.0)", "Forest Start (1.0.0)", "Sky Tower (1.0.0)"]);
+  await expect(packs.locator("option")).toHaveText(["The damp cell (1.2.0)", "Dragon Isle (1.0.0)", "Forest Start (1.0.0)", "Sky Tower (1.0.0)"]);
 
   const dragonTitle = uniqueTitle();
   const dragon = await createWorld(page, dragonTitle, "Dragon Isle");
   await expect(dragon).toContainText("Ruleset: Tiny Rules 1.0.0 · Finish Forest Start first.");
-  await dragon.getByRole("button", { name: "play" }).click();
+  await dragon.getByRole("button", { name: /^play( as GM)?$/ }).click();
   const dragonPick = dragon.getByRole("group", { name: "who plays" });
   await expect(dragonPick).toBeVisible();
   await expect(dragonPick.getByLabel("a new character")).toBeHidden();
@@ -47,7 +39,7 @@ test("a new character finishes Forest Start, then plays Dragon Isle", async ({ p
   const forestTitle = uniqueTitle();
   const forest = await createWorld(page, forestTitle, "Forest Start");
   await expect(forest).toContainText("Ruleset: Tiny Rules 1.0.0");
-  await forest.getByRole("button", { name: "play" }).click();
+  await forest.getByRole("button", { name: /^play( as GM)?$/ }).click();
   const pick = forest.getByRole("group", { name: "who plays" });
   await expect(pick.getByLabel("a new character")).toBeChecked();
   await expect(pick.getByRole("button", { name: "play" })).toBeDisabled();
@@ -63,7 +55,7 @@ test("a new character finishes Forest Start, then plays Dragon Isle", async ({ p
   await expect(card(page, forestTitle)).toContainText("your character: Fox Friend");
   const after = card(page, dragonTitle);
   await expect(after).not.toContainText("Finish Forest Start first.");
-  await after.getByRole("button", { name: "play" }).click();
+  await after.getByRole("button", { name: /^play( as GM)?$/ }).click();
   const again = after.getByRole("group", { name: "who plays" });
   await expect(again.getByLabel("Fox Friend (1.0.0)")).toBeChecked();
   await again.getByRole("button", { name: "play" }).click();
@@ -73,16 +65,15 @@ test("a new character finishes Forest Start, then plays Dragon Isle", async ({ p
 
   // Back again: the bound character plays without a picker.
   await page.getByRole("button", { name: "worlds" }).click();
-  await card(page, dragonTitle).getByRole("button", { name: "play" }).click();
+  await card(page, dragonTitle).getByRole("button", { name: /^play( as GM)?$/ }).click();
   await expect(status(page)).toContainText("connected · engine");
 });
 
 test("a Tiny Rules 1 character moves up to play Sky Tower", async ({ page }) => {
-  allowFavicon(page);
   await signUp(page, RULESET_URL);
   await page.goto(RULESET_URL + "/");
   const forest = await createWorld(page, uniqueTitle(), "Forest Start");
-  await forest.getByRole("button", { name: "play" }).click();
+  await forest.getByRole("button", { name: /^play( as GM)?$/ }).click();
   const pick = forest.getByRole("group", { name: "who plays" });
   await pick.getByLabel("name").fill("Climber");
   await pick.getByRole("button", { name: "play" }).click();
@@ -91,7 +82,7 @@ test("a Tiny Rules 1 character moves up to play Sky Tower", async ({ page }) => 
 
   const sky = await createWorld(page, uniqueTitle(), "Sky Tower");
   await expect(sky).toContainText("Ruleset: Tiny Rules 2.0.0");
-  await sky.getByRole("button", { name: "play" }).click();
+  await sky.getByRole("button", { name: /^play( as GM)?$/ }).click();
   const skyPick = sky.getByRole("group", { name: "who plays" });
   await expect(skyPick).toContainText("Climber (1.0.0) · moves up to 2.0.0 and cannot go back to older worlds");
   await skyPick.getByLabel(/Climber \(1\.0\.0\)/).check();
