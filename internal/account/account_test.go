@@ -261,6 +261,9 @@ func TestRegisterRefuses(t *testing.T) {
 		`{"name":"mira","password":"short"}`,
 		`{"name":"mira","password":"` + strings.Repeat("x", MaxPassword+1) + `"}`,
 		`{"name":"mira","password":"correct horse","admin":true}`,
+		`{"name":"GameMaster","password":"correct horse"}`, // staff names (script.ReservedName)
+		`{"name":"Admin_2","password":"correct horse"}`,
+		`{"name":"teacher","password":"correct horse"}`,
 		`not json`,
 	} {
 		if code := b.post("/api/register", body, nil); code != 400 || b.cookie != nil {

@@ -86,6 +86,32 @@ func (s *session) sayCommand(args string) []ws.Message {
 	return []ws.Message{m}
 }
 
+// sayRoomCommand is /sayroom ROOM TEXT: the players in ROOM ("here" is
+// the game master's) read TEXT, marked as the game master's. Like /say it
+// is never kept: a player who connects later does not read it.
+func (s *session) sayRoomCommand(args string) []ws.Message {
+	room, text, _ := strings.Cut(args, " ")
+	room, text = strings.ToLower(room), strings.TrimSpace(text)
+	if room == "here" {
+		room = s.room
+	}
+	if text == "" || s.w.pack.Rooms[room] == nil {
+		return []ws.Message{notice("Type /sayroom, a room from /rooms (or here) and what its players should read.")}
+	}
+	if s.slowDown() {
+		return []ws.Message{notice(slowDownMessage)}
+	}
+	if err := s.audit("sayroom", room+" "+text); err != nil {
+		return []ws.Message{{Type: "error", Message: auditFailed}}
+	}
+	m := s.gmNotice(text)
+	s.tellRoom(room, m)
+	if room == s.room {
+		return []ws.Message{m}
+	}
+	return []ws.Message{s.gmNotice("to " + s.roomTitle(room) + ": " + text)}
+}
+
 func (s *session) resetCommand(args string) []ws.Message {
 	what, room, _ := strings.Cut(args, " ")
 	room = strings.ToLower(strings.TrimSpace(room))
@@ -125,6 +151,7 @@ func (w *World) resetRoom(gm *session, room string) []ws.Message {
 			w.timerNews[roomTimerKey{room, name}] = struct{}{}
 		}
 	}
+	delete(w.events, room) // what happened there is over too
 	text := "started this room over."
 	var mine []ws.Message
 	if gm.room != room {

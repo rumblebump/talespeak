@@ -32,6 +32,7 @@ func setSetting(t *testing.T, w *World, name, value string) {
 // lines: "get KEY", "set KEY VALUE" ("nil" removes), "big KEY" (a 15000
 // byte string), "finish TEXT".
 const gameRoom = splitCmd + `
+-- The words tests type that the room shares (typed.go): dragon sleeps
 function on_input(p, text)
   local cmd, rest = split(text)
   if cmd == "get" then

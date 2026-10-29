@@ -85,6 +85,9 @@ func (s *session) Finish(text string) error {
 	if w.finishing {
 		return nil
 	}
+	if err := w.shareable(text); err != nil {
+		return err
+	}
 	w.finishing, w.finishText = true, text
 	go func() {
 		w.mu.Lock()

@@ -49,6 +49,7 @@ func TestChangeCannotBounce(t *testing.T) {
 
 func TestTimerFromChangeIsReadOnly(t *testing.T) {
 	w, c := clockWorld(t, `
+-- ring: a word the test types that the room shares (typed.go)
 function on_input(p, text) state.world.set("bell", text) end
 function on_change(p, keys) timer.start("echo", 1) end
 function on_timer(p, name)

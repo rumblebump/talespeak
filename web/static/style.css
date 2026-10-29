@@ -105,6 +105,9 @@ main { flex: 1; padding: 1rem; max-width: 60rem; margin: 0 auto; width: 100%; }
 }
 .story p.gm .from { color: var(--warn); }
 .story .divider { color: var(--muted); text-align: center; }
+/* What happened in the room (room.event): another player opened a door. */
+.story .event { font-style: italic; }
+.story .event::before { content: "· "; color: var(--muted); }
 .story .earlier { opacity: 0.75; }
 .story .picture-note { color: var(--muted); font-style: italic; }
 .story .spoken { color: var(--muted); }

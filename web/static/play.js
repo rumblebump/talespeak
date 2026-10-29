@@ -2,7 +2,7 @@
 // story lines and their scrolling, timers and clickable items. A part of
 // the game component; app.js merges it in.
 
-import { MAX_LINES, MAX_TEXT, MAX_TIMERS, NEAR_BOTTOM, cleanItems, cleanLine, clockText, speakerName, text } from "/clean.js";
+import { MAX_LINES, MAX_TEXT, MAX_TIMERS, NEAR_BOTTOM, cleanItems, cleanLine, clockText, eventID, speakerName, text } from "/clean.js";
 import { api } from "/api.js";
 import { connect } from "/net.js";
 import { loadLog, saveLog } from "/storylog.js";
@@ -25,7 +25,8 @@ export function play(speaker) {
         kind: l.kind,
         cls: l.kind + " earlier",
         from: speakerName(l.from),
-        gm: l.kind === "gm",
+        event: eventID(l.event),
+        gm: false,
         n: ++lineNo,
         speech: "",
         earlier: true,
@@ -132,6 +133,14 @@ export function play(speaker) {
         case "text":
           this.addLine(msg.text, "", false, { speak: msg.speak === true, hide: msg.hide === true, from: speakerName(msg.from) });
           break;
+        case "event": {
+          // What happened in the room. After a reconnect the engine sends
+          // the room's last events again: show only those not shown yet.
+          const id = eventID(msg.id);
+          if (id && this.lines.some((l) => l.event === id)) break;
+          this.addLine(msg.text, "event", false, { event: id });
+          break;
+        }
         case "items":
           this.items = cleanItems(msg.items);
           break;
@@ -186,6 +195,7 @@ export function play(speaker) {
         kind: k,
         cls: k,
         from,
+        event: (voice && voice.event) || "",
         gm,
         speech: spoken ? s : "",
         earlier: false,

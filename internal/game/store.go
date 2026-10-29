@@ -116,6 +116,10 @@ func (s *session) load(who ws.Who) (string, error) {
 		return "", err
 	}
 	s.char, s.id, s.name = c.ID, "p"+strconv.FormatInt(c.ID, 10), c.Name
+	s.typedState(&s.state) // an answer a pack kept counts as typed (typed.go)
+	if s.profile != nil {
+		s.typedState(&s.profile.state)
+	}
 	s.state.Changed = s.changedState
 	s.restoreTimers(timers)
 	if w.pack.Rooms[room] == nil {

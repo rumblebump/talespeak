@@ -38,7 +38,6 @@ TURN_SECONDS = 30
 BLESSING = "blessing"
 
 ended = false      -- the player went home: the story is over
-news_seen = 0      -- the last clearing news this player heard
 dice_seen = 0      -- the last dice news this player heard
 
 function on_enter(player)
@@ -59,20 +58,13 @@ function on_enter(player)
   show_items(player)
 end
 
--- news tells the other players in the clearing something, through
--- state.world: they hear it in on_change.
+-- news tells the other players in the clearing what happened, as a room
+-- event: a player who comes back after a lost connection reads it too.
 function news(text)
-  state.world.update("clearing_news", function(v)
-    return { n = (v and v.n or 0) + 1, text = text }
-  end)
+  room.event(text)
 end
 
 function on_change(player, keys)
-  local n = state.world.get("clearing_news")
-  if n and n.n > news_seen then
-    news_seen = n.n
-    say(n.text)
-  end
   local d = state.world.get("dice")
   if d and d.n > dice_seen then
     dice_seen = d.n

@@ -10,7 +10,7 @@ test("a world's death setting: picked in the lobby, changed with /set", async ({
   const form = page.getByRole("form", { name: "New world" });
   await form.getByLabel("pack").selectOption({ label: "Test pack (1.0.0)" });
   await expect(form.getByLabel("When the guard catches a player")).toHaveCount(0); // the test pack has no settings
-  await form.getByLabel("pack").selectOption({ label: "The damp cell (1.2.0)" });
+  await form.getByLabel("pack").selectOption({ label: "The damp cell (1.3.0)" });
   const death = form.getByLabel("When the guard catches a player");
   await expect(death).toHaveValue("respawn"); // the pack's default
   await death.selectOption("stay");

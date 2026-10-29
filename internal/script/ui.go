@@ -69,7 +69,8 @@ const MaxFromBytes = 40
 
 // fromArg reads the optional from field of the table at n: who says a
 // line or asks a question, for example "Whisp" for the guide. It is shown
-// as written, so it must be one short line of text.
+// as written, so it must be one short line of text, and no name that
+// reads as the game master's or the server's (ReservedName).
 func fromArg(L *lua.LState, t *lua.LTable, n int) string {
 	switch v := t.RawGetString("from").(type) {
 	case *lua.LNilType:
@@ -78,6 +79,9 @@ func fromArg(L *lua.LState, t *lua.LTable, n int) string {
 		s := string(v)
 		if strings.TrimSpace(s) == "" || len(s) > MaxFromBytes || !utf8.ValidString(s) || strings.IndexFunc(s, notInLine) >= 0 {
 			L.ArgError(n, "from must be a name of 1 to 40 bytes on one line")
+		}
+		if ReservedName(s) {
+			L.ArgError(n, "from cannot name the game master, an admin or the server: only the engine speaks for them")
 		}
 		return s
 	default:

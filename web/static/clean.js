@@ -80,6 +80,13 @@ export const speakerName = (v) =>
     .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "")
     .slice(0, 40);
 
+/** eventID is a room event's id as the engine makes them ("lq3k9x.1f"),
+ * or "". */
+export const eventID = (v) => {
+  const s = text(v);
+  return /^[0-9a-z]{1,16}\.[0-9a-z]{1,16}$/.test(s) ? s : "";
+};
+
 /** A picture URL must be a pack image on this server. */
 export function imageURL(v) {
   const s = text(v);

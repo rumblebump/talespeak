@@ -111,6 +111,7 @@ func (r *Runtime) openSandbox() *lua.LTable {
 	room.RawSetString("describe", L.NewFunction(r.describe))
 	room.RawSetString("go", L.NewFunction(r.goRoom))
 	room.RawSetString("players", L.NewFunction(r.roomPlayers))
+	room.RawSetString("event", L.NewFunction(r.roomEvent))
 	lib.RawSetString("room", r.readOnly(room))
 	world := L.NewTable()
 	world.RawSetString("players", L.NewFunction(r.worldPlayers))
