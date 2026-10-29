@@ -44,7 +44,7 @@ func texts(ms []ws.Message) string {
 	var parts []string
 	for _, m := range ms {
 		switch m.Type {
-		case "text":
+		case "text", "event":
 			parts = append(parts, m.Text)
 		case "room":
 			parts = append(parts, "room:"+m.ID)

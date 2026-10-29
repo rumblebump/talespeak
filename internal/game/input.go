@@ -155,6 +155,7 @@ func (s *session) answer(m ws.Message) []ws.Message {
 	if s.w.closed {
 		return s.after(nil, script.ErrClosed)
 	}
+	s.typed(text)
 	return s.resumed(s.run1(func() (*script.Thread, error) { return s.w.rt.Answer(s, s.pending, text) }))
 }
 
@@ -209,6 +210,7 @@ func (s *session) input(m ws.Message) []ws.Message {
 	if s.held() {
 		return []ws.Message{notice(pausedText)}
 	}
+	s.typed(text)
 	return s.run("on_input", text)
 }
 
@@ -279,7 +281,7 @@ func (s *session) after(th *script.Thread, err error) []ws.Message {
 		s.pending = th
 		s.dialogID = "d" + strconv.Itoa(s.dialogs)
 		d := th.Dialog
-		m := ws.Message{Type: "dialog", ID: s.dialogID, Title: d.Title, Options: d.Options, Speak: d.Voice.Speak, Hide: d.Voice.Hide, From: d.Voice.From}
+		m := ws.Message{Type: "dialog", ID: s.dialogID, Title: d.Title, Options: d.Options, Speak: d.Voice.Speak, Hide: d.Voice.Hide, From: s.w.voice(d.Voice.From)}
 		switch {
 		case d.Multiple:
 			m.Type, m.Min, m.Max = "select", d.Min, d.Max

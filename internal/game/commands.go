@@ -30,7 +30,7 @@ const (
 const MaxAuditShown = 20
 
 // broadcastBurst and broadcastGap limit a game master's commands that
-// reach other players (/say, /reset): broadcastBurst at once, then one
+// reach other players (/say, /sayroom, /reset): broadcastBurst at once, then one
 // per broadcastGap, so a held-down key cannot flood them.
 const (
 	broadcastBurst = 5
@@ -57,6 +57,7 @@ var coreCommands = []coreCommand{
 	{name: "rooms", usage: "/rooms", help: "the rooms of this world", gm: true},
 	{name: "go", usage: "/go ROOM", help: "go to a room yourself", gm: true},
 	{name: "say", usage: "/say TEXT", help: "tell every player something, as the game master", gm: true},
+	{name: "sayroom", usage: "/sayroom ROOM TEXT", help: "tell the players in a room something (here: your room)", gm: true},
 	{name: "reset", usage: "/reset room [ROOM]", help: "start a room over for everyone in it", gm: true},
 	{name: "audit", usage: "/audit", help: "what game masters did here last", gm: true},
 	// The world's time (T-0012, gmtime.go and timertools.go).
@@ -149,6 +150,7 @@ func (s *session) command(text string) []ws.Message {
 		}
 		s.tellRoom(s.room, s.gmNotice(strings.TrimSpace("used /"+name+" "+shorten(args, maxMarkArgs))))
 	}
+	s.typed(args)
 	h := s.hook(script.Hook{Name: "on_command", Args: []string{name, args}})
 	return s.after(s.run1(func() (*script.Thread, error) { return s.w.rt.RunHook(s, env, h) }))
 }
@@ -168,6 +170,8 @@ func (s *session) runCore(name, args string) []ws.Message {
 		return s.goCommand(args)
 	case "say":
 		return s.sayCommand(args)
+	case "sayroom":
+		return s.sayRoomCommand(args)
 	case "reset":
 		return s.resetCommand(args)
 	case "audit":

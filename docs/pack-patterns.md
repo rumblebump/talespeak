@@ -85,6 +85,21 @@ solve("corridor", "locked", "You have everything you need from the corridor. The
 
 `ui.dialog` may wait before `room.go`, never after it in the same hook ([lua-sandbox.md](lua-sandbox.md)), which is why `go` asks first and moves last. Whisp speaks with `from = "Whisp"`: the client shows the name with the line, styled apart from the story, and reads it in another voice.
 
+## What happened in the room
+
+Tell the other players in the room what a player just did with `room.event`, and the player themselves with `say`. The demo's clearing does it for players who come out of the forest or leave:
+
+```lua
+function on_click(player, id)
+  if id == "door" then
+    say("You open the door.")
+    room.event(player.name .. " opens the door.")
+  end
+end
+```
+
+A player who loses the connection and comes back reads the room's last 10 events again, so they know what happened meanwhile. Build the text from the pack's own words and players' names only: what a player typed never goes into an event or `state.world` (the engine refuses it, [lua-sandbox.md](lua-sandbox.md)). Players answer the story, not each other: a typed answer is compared with what the room expects (`words.same`) and makes something happen.
+
 ## A countdown across rooms
 
 A threat that runs while the player moves between rooms (the guard refilling his bottle) is one number in `state.player`. The room that starts it sets it, and every room counts it down before each action:

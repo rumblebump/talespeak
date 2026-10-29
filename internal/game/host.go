@@ -2,6 +2,7 @@ package game
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/rumblebump/talespeak/internal/script"
 	"github.com/rumblebump/talespeak/internal/ws"
@@ -28,7 +29,33 @@ func (s *session) flush() []ws.Message {
 // Say, DescribeRoom, Items, Image, Go, Room and PlayerState implement
 // script.Host.
 func (s *session) Say(text string, how script.Voice) {
-	s.out = append(s.out, ws.Message{Type: "text", Text: text, Speak: how.Speak, Hide: how.Hide, From: how.From})
+	s.out = append(s.out, ws.Message{Type: "text", Text: text, Speak: how.Speak, Hide: how.Hide, From: s.w.voice(how.From)})
+}
+
+// voice is the speaker's name a pack gave a line or question, or "" when
+// it names a player who joined the world in this run, alone or first
+// ("Anna", "Anna (player)"): no pack line may look as if a player said
+// it, since players never talk in the game. The caller holds w.mu.
+func (w *World) voice(from string) string {
+	if from == "" {
+		return ""
+	}
+	key := nameKey(from)
+	if _, ok := w.names[key]; ok {
+		return ""
+	}
+	for name := range w.names {
+		if strings.HasPrefix(key, name+" ") {
+			return ""
+		}
+	}
+	return from
+}
+
+// nameKey is name lowercased, with only its letters and digits, one space
+// between their runs: "Anna!" and "anna" are one name.
+func nameKey(name string) string {
+	return strings.Join(strings.FieldsFunc(fold(name), func(r rune) bool { return !wordRune(r) }), " ")
 }
 
 func (s *session) DescribeRoom() {

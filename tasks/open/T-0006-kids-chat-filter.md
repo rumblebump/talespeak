@@ -1,6 +1,6 @@
 ---
 id: T-0006
-title: Kids mode chat filter
+title: Name filter for kids (no chat to filter)
 type: feature
 priority: high
 created: 2026-10-17
@@ -9,15 +9,16 @@ depends: [T-0002]
 
 ## Goal
 
-Free-text chat in kids mode passes normalize, word list, personal-info block and the enguard classifier before anyone sees it.
+There is no chat between players (Carl 2026-10-29, T-0046): players talk next to each other or elsewhere, typed text only answers the story, and the engine refuses shared text with words a player typed. What people still type that others see is names: account names, world names, character names. Those pass a filter on a kids server before anyone sees them.
 
 ## Acceptance
 
-- [ ] go-away word list plus editable YAML list
-- [ ] Phone, email, address and link blocking
-- [ ] enguard tiny-guard classifier via the Model2Vec code from T-0005
-- [ ] Test set of allowed and blocked messages in CI
-- [ ] Edu floor for chat, from T-0011: GMs see all chat in their world, kids open no private chat outside it, and players see a notice that GMs can read chat; covered by tests next to `internal/account/edu_floor_test.go`
+- [ ] go-away word list plus editable YAML list, for account, world and character names
+- [ ] Phone, email, address and link blocking in those names
+- [ ] Test set of allowed and blocked names in CI
+- [ ] Maybe: the enguard tiny-guard classifier via the Model2Vec code from T-0005, if word lists are not enough for names
+
+Dropped with chat (T-0046): filtering chat messages, the edu floor for chat (GMs see all chat, no private chat, the notice that GMs read chat), the GM transcript. Game masters' `/say` and `/sayroom` are audited and need no filter.
 
 ## Notes
 

@@ -128,3 +128,18 @@ func FuzzNormalizeCode(f *testing.F) {
 		}
 	})
 }
+
+// Self-registration refuses staff names with a reason, and takes names
+// that only look like them (script.ReservedName).
+func TestRegisterStaffNames(t *testing.T) {
+	f := newFixture(t, Config{})
+	for _, name := range []string{"GM_Mira", "SysOp", "Mod_Anna", "TheGM", "Server-2"} {
+		var e map[string]string
+		if code := f.browser().post("/api/register", `{"name":"`+name+`","password":"correct horse"}`, &e); code != 400 || !strings.Contains(e["error"], "staff") {
+			t.Errorf("%s: %d %v", name, code, e)
+		}
+	}
+	for _, name := range []string{"Badminton", "Gemma", "Modest", "Systemic"} {
+		f.signUp(name)
+	}
+}

@@ -2,10 +2,11 @@
 
 const MAX_KEPT = 50; // story lines kept per world
 
-// Story lines the browser keeps, by kind: what the player read and typed.
-// A line of any other kind is not kept, and a kept line of another kind
-// is not shown again.
-const KEPT_KINDS = new Set(["", "room-title", "you", "asked", "error", "picture-note", "spoken", "notice", "gm", "server", "guide", "asked guide", "divider"]);
+// Story lines the browser keeps, by kind: what the player read and typed,
+// and what happened in the room ("event"). A line of any other kind is not
+// kept, and a kept line of another kind is not shown again. A game
+// master's lines ("gm") are for the moment they are sent: never kept.
+const KEPT_KINDS = new Set(["", "room-title", "you", "asked", "error", "picture-note", "spoken", "notice", "server", "guide", "asked guide", "divider", "event"]);
 
 /**
  * The story log in the browser: the last MAX_KEPT lines of each world, so a
@@ -30,8 +31,9 @@ function logKey(account, world) {
   return LOG_PREFIX + account.toLowerCase() + "." + world;
 }
 
-/** loadLog reads the kept lines of a world: { text, kind, from }, the
- * oldest first. from is still to be cleaned as the server's. */
+/** loadLog reads the kept lines of a world: { text, kind, from, event },
+ * the oldest first; event is the id of a room event. from and event are
+ * still to be cleaned as the server's. */
 export function loadLog(edu, account, world) {
   const st = logStorage(edu);
   if (!st || !account || !world) return [];
@@ -41,7 +43,7 @@ export function loadLog(edu, account, world) {
     return list
       .filter((l) => l && typeof l === "object" && typeof l.t === "string" && KEPT_KINDS.has(l.k))
       .slice(-MAX_KEPT)
-      .map((l) => ({ text: l.t.slice(0, 4000), kind: l.k, from: typeof l.f === "string" ? l.f : "" }));
+      .map((l) => ({ text: l.t.slice(0, 4000), kind: l.k, from: typeof l.f === "string" ? l.f : "", event: typeof l.e === "string" ? l.e : "" }));
   } catch {
     return [];
   }
@@ -53,7 +55,7 @@ export function saveLog(edu, account, world, lines) {
   const kept = lines
     .filter((l) => KEPT_KINDS.has(l.kind))
     .slice(-MAX_KEPT)
-    .map((l) => ({ t: l.text, k: l.kind, f: l.from || undefined }));
+    .map((l) => ({ t: l.text, k: l.kind, f: l.from || undefined, e: l.event || undefined }));
   try {
     st.setItem(logKey(account, world), JSON.stringify(kept));
   } catch {

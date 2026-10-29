@@ -156,6 +156,9 @@ func (s *session) StartRoomTimer(name string, d time.Duration, show string) erro
 // The caller holds w.mu.
 func (s *session) startRoomTimer(name string, d time.Duration, show string, game bool) error {
 	w, room := s.w, s.room
+	if err := w.shareable(show); err != nil {
+		return err
+	}
 	ts := w.roomTimers[room]
 	old := ts[name]
 	if old == nil && len(ts) >= MaxRoomTimers {

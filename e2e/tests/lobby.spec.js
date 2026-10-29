@@ -9,7 +9,7 @@ const uniqueTitle = () => "World " + Math.random().toString(36).slice(2, 8);
 // the new world's card.
 async function createWorld(page, title, pack, visibility) {
   const form = page.getByRole("form", { name: "New world" });
-  await form.getByLabel("pack").selectOption({ label: pack + (pack === "The damp cell" ? " (1.2.0)" : " (1.0.0)") }); // the pack and the version new worlds start on
+  await form.getByLabel("pack").selectOption({ label: pack + (pack === "The damp cell" ? " (1.3.0)" : " (1.0.0)") }); // the pack and the version new worlds start on
   await form.getByLabel("name (optional)").fill(title);
   await form.getByLabel(visibility).check();
   await form.getByRole("button", { name: "create" }).click();

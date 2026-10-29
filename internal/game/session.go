@@ -147,6 +147,7 @@ func (s *session) end() {
 	_ = s.reserve(-s.state.Size())
 	s.state = script.State{}
 	s.releaseProfile()
+	s.w.forgetTyped(s.id) // after on_leave, the last hook that had what they typed
 }
 
 // env returns the player's instance of room's script, starting it on first

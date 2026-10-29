@@ -11,7 +11,7 @@ Nothing here.
 | Id | Title | Type | Priority |
 | --- | --- | --- | --- |
 | [T-0005](open/T-0005-whisp-prototype.md) | Whisp tiers 0 and 1 prototype and benchmark | research | high |
-| [T-0006](open/T-0006-kids-chat-filter.md) | Kids mode chat filter | feature | high |
+| [T-0006](open/T-0006-kids-chat-filter.md) | Name filter for kids (no chat to filter) | feature | high |
 | [T-0007](open/T-0007-ci-cd-workflows.md) | CI branch flow, scans, deploys and releases | chore | high |
 | [T-0008](open/T-0008-dev-server-setup.md) | Set up the dev and staging servers | chore | medium |
 | [T-0009](open/T-0009-license-review.md) | License review and contribution process | docs | medium |
@@ -60,3 +60,4 @@ Nothing here.
 | [T-0037](done/T-0037-clockmaker-pack.md) | The Clockmaker's Silence, a co-op case pack with save spots | feature | medium |
 | [T-0038](done/T-0038-code-map-and-splits.md) | Code map (CODING.md) and source files under 500 lines | chore | medium |
 | [T-0039](done/T-0039-flaky-real-clock-world-changes.md) | TestRealClockWorldChanges is flaky under load | bug | low |
+| [T-0046](done/T-0046-room-events-no-player-text.md) | Room events replayed on reconnect, no player text to other players | feature | high |

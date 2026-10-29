@@ -24,7 +24,7 @@ test("a new character finishes Forest Start, then plays Dragon Isle", async ({ p
   await expect(status(page)).toHaveText("pick a world");
   // Rulesets are not offered as worlds.
   const packs = page.getByRole("form", { name: "New world" }).getByLabel("pack");
-  await expect(packs.locator("option")).toHaveText(["The damp cell (1.2.0)", "Dragon Isle (1.0.0)", "Forest Start (1.0.0)", "Sky Tower (1.0.0)"]);
+  await expect(packs.locator("option")).toHaveText(["The damp cell (1.3.0)", "Dragon Isle (1.0.0)", "Forest Start (1.0.0)", "Sky Tower (1.0.0)"]);
 
   const dragonTitle = uniqueTitle();
   const dragon = await createWorld(page, dragonTitle, "Dragon Isle");

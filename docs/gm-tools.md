@@ -22,7 +22,7 @@ What no pack, request or Lua lowers in edu mode, covered by `internal/account/ed
 
 - Only admins make game masters: a GM's join codes are for players, and the members list lets a GM take players out but make no GM and change no other GM. Registering grants nothing: a new account sees an empty lobby.
 - Packs cannot give GM rights: `player.gm` is the engine's, a script that changes the field changes nothing the engine checks, and `player:can` answers the engine's permissions (`gm.tools`, `world.pause`, `timer.edit`, `chat.view_all`, `player.mute`, `item.spawn`) only for a GM in GM mode, whatever the pack defines ([lua-sandbox.md](lua-sandbox.md#permissions)).
-- Still to come with chat (T-0006): GMs see all chat, no private chat outside the world, and the notice that GMs can read chat.
+- Players never chat (Carl 2026-10-29, T-0046): there is no way for one player to send another free text. What a player types only runs their own hooks, and the engine refuses shared text with words a player typed ([lua-sandbox.md](lua-sandbox.md)). Only game masters send messages, with `/say` and `/sayroom`, and those are audited.
 
 ## Commands
 
@@ -34,6 +34,7 @@ What no pack, request or Lua lowers in edu mode, covered by `internal/account/ed
 | `/rooms` | GM | The pack's rooms with their ids |
 | `/go ROOM` | GM | Goes to a room (by its id from `/rooms`) yourself, as `room.go` would; its `on_enter` runs |
 | `/say TEXT` | GM | Every player online in the world reads TEXT, marked as the game master's |
+| `/sayroom ROOM TEXT` | GM | The players in ROOM (an id from `/rooms`, or `here` for your own) read TEXT, marked as the game master's |
 | `/reset room [ROOM]` | GM | Starts the room you are in (or ROOM) over for every player in it: questions they had open close and the room's question deadlines are forgotten, the room's timers stop (also those waiting for a player), the pack's `on_reset` clears what it keeps of the room, the players' instances of the room's script start over and `on_enter` runs again (for a player out of Lua time, as when joining, only with their next line). Players elsewhere keep what they have |
 | `/audit` | GM | The last 20 entries of the world's audit log, the latest first |
 | `/pause`, `/resume` | GM | Stops the game for everyone and goes on (below) |
@@ -47,7 +48,7 @@ What no pack, request or Lua lowers in edu mode, covered by `internal/account/ed
 
 Command names work in any letter case. The engine's commands also work while a question is open; a room's commands wait until it is answered.
 
-`/say`, `/reset`, `/gm`, `/set`, `/pause`, `/resume`, `/extend`, `/cancel` and a room's GM commands reach other players, so a GM may send five of them at once and then one a second. The count belongs to the GM's account, so connecting again does not refill it. When a GM resets a room, the Lua time of every player's `on_reset` is charged to the GM's connection.
+`/say`, `/sayroom`, `/reset`, `/gm`, `/set`, `/pause`, `/resume`, `/extend`, `/cancel` and a room's GM commands reach other players, so a GM may send five of them at once and then one a second. The count belongs to the GM's account, so connecting again does not refill it. When a GM resets a room, the Lua time of every player's `on_reset` is charged to the GM's connection.
 
 
 ## Time: pause, timers and extra time
@@ -60,11 +61,13 @@ Extra time is a factor per member of the world, kept in `world_members.extra_tim
 
 ## What players see
 
-A GM's words and actions have a look a pack cannot copy: they come as `notice` messages ([websocket-protocol.md](websocket-protocol.md)), which the client shows in a box with a **GM** badge and the GM's name, whatever name a pack gives its own lines. When a GM resets a room or uses a room's GM command, the other players there see it marked the same way ("started this room over.", "used /skip anna"; past 60 bytes the arguments are cut, the audit log keeps them whole). With read aloud on, the client speaks a GM's line in the plain voice as "Game master NAME says: …", never in a pack's guide voice.
+A GM's words and actions have a look a pack cannot copy: they come as `notice` messages ([websocket-protocol.md](websocket-protocol.md)), which the client shows in a box with a **GM** badge and the GM's name, whatever name a pack gives its own lines. When a GM resets a room or uses a room's GM command, the other players there see it marked the same way ("started this room over.", "used /skip anna"; past 60 bytes the arguments are cut, the audit log keeps them whole). With read aloud on, the client speaks a GM's line in the plain voice as "Game master NAME says: …", never in a pack's guide voice. A pack cannot name a voice like a game master, an admin, a teacher or the server, nor like a player of the world ([lua-sandbox.md](lua-sandbox.md)).
+
+A GM's messages are for the moment: the engine keeps none of them, and neither does the browser's story log, so a player who connects later or reloads does not read them again. What happened in a room (`room.event`) is kept instead: each room's last 10 events, in memory, sent again to a player who connects; `/reset room` forgets them.
 
 ## The audit log
 
-Every GM action is written to the world's audit log before it happens: `/say` with its text, `/go`, `/reset room`, `/gm` (`gm mode` on or off), `/pause`, `/resume`, `/extend` and `/cancel` with the timer and the time, `/extratime` with the name and factor, `/mintime`, `/set` with the setting and its new value, a room's GM commands with what was typed after them, and every role change in the members list or `POST /api/members`. A pack ending the world with `world.finish` is written too (`world.finish` with its text). When the log cannot be written, the action does not happen and the GM is told so. The log keeps the last 1000 entries of each world and outlasts the world: ending it (in the lobby or with `world.finish`) deletes the game state, `state.game` included, not the log. GMs read it with `/audit`; admins also in the database (`audit_log`).
+Every GM action is written to the world's audit log before it happens: `/say` with its text, `/sayroom` with the room and its text, `/go`, `/reset room`, `/gm` (`gm mode` on or off), `/pause`, `/resume`, `/extend` and `/cancel` with the timer and the time, `/extratime` with the name and factor, `/mintime`, `/set` with the setting and its new value, a room's GM commands with what was typed after them, and every role change in the members list or `POST /api/members`. A pack ending the world with `world.finish` is written too (`world.finish` with its text). When the log cannot be written, the action does not happen and the GM is told so. The log keeps the last 1000 entries of each world and outlasts the world: ending it (in the lobby or with `world.finish`) deletes the game state, `state.game` included, not the log. GMs read it with `/audit`; admins also in the database (`audit_log`).
 
 ## Changing roles while playing
 
