@@ -6,12 +6,14 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/rumblebump/talespeak/internal/script"
 	"github.com/rumblebump/talespeak/internal/store"
 	"github.com/rumblebump/talespeak/internal/ws"
 )
 
-// What lasts in a world with a store: state.world, each character's
-// state.player and room, and the timers (lasting.go), read when the world
+// What lasts in a world with a store: state.world, state.game
+// (gamestate.go), each character's state.player and room, and the timers
+// (lasting.go), read when the world
 // starts or the player joins, and written after every hook, in one
 // transaction per hook call.
 
@@ -37,6 +39,10 @@ func joinError(err error) string {
 	}
 	if errors.Is(err, errFull) {
 		return "This world is full right now. Try again later."
+	}
+	var refused *joinRefusal
+	if errors.As(err, &refused) {
+		return refused.msg
 	}
 	return "Your character could not be loaded. Try again later."
 }
@@ -73,6 +79,10 @@ func (s *session) load(who ws.Who) (string, error) {
 	if err := w.writeTimers(ctx); err != nil {
 		return "", err
 	}
+	prof, sheet, err := s.checkProfile(ctx, c)
+	if err != nil {
+		return "", err
+	}
 	vals, err := w.store.PlayerState(ctx, c.ID)
 	if err != nil {
 		return "", err
@@ -84,6 +94,11 @@ func (s *session) load(who ws.Who) (string, error) {
 	if err := s.state.Load(vals); err != nil {
 		return "", errors.Join(errFull, err)
 	}
+	if err := s.loadProfile(prof, sheet); err != nil {
+		_ = s.reserve(-s.state.Size())
+		s.state = script.State{}
+		return "", errors.Join(errFull, err)
+	}
 	// The role as it is now, not as it was when the connection signed
 	// in: a demotion between the two would otherwise keep GM powers.
 	// RoleChanged writes the store before it looks for sessions, under
@@ -93,7 +108,13 @@ func (s *session) load(who ws.Who) (string, error) {
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return "", err
 	}
-	s.gm = role == store.MemberGM
+	s.member = role == store.MemberGM
+	s.gm = s.member && !s.asPlayer
+	if s.extra, err = w.store.ExtraTime(ctx, w.worldID, who.Account); errors.Is(err, store.ErrNotFound) {
+		s.extra = 1
+	} else if err != nil {
+		return "", err
+	}
 	s.char, s.id, s.name = c.ID, "p"+strconv.FormatInt(c.ID, 10), c.Name
 	s.state.Changed = s.changedState
 	s.restoreTimers(timers)
@@ -154,6 +175,11 @@ func (w *World) save(s *session) {
 		v, _ := w.world.Encoded(k)
 		sv.WorldState = append(sv.WorldState, store.Change{Key: k, Value: v})
 	}
+	gameKeys := w.gameKeys()
+	for _, k := range gameKeys {
+		v, _ := w.game.Encoded(k)
+		sv.GameState = append(sv.GameState, store.Change{Key: k, Value: v})
+	}
 	if s.char != 0 {
 		sv.Character = s.char
 		for _, k := range s.dirty {
@@ -164,7 +190,9 @@ func (w *World) save(s *session) {
 			sv.Room = s.room
 		}
 	}
+	s.saveProfile(&sv)
 	sv.Timers = w.timerChanges()
+	w.saveClock(&sv)
 	if sv.Empty() && len(w.lost) == 0 {
 		return
 	}
@@ -178,14 +206,19 @@ func (w *World) save(s *session) {
 	})
 	if err != nil {
 		w.log.Error("saving state failed", "world", w.worldID, "character", s.char, "err", err)
-		w.unsaved = keys
+		w.unsaved, w.gameUnsaved = keys, gameKeys
 		if s.leaving && s.char != 0 && (len(sv.PlayerState) > 0 || sv.Room != "") {
 			w.keepLost(store.Save{World: w.worldID, Character: s.char, PlayerState: sv.PlayerState, Room: sv.Room})
 		}
 		return
 	}
 	w.unsaved, s.dirty, s.moved = nil, nil, false
+	s.savedProfile()
+	w.gameUnsaved = nil
 	clear(w.timerSaves)
+	if sv.Clock != nil {
+		w.clockDirty = false
+	}
 }
 
 // keepLost keeps the failed save of a player who is leaving, merged with

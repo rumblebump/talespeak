@@ -14,37 +14,44 @@ import (
 // connection's goroutine; timers call in from their own. w.mu guards every
 // field.
 type session struct {
-	w       *World
-	id      string // player.id: unique in the world while it runs, and for ever with a store
-	char    int64  // the character in the store; 0 without one
-	name    string
-	gm      bool  // a game master of the world: player.gm, and the GM commands
-	account int64 // the signed-in account; 0 without one
-	client  string
-	room    string
-	joined  int64 // when the player joined the world, for world.players
-	arrived int64 // when the player came into room, for room.players
-	closed  bool
-	leaving bool // on_leave runs: the player is no longer among room.players
+	w      *World
+	id     string // player.id: unique in the world while it runs, and for ever with a store
+	char   int64  // the character in the store; 0 without one
+	name   string
+	member bool // a game master of the world (world_members.role): may use /gm
+	gm     bool // GM mode is on: player.gm, and the GM commands; never without member
+	// asPlayer is set when the game master joined as a player (ws.Who), so
+	// GM mode starts off.
+	asPlayer bool
+	account  int64 // the signed-in account; 0 without one
+	client   string
+	room     string
+	joined   int64 // when the player joined the world, for world.players
+	arrived  int64 // when the player came into room, for room.players
+	closed   bool
+	leaving  bool // on_leave runs: the player is no longer among room.players
 
 	envs     map[string]*script.Env // room id -> this player's instance of its script
 	pending  *script.Thread         // the hook waiting in ui.dialog, if any
 	dialogID string
-	dialogs  int           // dialogs shown, for unique ids
-	items    []script.Item // what the player can click now
-	state    script.State  // state.player, shared by the player's rooms
-	dirty    []string      // state.player keys changed since the last save
-	moved    bool          // room changed since the last save
-	replaced bool          // the player connected again elsewhere: this session ended
-	changed  []string      // world keys others changed that on_change has not seen yet
-	next     string        // the room room.go moves the player to when the hook ends
-	visited  []string      // rooms entered, the latest last
-	moves    int           // room.go moves done for the current message
+	dialogs  int             // dialogs shown, for unique ids
+	items    []script.Item   // what the player can click now
+	state    script.State    // state.player, shared by the player's rooms
+	profile  *sessionProfile // the profile the player plays (profile.go); nil without a ruleset
+	dirty    []string        // state.player keys changed since the last save
+	moved    bool            // room changed since the last save
+	replaced bool            // the player connected again elsewhere: this session ended
+	changed  []string        // world keys others changed that on_change has not seen yet
+	next     string          // the room room.go moves the player to when the hook ends
+	visited  []string        // rooms entered, the latest last
+	moves    int             // room.go moves done for the current message
 
 	timers      map[string]*timer         // the player's timers, by name
-	dialogTimer func() bool               // stops the open question's timeout, if it has one
+	dialogTimer *timer                    // the open question's timeout, if it has one
 	questions   map[questionKey]time.Time // deadlines of questions asked, with a store (lasting.go)
 	asked       questionKey               // the open question's entry in questions, if any
+	extra       float64                   // the player's extra-time factor (/extratime); 0 or 1 is none
+	timerList   []timerRef                // the timers /timers showed this game master last (timertools.go)
 
 	out        []ws.Message // collects output during one hook call
 	queue      []ws.Message // pushed output waiting for Pending
@@ -58,12 +65,15 @@ type session struct {
 	readOnlyWorld bool
 }
 
-// timer is one of the player's timers.
+// timer is one of the player's timers, a room's (roomTimer) or a
+// question's timeout.
 type timer struct {
-	deadline time.Time
-	stop     func() bool
-	show     string // the label the player sees, "" for a secret timer
-	readOnly bool   // started under on_change: on_timer cannot write state.world
+	deadline time.Time   // on the game clock with game, else on the world clock (clock.go)
+	stop     func() bool // disarms it; noStop while it is not armed
+	fire     func()      // what runs once it is due; it takes w.mu
+	show     string      // the label the player sees, "" for a secret timer
+	readOnly bool        // started under on_change: on_timer cannot write state.world
+	game     bool        // counts game time
 }
 
 // MaxMoves caps the rooms one player message can move through, so rooms
@@ -123,6 +133,7 @@ func (s *session) end() {
 	if len(s.w.sessions) == 0 {
 		s.w.lastLeft = s.w.now()
 	}
+	s.w.checkGame()
 	if s.char != 0 && s.w.chars[s.char] == s {
 		delete(s.w.chars, s.char)
 	}
@@ -135,6 +146,7 @@ func (s *session) end() {
 	s.out, s.queue, s.queueBytes = nil, nil, 0 // a room timer may keep s until it runs out
 	_ = s.reserve(-s.state.Size())
 	s.state = script.State{}
+	s.releaseProfile()
 }
 
 // env returns the player's instance of room's script, starting it on first
@@ -250,7 +262,7 @@ func (s *session) drop() {
 func (s *session) unpend() {
 	s.forgetQuestion()
 	if s.dialogTimer != nil {
-		s.dialogTimer()
+		s.dialogTimer.stop()
 		s.dialogTimer = nil
 	}
 	s.pending = nil

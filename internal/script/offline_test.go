@@ -47,11 +47,14 @@ func TestSandboxSurfaceIsExactly(t *testing.T) {
 		"math", "math.abs", "math.acos", "math.asin", "math.atan", "math.atan2", "math.ceil",
 		"math.cos", "math.cosh", "math.deg", "math.exp", "math.floor", "math.fmod", "math.frexp",
 		"math.huge", "math.ldexp", "math.log", "math.log10", "math.max", "math.min", "math.mod",
-		"math.modf", "math.pi", "math.pow", "math.rad", "math.random", "math.randomseed",
+		"math.modf", "math.pi", "math.pow", "math.rad", "math.random",
 		"math.sin", "math.sinh", "math.sqrt", "math.tan", "math.tanh",
-		"next", "pairs", "pcall", "rawequal", "rawget", "rawset", "require",
+		"next", "pairs", "pcall", "progress", "progress.complete", "progress.export", "rawequal", "rawget", "rawset", "require",
 		"room", "room.describe", "room.go", "room.players", "say", "select", "setmetatable", "state", "state.player", "state.player.get", "state.player.set",
+		"state.game", "state.game.get", "state.game.set",
+		"state.profile", "state.profile.get", "state.profile.set",
 		"state.world", "state.world.get", "state.world.set", "state.world.update",
+		"perm", "perm.define",
 		"string", "string.byte", "string.char", "string.find", "string.format", "string.gfind",
 		"string.gmatch", "string.gsub", "string.len", "string.lower", "string.match", "string.rep",
 		"string.reverse", "string.sub", "string.upper",
@@ -59,7 +62,7 @@ func TestSandboxSurfaceIsExactly(t *testing.T) {
 		"timer", "timer.cancel", "timer.left", "timer.start",
 		"tonumber", "tostring", "type",
 		"ui", "ui.ask", "ui.dialog", "ui.image", "ui.items", "ui.select",
-		"unpack", "words", "words.normalize", "words.same", "world", "world.players", "xpcall",
+		"unpack", "words", "words.normalize", "words.same", "world", "world.finish", "world.paused", "world.players", "world.time", "xpcall",
 	}
 	slices.Sort(want)
 	got := reachable(r)

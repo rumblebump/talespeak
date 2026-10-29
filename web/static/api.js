@@ -10,7 +10,7 @@
  */
 export async function api(path, body) {
   // Only this server's account API: a fixed path, never one from the server.
-  const apiPath = /^\/api\/[a-z]+(\?page=[1-9][0-9]{0,3})?$/.test(path) ? path : "/api/invalid";
+  const apiPath = /^\/api\/[a-z]+(\?page=[1-9][0-9]{0,3}|\?world=[1-9][0-9]{0,14})?$/.test(path) ? path : "/api/invalid";
   const init = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
   let resp;
   try {

@@ -61,7 +61,7 @@ The worlds then run the changed files. Give every change its own version, so wor
 
 ## Version ranges
 
-The engine also reads version ranges, for packs that will name the rulesets and story packs they need (T-0010):
+A story pack names the versions of its ruleset and of the stories it continues with ranges (`ruleset`, `continues`: [rulesets.md](rulesets.md)):
 
 | Range | Means |
 | --- | --- |

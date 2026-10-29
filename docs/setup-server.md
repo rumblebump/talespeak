@@ -65,7 +65,9 @@ Open `https://talespeak.example.org`. Make yourself an admin account (the passwo
 printf '%s\n' "your password" | docker compose exec -T talespeak /talespeak account add -admin yourname
 ```
 
-Who may register, play and create worlds is set in `.env` (`TALESPEAK_MODE`, `TALESPEAK_REGISTRATION`, `TALESPEAK_WORLD_ACCESS`, `TALESPEAK_CREATE_WORLDS`); see [accounts.md](accounts.md), also for join codes.
+Who may register, play and create worlds is set in `.env` (`TALESPEAK_MODE`, `TALESPEAK_REGISTRATION`, `TALESPEAK_CLASS_CODE`, `TALESPEAK_WORLD_ACCESS`, `TALESPEAK_CREATE_WORLDS`); see [accounts.md](accounts.md), also for join codes and reset codes.
+
+Mail is optional: without it, admins and teachers reset forgotten passwords with one-time codes. To send reset links by mail, set `TALESPEAK_EMAIL_REGISTRATION`, `TALESPEAK_PUBLIC_URL` and the `TALESPEAK_SMTP_*` settings and check them with `docker compose exec talespeak /talespeak mail test you@example.org` ([admin-email.md](admin-email.md)).
 
 ## 5. Optional: AI sidecar
 

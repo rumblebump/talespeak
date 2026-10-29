@@ -74,10 +74,14 @@ func CreateInvite(ctx context.Context, st store.Worlds, world, by int64, role st
 	return string(code[:5]) + "-" + string(code[5:]), expires, nil
 }
 
-// normalizeCode reads a code as typed: any case, with or without spaces
-// and dashes, with O for 0 and I or L for 1.
-func normalizeCode(s string) (string, bool) {
-	if len(s) > 40 {
+// normalizeCode reads an invite code as typed: any case, with or without
+// spaces and dashes, with O for 0 and I or L for 1.
+func normalizeCode(s string) (string, bool) { return normalizeSymbols(s, codeLen) }
+
+// normalizeSymbols reads a code of n symbols of codeAlphabet as
+// normalizeCode does.
+func normalizeSymbols(s string, n int) (string, bool) {
+	if len(s) > 4*n {
 		return "", false
 	}
 	var b strings.Builder
@@ -95,7 +99,7 @@ func normalizeCode(s string) (string, bool) {
 		}
 		b.WriteRune(r)
 	}
-	if b.Len() != codeLen {
+	if b.Len() != n {
 		return "", false
 	}
 	return b.String(), true

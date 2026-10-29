@@ -62,6 +62,9 @@ type NewWorld struct {
 	// created, this one included; 0 has no limit. Total is how many
 	// unfinished worlds the server may have.
 	PerAccount, Total int
+	// GameState is the world's first state.game: the settings picked in
+	// the lobby (T-0018).
+	GameState []Change
 }
 
 // WorldInfo is a world as an account sees it in the lobby.
@@ -91,7 +94,26 @@ type Character struct {
 	ID   int64 // never used twice, also after a restart
 	Name string
 	Room string // where the player was last; "" before the first room
+	// Profile is the profile the character plays (T-0010); 0 in a world
+	// whose pack has no ruleset.
+	Profile int64
 }
+
+// Member is one account's membership of a world.
+type Member struct {
+	Account int64
+	Name    string
+	Role    string // MemberPlayer or MemberGM
+	// ExtraTime stretches the member's question timeouts and shown
+	// timers (T-0012): MinExtraTime to MaxExtraTime.
+	ExtraTime float64
+}
+
+// A member's extra-time factor: 1 is none, 3 gives three times as long.
+const (
+	MinExtraTime = 1
+	MaxExtraTime = 3
+)
 
 // Invite lets accounts join a world. Only a hash of its code is stored.
 type Invite struct {
@@ -103,7 +125,7 @@ type Invite struct {
 	Expires   time.Time
 }
 
-// Change is one key of state.player or state.world: Value is its encoding
+// Change is one key of state.player, state.world or state.game: Value is its encoding
 // (package script), nil removes the key.
 type Change struct {
 	Key   string
@@ -119,14 +141,40 @@ type Save struct {
 	PlayerState []Change
 	Room        string // the character's room; "" leaves it as it is
 
+	// GameState is the world's state.game.
+	GameState []Change
+
 	// Timers started, changed or stopped, of any character of the world
 	// and of its rooms.
 	Timers []Timer
+
+	// Profile is the character's profile (T-0010); 0 without one. Its
+	// ProfileState and Progress are written only while the profile is
+	// still at generation ProfileGen: a migration or an undo since the
+	// world loaded it wins.
+	Profile      int64
+	ProfileGen   int64
+	ProfileState []Change
+	Progress     *ProgressSave
+	// Clock, when not nil, is the world's time now (T-0012).
+	Clock *Clock
 }
 
 // Empty reports whether s writes nothing.
 func (s Save) Empty() bool {
-	return len(s.WorldState) == 0 && len(s.PlayerState) == 0 && s.Room == "" && len(s.Timers) == 0
+	return len(s.WorldState) == 0 && len(s.PlayerState) == 0 && s.Room == "" && len(s.Timers) == 0 &&
+		len(s.GameState) == 0 && len(s.ProfileState) == 0 && s.Progress == nil && s.Clock == nil
+}
+
+// Clock is a world's time (T-0012). Timer deadlines are on the world
+// clock, the wall clock less the time the world spent paused, so a pause
+// stops every timer without rewriting one; game-time timers' deadlines
+// are on the game clock.
+type Clock struct {
+	PausedAt  time.Time     // when the running pause began; zero while the world runs
+	PausedFor time.Duration // how long the world was paused before, in all
+	Game      time.Duration // the game time counted
+	MinTime   time.Duration // the shortest question timeout or shown timer (/mintime); 0 is off
 }
 
 // Timer kinds.
@@ -146,6 +194,7 @@ type Timer struct {
 	Deadline  time.Time
 	Show      string // the label players see; "" for a secret timer
 	ReadOnly  bool   // started where state.world is read-only
+	Game      bool   // counts game time: Deadline is on the game clock (Clock.Game)
 	Delete    bool   // in a Save: the timer stopped or ran out
 }
 
@@ -162,6 +211,10 @@ type Store interface {
 	Worlds
 	Packs
 	Audit
+	Emails
+	Tokens
+	Outbox
+	Profiles
 
 	// Close releases the backend's resources.
 	Close() error
@@ -174,8 +227,10 @@ type Accounts interface {
 	// AccountByName returns the account named name in any letter case and
 	// its password hash, or ErrNotFound.
 	AccountByName(ctx context.Context, name string) (Account, string, error)
-	// SetPassword replaces the account's password hash and ends all its
-	// sign-in sessions.
+	// AccountByID returns the account with id, or ErrNotFound.
+	AccountByID(ctx context.Context, id int64) (Account, error)
+	// SetPassword replaces the account's password hash, ends all its
+	// sign-in sessions and drops its reset codes and links.
 	SetPassword(ctx context.Context, account int64, passwordHash string) error
 	// SetRole changes the account's role.
 	SetRole(ctx context.Context, account int64, role string) error
@@ -272,8 +327,12 @@ type Worlds interface {
 	// IsGM reports whether the account is a game master of an unfinished
 	// world.
 	IsGM(ctx context.Context, account int64) (bool, error)
-	// FinishWorld ends the world: its state, its players' state and all
-	// its timers are deleted, and OpenWorld starts a new main world.
+	// GMOf reports whether gm is a game master of an unfinished world
+	// that account is a member of.
+	GMOf(ctx context.Context, gm, account int64) (bool, error)
+	// FinishWorld ends the world: its state (state.world and state.game),
+	// its players' state and all its timers are deleted, and OpenWorld
+	// starts a new main world. The audit log stays.
 	FinishWorld(ctx context.Context, world int64) error
 
 	// Member returns the account's role in the world, or ErrNotFound.
@@ -283,6 +342,16 @@ type Worlds interface {
 	// RemoveMember ends the account's membership of the world; it reports
 	// false when it was no member.
 	RemoveMember(ctx context.Context, world, account int64) (bool, error)
+	// Members lists the world's members, game masters first, then by
+	// name, at most limit.
+	Members(ctx context.Context, world int64, limit int) ([]Member, error)
+	// ExtraTime returns the member's extra-time factor (T-0012), or
+	// ErrNotFound when the account is no member.
+	ExtraTime(ctx context.Context, world, account int64) (float64, error)
+	// SetExtraTime sets the extra-time factor of the member whose account
+	// is named name in any letter case, and returns the account, or
+	// ErrNotFound when there is no such member.
+	SetExtraTime(ctx context.Context, world int64, name string, factor float64) (int64, error)
 
 	// CreateInvite stores an invite, and drops those expired at now or
 	// used up. It returns ErrInvites when the world has MaxLiveInvites.
@@ -301,10 +370,14 @@ type Worlds interface {
 	PlayerState(ctx context.Context, character int64) (map[string][]byte, error)
 	// WorldState returns what the world keeps in state.world.
 	WorldState(ctx context.Context, world int64) (map[string][]byte, error)
+	// GameState returns what the world keeps in state.game.
+	GameState(ctx context.Context, world int64) (map[string][]byte, error)
 	// Save writes what one hook call changed, all of it or nothing.
 	Save(ctx context.Context, s Save) error
 	// PlayerTimers returns the character's timers and question deadlines.
 	PlayerTimers(ctx context.Context, character int64) ([]Timer, error)
 	// RoomTimers returns the timers of the world's rooms.
 	RoomTimers(ctx context.Context, world int64) ([]Timer, error)
+	// WorldClock returns the world's time (T-0012); Save writes it.
+	WorldClock(ctx context.Context, world int64) (Clock, error)
 }

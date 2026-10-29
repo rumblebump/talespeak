@@ -9,9 +9,12 @@ The browser client in `web/static/` is a renderer: it draws the messages the eng
 | `index.html` | The page; Alpine attributes hold only simple expressions |
 | `app.js` | The `game` Alpine component: its state and `init`, with its parts merged in from the files below |
 | `lobby.js` | Signing in, the lobby, world cards, join codes and invites |
+| `members.js` | A world's members on its card: the list, making GMs, taking players out |
+| `profiles.js` | The card of a world on a ruleset: its ruleset, the account's character in it, and picking or making one before playing ([rulesets.md](rulesets.md)) |
 | `play.js` | The connection to a world, every engine message, story lines, timers, items |
 | `dialog.js` | Dialogs, multiple choice, typed answers and the input line |
 | `view.js` | Pictures, read aloud, large text |
+| `pause.js` | A paused world: a line saying so, countdowns that stand still until the game goes on |
 | `clean.js` | Limits that match the engine, cleaning server data, settings, the page address |
 | `api.js` | The only `fetch`: the account API |
 | `net.js` | The WebSocket to one world: reconnects with backoff (1 s doubling to 30 s), pings every 30 s, stops after 4001 (playing elsewhere) or when the player may no longer play |
@@ -27,8 +30,9 @@ Plain ES modules, no build step. The CSP build of Alpine runs without `'unsafe-e
 The page asks `/api/me` first ([accounts.md](accounts.md)) and shows one of:
 
 - **Sign in**: name and password, with **new account** when the server allows registering. Errors from the server are shown under the form.
-- **The lobby** (`GET /api/worlds`): a card per world the account may see, its own worlds first, each with its name, pack, description, public or private, its game master, players and players online now, since when it runs, and the account's role; **play**, and for its game masters **join code** (a code for 30 players, shown on the card with **copy**) and **end world** (after a confirmation). Below: **Join with a code**, and **New world** (pack, optional name, public or private) when the account may create worlds. The code of a new world is shown on its card.
+- **The lobby** (`GET /api/worlds`): a card per world the account may see, its own worlds first, each with its name, pack, description, public or private, its game master, players and players online now, since when it runs, and the account's role; **play** (for its game masters **play as GM** and **play as player**, which starts with GM mode off), and for its game masters and admins **join code** (a code for 30 players, shown on the card with **copy**), **members** (the world's members with **make GM**, **make player** and **remove** where the server allows it, and for admins **add an account**) and **end world** (after a confirmation). Below: **Join with a code**, and **New world** (pack, optional name, public or private) when the account may create worlds. The code of a new world is shown on its card.
 - **The game**, with the account name, **worlds** (back to the lobby), **sign out**, and **invite** for admins and game masters (a code for one player, shown in the story). The page's address names the world (`#world=12`), so a reload continues there; the lobby and signing out clear it.
+- **Who plays**: on the card of a world of a story on a ruleset, the ruleset and the account's character there, or why the world is locked ("Finish Forest Start first."). **play** first asks which of the account's characters plays it, with the reason any of them does not fit and a warning when one moves up to a newer ruleset version, or a name for a new one (`POST /api/profiles`); once picked, **play** enters directly.
 - **more worlds** at the end of the lobby when it has more than 200 (`GET /api/worlds?page=N`, for admins of busy servers).
 - **Playing elsewhere**: after another tab or device took over, with **play here**.
 

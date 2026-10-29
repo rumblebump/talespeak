@@ -103,7 +103,7 @@ func (r *Runtime) openSandbox() *lua.LTable {
 	tbl.RawSetString("insert", L.NewFunction(tableInsert(fn(fullTbl, "insert"))))
 	lib.RawSetString("table", r.readOnly(tbl))
 
-	lib.RawSetString("math", r.readOnly(full.RawGetString("math").(*lua.LTable)))
+	lib.RawSetString("math", r.readOnly(openMath(L, full.RawGetString("math").(*lua.LTable))))
 
 	lib.RawSetString("require", L.NewFunction(r.require))
 	lib.RawSetString("say", L.NewFunction(r.say))
@@ -114,7 +114,12 @@ func (r *Runtime) openSandbox() *lua.LTable {
 	lib.RawSetString("room", r.readOnly(room))
 	world := L.NewTable()
 	world.RawSetString("players", L.NewFunction(r.worldPlayers))
+	world.RawSetString("paused", L.NewFunction(r.worldPaused))
+	world.RawSetString("time", L.NewFunction(r.worldTime))
 	lib.RawSetString("world", r.readOnly(world))
+	perm := L.NewTable()
+	perm.RawSetString("define", L.NewFunction(r.permDefine))
+	lib.RawSetString("perm", r.readOnly(perm))
 	player := L.NewTable()
 	player.RawSetString("get", L.NewFunction(r.stateGet(r.playerState, "state.player")))
 	player.RawSetString("set", L.NewFunction(r.stateSet(r.playerState, "state.player")))
@@ -125,6 +130,8 @@ func (r *Runtime) openSandbox() *lua.LTable {
 	shared.RawSetString("set", L.NewFunction(r.stateSet(r.worldState, "state.world")))
 	shared.RawSetString("update", L.NewFunction(r.stateUpdate))
 	state.RawSetString("world", r.readOnly(shared))
+	r.openProfile(lib, state)
+	r.openGame(state, world) // state.game, world.finish
 	lib.RawSetString("state", r.readOnly(state))
 	timer := L.NewTable()
 	timer.RawSetString("start", L.NewFunction(r.timerStart))

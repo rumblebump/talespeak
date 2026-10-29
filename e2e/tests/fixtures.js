@@ -13,8 +13,8 @@ export const test = base.extend({
         const url = req.url();
         if (url.startsWith("data:") || url.startsWith("blob:")) return;
         const o = new URL(url).origin;
-        // Tests may open the local servers (test pack, demo, party, invite), nothing else.
-        if (o !== origin && !/^http:\/\/127\.0\.0\.1:1876[5-8]$/.test(o)) problems.push("request to another origin: " + url);
+        // Tests may open the local servers (test pack, demo, party, invite, rulesets), nothing else.
+        if (o !== origin && !/^http:\/\/127\.0\.0\.1:(1876[5-8]|18779)$/.test(o)) problems.push("request to another origin: " + url);
       });
       page.on("console", (msg) => {
         if (msg.type() === "error" && !page.allowedErrors?.some((re) => re.test(msg.text()))) {
@@ -61,9 +61,10 @@ export function status(page) {
 }
 
 // play picks a world in the lobby (the main world by default) and waits
-// until the engine has welcomed the player.
+// until the engine has welcomed the player; a game master of it plays as
+// GM.
 export async function play(page, title) {
-  await card(page, title).getByRole("button", { name: "play" }).click();
+  await card(page, title).getByRole("button", { name: /^play( as GM)?$/ }).click();
   await expect(status(page)).toContainText("connected · engine");
 }
 

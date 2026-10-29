@@ -1,0 +1,8 @@
+# The first story on Tiny Rules: help the fox to finish it.
+id: forest-start
+version: 1.0.0
+title: Forest Start
+description: A first walk in the woods.
+start: glade
+ruleset: { id: tiny-rules, version: "^1.0" }
+exports: [flags.rescued_fox]

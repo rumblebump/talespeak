@@ -133,6 +133,9 @@ func (s *Store) CreateWorld(ctx context.Context, nw store.NewWorld) (store.World
 	if _, err := tx.ExecContext(ctx, `INSERT INTO world_members (world_id, account_id, role) VALUES (?, ?, ?)`, id, nw.CreatedBy, store.MemberGM); err != nil {
 		return store.World{}, err
 	}
+	if err := put(ctx, tx, gameQueries, id, nw.GameState); err != nil {
+		return store.World{}, err
+	}
 	w, err := world(ctx, tx, id)
 	if err != nil {
 		return store.World{}, err
@@ -227,6 +230,7 @@ func (s *Store) FinishWorld(ctx context.Context, world int64) error {
 	}
 	for _, q := range []string{
 		`DELETE FROM world_state WHERE world_id = ?`,
+		`DELETE FROM game_state WHERE world_id = ?`,
 		`DELETE FROM player_state WHERE character_id IN (SELECT id FROM characters WHERE world_id = ?)`,
 		`DELETE FROM invites WHERE world_id = ?`,
 		`DELETE FROM room_timers WHERE world_id = ?`,
@@ -237,33 +241,6 @@ func (s *Store) FinishWorld(ctx context.Context, world int64) error {
 		}
 	}
 	return tx.Commit()
-}
-
-// Member returns the account's role in the world, or store.ErrNotFound.
-func (s *Store) Member(ctx context.Context, world, account int64) (string, error) {
-	var role string
-	err := s.db.QueryRowContext(ctx, `SELECT role FROM world_members WHERE world_id = ? AND account_id = ?`, world, account).Scan(&role)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", store.ErrNotFound
-	}
-	return role, err
-}
-
-// AddMember makes the account a member of the world, or changes its role.
-func (s *Store) AddMember(ctx context.Context, world, account int64, role string) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO world_members (world_id, account_id, role) VALUES (?, ?, ?)
-		ON CONFLICT (world_id, account_id) DO UPDATE SET role = excluded.role`, world, account, role)
-	return err
-}
-
-// RemoveMember ends the account's membership of the world.
-func (s *Store) RemoveMember(ctx context.Context, world, account int64) (bool, error) {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM world_members WHERE world_id = ? AND account_id = ?`, world, account)
-	if err != nil {
-		return false, err
-	}
-	n, err := res.RowsAffected()
-	return n > 0, err
 }
 
 // AddAudit writes e and drops the world's entries of e's action past
@@ -387,7 +364,7 @@ func (s *Store) Character(ctx context.Context, world, account int64, name string
 	var c store.Character
 	err := s.db.QueryRowContext(ctx, `INSERT INTO characters (world_id, account_id, name) VALUES (?, ?, ?)
 		ON CONFLICT (world_id, account_id) DO UPDATE SET world_id = world_id
-		RETURNING id, name, room`, world, account, name).Scan(&c.ID, &c.Name, &c.Room)
+		RETURNING id, name, room, coalesce(profile_id, 0)`, world, account, name).Scan(&c.ID, &c.Name, &c.Room, &c.Profile)
 	return c, err
 }
 
@@ -435,12 +412,21 @@ func (s *Store) Save(ctx context.Context, sv store.Save) error {
 	if err := put(ctx, tx, playerQueries, sv.Character, sv.PlayerState); err != nil {
 		return err
 	}
+	if err := put(ctx, tx, gameQueries, sv.World, sv.GameState); err != nil {
+		return err
+	}
 	if sv.Room != "" && sv.Character != 0 {
 		if _, err := tx.ExecContext(ctx, `UPDATE characters SET room = ? WHERE id = ?`, sv.Room, sv.Character); err != nil {
 			return err
 		}
 	}
 	if err := putTimers(ctx, tx, sv.World, sv.Timers); err != nil {
+		return err
+	}
+	if err := putProfile(ctx, tx, sv); err != nil {
+		return err
+	}
+	if err := putClock(ctx, tx, sv.World, sv.Clock); err != nil {
 		return err
 	}
 	return tx.Commit()

@@ -10,6 +10,8 @@ lib/<name>.lua          # optional modules every room script can require
 assets/<name>.png       # optional images: .png, .jpg, .jpeg, .gif, .webp
 ```
 
+A ruleset pack (`kind: ruleset`) has `pack.yaml`, `lib/` and `migrations/<major>.lua` only: [rulesets.md](rulesets.md).
+
 ## pack.yaml
 
 ```yaml
@@ -19,7 +21,16 @@ title: The damp cell  # one line, 1 to 120 characters
 description: >-       # optional: what the lobby shows about the pack, at most 300 bytes
   Wake up in a cell and talk, trick or puzzle your way out.
 start: cell           # the room new players enter
+settings:            # optional: choices each world makes, at most 20
+  - name: death       # the key in state.game: 1 to 32 of a-z, 0-9 and _, starting with a letter, unique
+    label: When the guard catches a player   # what the lobby and /set show: one line, 1 to 100 bytes
+    choices: [respawn, revive, stay]         # 2 to 20 unique words of 1 to 32 of a-z, 0-9, _ and -
+    default: respawn  # optional: one of the choices; the first choice when left out
 ```
+
+A story on a ruleset also names it, the stories it continues and what carries over: `kind`, `ruleset`, `continues`, `imports` and `exports`, in [rulesets.md](rulesets.md#packyaml). A pack without them works as before, with no characters across stories.
+
+**Settings** are what each world of the pack decides for itself, such as what happens when a player dies. Whoever creates a world picks them in the lobby's New world form (each defaults to its `default`); the world's game master changes one while it runs with `/set NAME VALUE` in GM mode ([gm-tools.md](gm-tools.md)). Scripts read a setting with `state.game.get(NAME)`, which always holds one of its choices: a world that has none (created before the pack had the setting, or the server's main world) gets the default when it loads, and `state.game.set` refuses any other value ([lua-sandbox.md](lua-sandbox.md)). The demo's `death` setting drives `lib/death.lua` ([pack-patterns.md](pack-patterns.md#death-and-save-points)).
 
 ## rooms/*.yaml
 
@@ -46,7 +57,7 @@ items:                # optional, what the player can click on entering
 
 ## lib/
 
-Lua modules the room scripts share, so a helper is written once instead of copied into every room. `require("rooms")` in any script returns what `lib/rooms.lua` returns.
+Lua modules the room scripts share, so a helper is written once instead of copied into every room. `require("rooms")` in any script returns what `lib/rooms.lua` returns. A story on a ruleset can also require the ruleset pack's modules; its own module of the same name wins.
 
 | Rule | |
 | --- | --- |

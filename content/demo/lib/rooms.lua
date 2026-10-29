@@ -5,7 +5,7 @@
 -- live in state.player, so every room sees the same ones; the box code
 -- lives in state.world, so every player of the world sees the same one.
 --
--- Only function definitions here: a module required at a script's top
+-- Only definitions here (and lib/death.lua): a module required at a script's top
 -- level also runs at world start, for no player, where say, ui and
 -- state.player do not work.
 
@@ -94,4 +94,52 @@ end
 -- "417" is "4 1 7".
 function spelled(code)
   return string.sub(code, 1, 1) .. " " .. string.sub(code, 2, 2) .. " " .. string.sub(code, 3, 3)
+end
+
+-- Dying (lib/death.lua): the guard catching the player kills them, as the
+-- world's death setting says. The cell is the save point: respawn wakes
+-- the player up there with the guard back at his post. me is the player
+-- whose script this is, set by every room's on_enter (each player runs
+-- their own copy of the room).
+death = require("death")
+death.texts.respawn = "You wake up on the straw of your cell. Was it a dream? The guard is back at his post."
+
+-- die kills the player after the room said how; it returns true when the
+-- story is over for them here (stay or revive), false when they wake up
+-- in the cell.
+function die()
+  if death.die(me) == "respawn" then
+    set_guard_away(nil)
+    state.player.set("solved_cell", nil)
+    state.player.set("solved_corridor", nil)
+    return false
+  end
+  return true
+end
+
+-- The game master brings a dead player back with /revive NAME, when the
+-- world's death setting is revive (a pack could use a spell instead).
+commands = { revive = { help = "bring a dead player back to life", gm = true } }
+
+function on_command(player, name, args)
+  if name ~= "revive" then
+    return
+  end
+  for _, p in ipairs(world.players()) do
+    if string.lower(p.name) == string.lower(args) then
+      local ok, err = death.revive(p.id)
+      if ok then
+        say(p.name .. " lives again.")
+      else
+        say("You cannot revive " .. p.name .. ": " .. tostring(err) .. ".")
+      end
+      return
+    end
+  end
+  say("Type /revive and the name of a dead player who is online.")
+end
+
+-- on_change tells a player who was revived, and shows the room again.
+function on_change(player, keys)
+  death.on_change(player, keys)
 end

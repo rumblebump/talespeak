@@ -1,0 +1,4 @@
+id: beach
+title: A beach
+description: Sand, waves and a cave in the cliff.
+script: beach.lua

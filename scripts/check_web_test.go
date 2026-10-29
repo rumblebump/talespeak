@@ -33,7 +33,7 @@ var cleanWeb = map[string]string{
 const apiFetch = "const apiPath = \"/api/me\";\nconst init = {};\nlet resp;\nexport async function f() {\n    resp = await fetch(apiPath, { ...init, credentials: \"same-origin\", cache: \"no-store\" });\n}\n"
 
 // netSocket is net.js's one allowed WebSocket line.
-const netSocket = "const scheme = \"ws://\";\nexport function f(world) {\n    const ws = new WebSocket(scheme + location.host + \"/ws?world=\" + world);\n  return ws;\n}\n"
+const netSocket = "const scheme = \"ws://\";\nexport function f(world, as) {\n    const ws = new WebSocket(scheme + location.host + \"/ws?world=\" + world + as);\n  return ws;\n}\n"
 
 // runCheckWeb runs a copy of scripts/check-web.sh on a temporary tree made
 // of cleanWeb with the given files replaced, and returns its output and

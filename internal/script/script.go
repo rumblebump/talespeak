@@ -35,12 +35,15 @@ type Limits struct {
 	// StateMemory is how many bytes all Instances of the world together
 	// may keep.
 	StateMemory int64
+	// State bounds state.player, state.world and state.game; zero fields
+	// are DefaultStateLimits. The game gives its States the same limits.
+	State StateLimits
 }
 
 // DefaultLimits suit story scripts: they describe, branch and wait, so
 // anything near these limits is a bug or an attack. A word list of 10000
 // entries keeps about 1.5 MiB.
-var DefaultLimits = Limits{Time: 100 * time.Millisecond, CallMemory: 32 << 20, PlayerMemory: 4 << 20, StateMemory: 256 << 20}
+var DefaultLimits = Limits{Time: 100 * time.Millisecond, CallMemory: 32 << 20, PlayerMemory: 4 << 20, StateMemory: 256 << 20, State: DefaultStateLimits}
 
 const (
 	// MaxScriptBytes is the largest script Load accepts.
@@ -117,6 +120,8 @@ type Runtime struct {
 	modules map[string]*Script          // require's modules by name
 	loaded  map[*lua.LTable]*lua.LTable // each Instance's required modules, by its globals
 	closed  bool
+
+	canGM, canPlayer *lua.LFunction // player:can (perm.go)
 }
 
 // envState is what one Instance keeps, as last measured, plus what its
@@ -124,7 +129,8 @@ type Runtime struct {
 type envState struct {
 	kept      int64
 	sinceWalk int64
-	broken    bool // over PlayerMemory; every later call fails
+	broken    bool            // over PlayerMemory; every later call fails
+	perms     map[string]perm // what perm.define defined in this instance
 }
 
 // call is one stretch of Lua running: its budgets, and what Go functions
@@ -149,10 +155,12 @@ func New(limits Limits) *Runtime {
 	if limits.PlayerMemory <= 0 || limits.PlayerMemory > limits.StateMemory {
 		limits.PlayerMemory = limits.StateMemory
 	}
+	limits.State = limits.State.OrDefault()
 	r := &Runtime{L: L, limits: limits, locked: map[*lua.LTable]bool{}, paused: map[*Thread]struct{}{}, envs: map[*lua.LTable]*envState{},
 		loaded: map[*lua.LTable]*lua.LTable{}}
 	r.lib = r.openSandbox()
-	r.shared = map[lua.LValue]struct{}{r.lib: {}, L.G.Global: {}, L.G.Registry: {}}
+	r.canGM, r.canPlayer = r.canFunc(true), r.canFunc(false)
+	r.shared = map[lua.LValue]struct{}{r.lib: {}, L.G.Global: {}, L.G.Registry: {}, r.canGM: {}, r.canPlayer: {}}
 	return r
 }
 

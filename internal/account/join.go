@@ -85,8 +85,11 @@ func (s *Service) invite(w http.ResponseWriter, r *http.Request) (any, error) {
 	if !s.mayKnow(&a, wd, role) {
 		return nil, errNoWorld
 	}
-	if !s.mayInvite(&a, wd, role) || (q.GM && a.Role != store.RoleAdmin) {
-		return nil, fail(http.StatusForbidden, "Only admins and the world's game masters make invites; only admins make game masters.")
+	if !s.mayInvite(&a, wd, role) {
+		return nil, fail(http.StatusForbidden, "Only admins and the world's game masters make invites.")
+	}
+	if q.GM && !s.mayMakeGM(&a, role) {
+		return nil, errOnlyAdminGM
 	}
 	if q.Uses == 0 {
 		q.Uses = 1

@@ -8,11 +8,14 @@
 require("rooms") -- whisp, the guard's countdown, solved rooms, the box code: lib/rooms.lua
 
 lifted = false     -- the player lifted the stone and read the note
-ended = false      -- the story is over
 entered = false    -- the player was here before
 
 function on_enter(player)
+  me = player
   room.describe()
+  if death.blocked(player) then
+    return
+  end
   if entered then
     show_items()
     if (guard_away() or 0) <= 1 then
@@ -117,8 +120,7 @@ end
 -- act runs before every action: it counts the guard's time away and
 -- returns false when the action does not happen.
 function act()
-  if ended then
-    say("The story has ended. Reload the page to play again.")
+  if death.blocked(me) then
     return false
   end
   local away = guard_away() or 0
@@ -176,11 +178,5 @@ function caught()
   say("SLAP! Everything goes black.")
   say("When you wake up, three other guards stand over you. They drag you down endless stairs and throw you into a deep well.")
   say("The walls are smooth and wet. There is no way up. After a few days, you die.")
-  finish()
-end
-
-function finish()
-  ended = true
-  ui.items({})
-  say("THE END. Reload the page to play again.")
+  die()
 end

@@ -12,11 +12,15 @@ require("rooms") -- whisp, the guard's countdown, solved rooms, the box code: li
 
 key = false        -- the player took the key from the box
 wrong = 0          -- wrong codes tried
-ended = false      -- the story is over
+ended = false      -- the player escaped: the story goes on in the clearing
 entered = false    -- the player was here before
 
 function on_enter(player)
+  me = player
   room.describe()
+  if death.blocked(player) then
+    return
+  end
   if entered then
     show_items()
     return
@@ -114,6 +118,9 @@ function act()
     say("The story has ended. Reload the page to play again.")
     return false
   end
+  if death.blocked(me) then
+    return false
+  end
   local away = guard_away() or 0
   if away == 0 then
     say("The door bangs open. The guard stands there with his full bottle and stares at you.")
@@ -198,11 +205,5 @@ function caught()
   say("SLAP! Everything goes black.")
   say("When you wake up, three other guards stand over you. They drag you down endless stairs and throw you into a deep well.")
   say("The walls are smooth and wet. There is no way up. After a few days, you die.")
-  finish()
-end
-
-function finish()
-  ended = true
-  ui.items({})
-  say("THE END. Reload the page to play again.")
+  die()
 end
