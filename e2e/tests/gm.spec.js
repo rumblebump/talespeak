@@ -113,6 +113,18 @@ test("a game master's words have a look of their own, and /reset room starts the
     await expect(story(friend).locator(".room-title").last()).toHaveText("Test hall");
     await expect(story(page).locator("p.gm").last()).toContainText("started this room over.");
 
+    // What happened in the room reaches the others, and comes back once
+    // after a reload; the game master's words do not.
+    await type(friend, "bell");
+    await expect(story(friend)).toContainText("You ring the bell.");
+    const rang = story(page).locator("p.event");
+    await expect(rang).toHaveText([/rings the bell\./]);
+    await page.reload();
+    await expect(status(page)).toContainText("connected · engine");
+    await expect(story(page).locator(".room-title").last()).toHaveText("Test hall");
+    await expect(story(page).locator("p.event")).toHaveCount(1);
+    await expect(story(page).locator("p.gm")).toHaveCount(0);
+
     // The audit log has both, the latest first.
     await type(page, "/audit");
     const audit = story(page).locator(".server").last();

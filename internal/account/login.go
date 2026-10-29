@@ -14,6 +14,7 @@ import (
 
 	"github.com/rumblebump/talespeak/internal/clientip"
 	"github.com/rumblebump/talespeak/internal/mail"
+	"github.com/rumblebump/talespeak/internal/script"
 	"github.com/rumblebump/talespeak/internal/store"
 )
 
@@ -45,6 +46,10 @@ func (s *Service) registerAccount(w http.ResponseWriter, r *http.Request) (any, 
 	}
 	if err := ValidName(c.Name); err != nil {
 		return nil, fail(http.StatusBadRequest, err.Error())
+	}
+	if script.ReservedName(c.Name) {
+		// Players see each other's names: no one registers as staff.
+		return nil, fail(http.StatusBadRequest, "That name is for the game's staff. Pick another one.")
 	}
 	if err := ValidPassword(c.Password); err != nil {
 		return nil, fail(http.StatusBadRequest, err.Error())

@@ -76,7 +76,7 @@ Playing the demo:
 < {"type":"text","text":"You step back from the door. The guard yawns."}
 > {"type":"click","item":"scratches"}
 < {"type":"text","text":"You roll 14: in the dim light the scratches turn into a map."}
-< {"type":"image","text":"A map scratched into the wall. An X marks the end of the corridor.","url":"/packs/demo/1.2.0/assets/wall-map-clear.png"}
+< {"type":"image","text":"A map scratched into the wall. An X marks the end of the corridor.","url":"/packs/demo/1.3.0/assets/wall-map-clear.png"}
 ```
 
 The demo's exchange is checked byte for byte by `TestDemoMatchesProtocolDoc` (the dice roll aside).

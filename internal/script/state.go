@@ -35,6 +35,9 @@ type State struct {
 	// Choices, for state.game, are the pack's settings: a key named here
 	// takes only one of its strings, and cannot be removed.
 	Choices map[string][]string
+	// Check, if set, is asked about the key and every string of a value
+	// before it is kept: state.world refuses words players typed (Shared).
+	Check Shared
 
 	vals map[string][]byte
 	size int64 // the sum of len(key)+len(value)
@@ -124,6 +127,7 @@ type encoder struct {
 	buf        []byte
 	scan       int // table slots looked at
 	max, depth int
+	check      Shared // asked about every string, keys included; nil asks nothing
 }
 
 func (e *encoder) tooLarge() error { return limited("value larger than %d bytes", e.max) }
@@ -151,6 +155,11 @@ func (e *encoder) value(v lua.LValue, depth int) error {
 	case lua.LString:
 		if len(v) > e.max {
 			return e.tooLarge()
+		}
+		if e.check != nil {
+			if err := e.check(string(v)); err != nil {
+				return limitError(err.Error())
+			}
 		}
 		e.buf = append(e.buf, tagString)
 		e.buf = binary.AppendUvarint(e.buf, uint64(len(v)))
@@ -399,7 +408,12 @@ func (r *Runtime) set(s *State, key string, v lua.LValue) error {
 		return nil
 	}
 	lim := s.Limits.OrDefault()
-	e := encoder{max: lim.ValueBytes, depth: lim.Depth}
+	if s.Check != nil {
+		if err := s.Check(key); err != nil {
+			return limitError(err.Error())
+		}
+	}
+	e := encoder{max: lim.ValueBytes, depth: lim.Depth, check: s.Check}
 	if err := e.value(v, 0); err != nil {
 		return err
 	}

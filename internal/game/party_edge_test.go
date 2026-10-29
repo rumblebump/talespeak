@@ -21,6 +21,7 @@ import (
 // edgeParty runs in both rooms a and b: commands are "<cmd> <arg>".
 // on_leave records the leaver in a, and starts a shown room timer in b.
 const edgeParty = `
+-- The words tests type that the room shares (typed.go): turn
 function on_input(p, text)
   local cmd, arg = text, ""
   local sp = string.find(text, " ", 1, true)

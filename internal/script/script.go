@@ -141,6 +141,7 @@ type call struct {
 	ctx     context.Context
 	end     func() int64 // stops the budgets and returns the bytes allocated
 	outputs int
+	events  int // room.event calls (events.go)
 }
 
 // New returns a Runtime with the sandbox libraries loaded.

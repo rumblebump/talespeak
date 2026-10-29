@@ -41,6 +41,13 @@ function on_input(player, text)
     say("Guide answer: " .. label)
     return
   end
+  if text == "bell" then
+    -- What happened in the room: the others read it, and it is replayed
+    -- after a reconnect.
+    say("You ring the bell.")
+    room.event(player.name .. " rings the bell.")
+    return
+  end
   if text == "candle" then
     -- A long shown timer, which lasts through a reload (T-0012).
     timer.start("candle", 600, { show = "Candle" })

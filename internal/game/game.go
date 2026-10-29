@@ -154,6 +154,17 @@ type World struct {
 	finish      func(text string)  // ends the world for world.finish; nil: it cannot end from a script
 	finishText  string             // what world.finish said, shown when the world ends
 	finishing   bool               // world.finish was called: the world ends soon
+
+	// What happened in the rooms (events.go) and what players typed
+	// (typed.go).
+	runID      string                 // this run's start time in base 36, before every event id
+	eventSeq   int64                  // events told, for their ids
+	events     map[string][]roomEvent // room id -> its last events, the oldest first
+	vocab      map[string]struct{}    // the pack's own words
+	typedBy    map[string]*typedWords // player id -> the words they typed lately
+	typedOrder []string               // the players of typedBy, the oldest first
+	typedCount map[string]int         // word -> how many players of typedBy typed it
+	nameWords  map[string]struct{}    // the words of the names of players who joined
 }
 
 // NewWorld compiles every room script of p and runs each top level once, so
@@ -172,6 +183,10 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Opti
 		o(w)
 	}
 	w.lastLeft = w.now()
+	w.runID = strconv.FormatInt(w.now().UnixMilli(), 36)
+	w.typedBy, w.typedCount, w.nameWords = map[string]*typedWords{}, map[string]int{}, map[string]struct{}{}
+	w.vocab = w.packWords()
+	w.world.Check = w.shareable
 	var timers []store.Timer // the room timers, restored once the scripts compiled
 	if w.store != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), saveTimeout)
@@ -289,6 +304,7 @@ func (w *World) NewSession(client string, who ws.Who) (ws.Session, []ws.Message)
 		}
 	}
 	if !w.closed {
+		w.joinedName(s.name)
 		w.arrivals++
 		s.joined = w.arrivals
 		w.sessions[s] = struct{}{}
@@ -300,6 +316,7 @@ func (w *World) NewSession(client string, who ws.Who) (ws.Session, []ws.Message)
 	if !w.pausedAt.IsZero() {
 		s.out = append([]ws.Message{pauseMessage(true)}, s.out...) // before the countdowns, which stand still
 	}
+	s.out = append(s.out, w.replay(room)...) // what happened here while the player was away
 	return s, s.enterLocked(room, false)
 }
 
