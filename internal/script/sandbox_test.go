@@ -327,7 +327,9 @@ func TestDialogWaitDoesNotCountTowardTime(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs past the time limit on the wall clock")
 	}
-	const limit = 20 * time.Millisecond
+	// Long enough that one Resume never runs out under -race on a busy
+	// runner (20 ms did, once); the hook still lives 5 limits in all.
+	const limit = 200 * time.Millisecond
 	r := New(Limits{Time: limit, CallMemory: 32 << 20, StateMemory: 64 << 20})
 	defer r.Close()
 	env := load(t, r, `function on_enter() while true do ui.dialog("?", {"again"}) end end`)
