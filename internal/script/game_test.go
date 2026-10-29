@@ -63,14 +63,14 @@ func TestGameStateGMOnly(t *testing.T) {
 		t.Errorf("player set = %q", got)
 	}
 	h.gm = true
-	for line, want := range map[string]string{
-		"set":   "say:true nil",
-		"get":   "say:table: ",
-		"death": "say:true nil",
-		"bad":   "say:nil state.game.set: death is a setting: one of stay, respawn",
+	for _, c := range []struct{ line, want string }{ // in this order: get reads what set wrote
+		{"set", "say:true nil"},
+		{"get", "say:table: "},
+		{"death", "say:true nil"},
+		{"bad", "say:nil state.game.set: death is a setting: one of stay, respawn"},
 	} {
-		if got := runLine(t, r, h, env, line); !strings.HasPrefix(got, want) {
-			t.Errorf("%s = %q, want %q", line, got, want)
+		if got := runLine(t, r, h, env, c.line); !strings.HasPrefix(got, c.want) {
+			t.Errorf("%s = %q, want %q", c.line, got, c.want)
 		}
 	}
 	if v, ok := h.game.String("death"); !ok || v != "stay" {
