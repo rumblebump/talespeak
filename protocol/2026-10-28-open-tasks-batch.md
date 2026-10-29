@@ -70,3 +70,4 @@ No critical or high findings; four low, three info:
 
 - T-0010, T-0011, T-0012 and T-0013 moved to `tasks/done/`. T-0018 stays open: the chat ring and the edu filter on shared strings (need T-0006), inventories across worlds, a GM view of refused state writes, read-only shared data.
 - Load flakes seen once each in full `-race` runs under load and passing alone: `TestManyPlayersWithTopLevelData`, `TestHomePinned`.
+- After the release merge, main's CI failed `TestGameStateGMOnly`: it ranged over a map, so `get` could run before `set`. The steps run in order now; the other map loops in tests were checked and don't depend on order.
