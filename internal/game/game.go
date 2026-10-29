@@ -165,6 +165,7 @@ type World struct {
 	typedOrder []string               // the players of typedBy, the oldest first
 	typedCount map[string]int         // word -> how many players of typedBy typed it
 	nameWords  map[string]struct{}    // the words of the names of players who joined
+	names      map[string]struct{}    // the names of players who joined, as nameKey
 }
 
 // NewWorld compiles every room script of p and runs each top level once, so
@@ -184,7 +185,7 @@ func NewWorld(p *pack.Pack, limits script.Limits, log *slog.Logger, opts ...Opti
 	}
 	w.lastLeft = w.now()
 	w.runID = strconv.FormatInt(w.now().UnixMilli(), 36)
-	w.typedBy, w.typedCount, w.nameWords = map[string]*typedWords{}, map[string]int{}, map[string]struct{}{}
+	w.typedBy, w.typedCount, w.nameWords, w.names = map[string]*typedWords{}, map[string]int{}, map[string]struct{}{}, map[string]struct{}{}
 	w.vocab = w.packWords()
 	w.world.Check = w.shareable
 	var timers []store.Timer // the room timers, restored once the scripts compiled

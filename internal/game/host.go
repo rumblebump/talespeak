@@ -3,7 +3,6 @@ package game
 import (
 	"errors"
 	"strings"
-	"unicode"
 
 	"github.com/rumblebump/talespeak/internal/script"
 	"github.com/rumblebump/talespeak/internal/ws"
@@ -34,15 +33,19 @@ func (s *session) Say(text string, how script.Voice) {
 }
 
 // voice is the speaker's name a pack gave a line or question, or "" when
-// it names a player of the world: no pack line may look as if a player
-// said it, since players never talk in the game. The caller holds w.mu.
+// it names a player who joined the world in this run, alone or first
+// ("Anna", "Anna (player)"): no pack line may look as if a player said
+// it, since players never talk in the game. The caller holds w.mu.
 func (w *World) voice(from string) string {
 	if from == "" {
 		return ""
 	}
 	key := nameKey(from)
-	for p := range w.sessions {
-		if nameKey(p.name) == key {
+	if _, ok := w.names[key]; ok {
+		return ""
+	}
+	for name := range w.names {
+		if strings.HasPrefix(key, name+" ") {
 			return ""
 		}
 	}
@@ -52,9 +55,7 @@ func (w *World) voice(from string) string {
 // nameKey is name lowercased, with only its letters and digits, one space
 // between their runs: "Anna!" and "anna" are one name.
 func nameKey(name string) string {
-	return strings.Join(strings.FieldsFunc(strings.ToLower(name), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	}), " ")
+	return strings.Join(strings.FieldsFunc(fold(name), func(r rune) bool { return !wordRune(r) }), " ")
 }
 
 func (s *session) DescribeRoom() {

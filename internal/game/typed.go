@@ -1,8 +1,10 @@
 package game
 
 import (
+	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/rumblebump/talespeak/internal/script"
 )
@@ -11,9 +13,11 @@ import (
 // answer or a room command's arguments only run the player's own hooks.
 // But a hook could pass them on, by accident, to the other players: in
 // state.world, a room event, a room timer's label or world.finish's text.
-// The world remembers the words each player typed lately and refuses
-// shared text that holds one (script.Shared), so a child's name, address
-// or phone number typed into an answer never reaches the others.
+// The world remembers the words each player online typed lately, and the
+// strings their state.player and state.profile hold (where a pack keeps
+// an answer), and refuses shared text that holds one (script.Shared), so
+// a child's name, address or phone number typed into an answer never
+// reaches the others.
 //
 // Words the pack itself holds (its room texts, labels, Lua and modules)
 // and the names of the world's players are not remembered: they are no
@@ -24,11 +28,13 @@ import (
 
 // Bounds of the typed words a world remembers.
 const (
-	minTypedRunes   = 3    // shorter words are not remembered: "a", "is", "12"
-	maxTypedBytes   = 64   // longer words are remembered by their first 64 bytes
-	maxTypedWords   = 200  // per player, the latest kept
-	maxTypedPlayers = 1000 // players remembered, the latest to type kept
-	maxNameWords    = 5000 // words of players' names kept
+	minTypedLetters = 2   // shorter words are not remembered: "a", "I"
+	minTypedDigits  = 3   // nor shorter words with a digit: "12" and "p3", which rolls, counts and player ids use
+	digitRun        = 6   // a line's digits, joined, are also remembered in runs of this many: "06 12 34 56 78"
+	maxTypedBytes   = 64  // longer words are remembered by their first 64 bytes
+	maxTypedWords   = 200 // per player, the latest kept
+	maxTypedPlayers = 500 // players remembered, the latest to type kept
+	maxNameWords    = 5000
 )
 
 // typedWords are the words one player typed lately, the oldest first.
@@ -37,17 +43,43 @@ type typedWords struct {
 	has   map[string]struct{}
 }
 
-// words splits s into its lowercased words: runs of letters and digits of
-// at least minTypedRunes, cut to maxTypedBytes.
-func words(s string) []string {
-	var out []string
-	for _, w := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	}) {
-		if len([]rune(w)) < minTypedRunes {
-			continue
+// wordRune reports whether r belongs to a word: letters, digits and the
+// marks written on them (a combining umlaut, Hindi vowel signs).
+func wordRune(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsMark(r) }
+
+// fold lowercases s and drops invisible format characters (a zero-width
+// space or a soft hyphen inside a word), so they cannot split a word.
+func fold(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
 		}
-		out = append(out, cutWord(w))
+		return unicode.ToLower(r)
+	}, s)
+}
+
+// words splits s into its folded words, cut to maxTypedBytes, and adds
+// "#" and every digitRun digits in a row of s's digits joined.
+func words(s string) []string {
+	s = fold(s)
+	var out []string
+	var digits strings.Builder
+	for _, w := range strings.FieldsFunc(s, func(r rune) bool { return !wordRune(r) }) {
+		hasDigit, n := false, 0
+		for _, r := range w {
+			n++
+			if unicode.IsDigit(r) {
+				digits.WriteRune(r)
+				hasDigit = true
+			}
+		}
+		if !hasDigit && n >= minTypedLetters || hasDigit && n >= minTypedDigits {
+			out = append(out, cutWord(w))
+		}
+	}
+	d := []rune(digits.String())
+	for i := 0; i+digitRun <= len(d); i++ {
+		out = append(out, "#"+string(d[i:i+digitRun]))
 	}
 	return out
 }
@@ -57,7 +89,11 @@ func cutWord(w string) string {
 	if len(w) <= maxTypedBytes {
 		return w
 	}
-	return strings.ToValidUTF8(w[:maxTypedBytes], "")
+	cut := maxTypedBytes
+	for cut > 0 && !utf8.RuneStart(w[cut]) {
+		cut--
+	}
+	return w[:cut]
 }
 
 // packWords returns every word of the pack's own texts and code, and of
@@ -66,7 +102,9 @@ func (w *World) packWords() map[string]struct{} {
 	vocab := map[string]struct{}{}
 	add := func(s string) {
 		for _, word := range words(s) {
-			vocab[word] = struct{}{}
+			if word[0] != '#' {
+				vocab[word] = struct{}{}
+			}
 		}
 	}
 	p := w.pack
@@ -110,24 +148,38 @@ func (s *session) typed(text string) {
 			}
 			t = &typedWords{has: map[string]struct{}{}}
 			w.typedBy[s.id] = t
-			w.typedOrder = append(w.typedOrder, s.id)
 		}
-		if _, ok := t.has[word]; ok {
+		if _, ok := t.has[word]; ok { // typed again: the latest now
+			t.order = append(slices.DeleteFunc(t.order, func(o string) bool { return o == word }), word)
 			continue
 		}
 		if len(t.order) >= maxTypedWords {
 			old := t.order[0]
-			t.order = t.order[1:]
+			t.order = slices.Delete(t.order, 0, 1)
 			delete(t.has, old)
 			w.uncount(old)
 		}
+		word = strings.Clone(word) // not the whole line it came from
 		t.order = append(t.order, word)
 		t.has[word] = struct{}{}
 		w.typedCount[word]++
 	}
+	if t != nil { // the player who typed last is kept longest
+		w.typedOrder = append(slices.DeleteFunc(w.typedOrder, func(o string) bool { return o == s.id }), s.id)
+	}
 }
 
-// forgetTyped forgets what player id typed. The caller holds w.mu.
+// typedState remembers the strings st keeps as typed by the player: a
+// pack that stored an answer in state.player before a restart, or in
+// state.profile in another world, cannot share it now either. The caller
+// holds w.mu.
+func (s *session) typedState(st *script.State) {
+	st.EachString(s.typed)
+}
+
+// forgetTyped forgets what player id typed: once they left, nothing they
+// typed is in a script any more but in their state, which typedState reads
+// again when they come back. The caller holds w.mu.
 func (w *World) forgetTyped(id string) {
 	t := w.typedBy[id]
 	if t == nil {
@@ -137,12 +189,7 @@ func (w *World) forgetTyped(id string) {
 		w.uncount(word)
 	}
 	delete(w.typedBy, id)
-	for i, o := range w.typedOrder {
-		if o == id {
-			w.typedOrder = append(w.typedOrder[:i], w.typedOrder[i+1:]...)
-			break
-		}
-	}
+	w.typedOrder = slices.DeleteFunc(w.typedOrder, func(o string) bool { return o == id })
 }
 
 func (w *World) uncount(word string) {
@@ -151,14 +198,16 @@ func (w *World) uncount(word string) {
 	}
 }
 
-// joinedName notes the words of a player's name, which shared text may
-// hold. The caller holds w.mu.
+// joinedName notes a player's name, whose words shared text may hold and
+// which no pack voice may take (voice). The caller holds w.mu.
 func (w *World) joinedName(name string) {
-	for _, word := range words(name) {
-		if len(w.nameWords) < maxNameWords {
-			w.nameWords[word] = struct{}{}
-		}
+	if len(w.nameWords) >= maxNameWords {
+		return
 	}
+	for _, word := range words(name) {
+		w.nameWords[word] = struct{}{}
+	}
+	w.names[nameKey(name)] = struct{}{}
 }
 
 // shareable implements script.Shared: it refuses text that holds a word a

@@ -47,7 +47,7 @@ Edit `.env`:
 TALESPEAK_DOMAIN=talespeak.example.org
 GH_OWNER=OWNER
 TALESPEAK_VERSION=0.1.0              # pin a release; "latest" also works
-TALESPEAK_KIDS_MODE=false            # true on servers where kids chat
+TALESPEAK_KIDS_MODE=false            # true on servers where kids play
 ```
 
 `.env` is the only file with your settings. Keep it private. Email is optional; to turn it on, see [admin-email.md](admin-email.md).

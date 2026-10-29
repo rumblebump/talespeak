@@ -1,6 +1,7 @@
 package script
 
 import (
+	"encoding/binary"
 	"errors"
 	"slices"
 	"strings"
@@ -63,6 +64,12 @@ func (r *Runtime) roomEvent(L *lua.LState) int {
 	if !ok {
 		L.RaiseError("this world keeps no room events")
 	}
+	if r.cur.thread != nil && r.cur.thread.readOnlyWorld {
+		// on_change runs for every player: events from it would multiply.
+		L.Push(lua.LNil)
+		L.Push(lua.LString("room.event: on_change cannot tell room events; tell them where the change is made"))
+		return 2
+	}
 	if r.cur.events++; r.cur.events > MaxEvents {
 		L.RaiseError("more than %d room events in one call", MaxEvents)
 	}
@@ -79,46 +86,83 @@ func (r *Runtime) roomEvent(L *lua.LState) int {
 var ErrTyped = errors.New("it holds words a player typed, and what players type never reaches other players")
 
 // reservedWords are words no pack voice and no new account name may hold,
-// and reservedParts letters none may hold anywhere: they would read as the
-// engine, a game master or the school's staff ("GM Carl", "AdminBob",
-// "TheGameMaster"). ReservedName compares them.
+// reservedStarts what no word may start with, and reservedParts letters
+// none may hold anywhere: they would read as the engine, a game master or
+// the school's staff ("GM Carl", "GMCarl", "ADMINBOB", "TheGameMaster",
+// "Teachers", "Spielleiter"). ReservedName compares them.
 var (
-	reservedWords = []string{"gm", "gms", "admin", "admins", "mod", "mods", "moderator", "teacher", "staff", "system", "server", "sysop", "talespeak"}
-	reservedParts = []string{"gamemaster", "moderator", "administrator", "talespeak"}
+	reservedWords  = []string{"gm", "gms", "dm", "mod", "mods", "staff", "system", "server", "sysop", "official"}
+	reservedStarts = []string{"admin", "teacher", "moderator", "sysop", "lehrer"}
+	reservedParts  = []string{"gamemaster", "dungeonmaster", "spielleiter", "moderator", "administrator", "sysadmin", "talespeak"}
 )
 
 // ReservedName reports whether name reads as the engine's, a game
-// master's or staff's. Letter case is ignored; words are split at
-// anything but a letter and where a capital follows a small letter, so
-// "AdminBob" holds "admin" and "Badminton" does not.
+// master's or staff's. Letter case, accents and fullwidth forms are
+// ignored. Words are split at anything but a letter, and also where a
+// capital follows a small letter or a capital starts a small word after
+// capitals ("AdminBob", "GMCarl"), so "Badminton" holds no "admin". A name
+// mixing Latin letters with Greek or Cyrillic ones ("Аdmin" with a
+// Cyrillic A) is reserved too: it can only be there to look like another.
 func ReservedName(name string) bool {
-	var flat, word strings.Builder
-	var words []string
-	end := func() {
-		if word.Len() > 0 {
-			words = append(words, word.String())
-			word.Reset()
+	rs := []rune(name)
+	latin, other := false, false
+	for i, c := range rs {
+		c = plainLetter(c)
+		rs[i] = c
+		switch {
+		case unicode.Is(unicode.Latin, c):
+			latin = true
+		case unicode.Is(unicode.Greek, c), unicode.Is(unicode.Cyrillic, c):
+			other = true
 		}
 	}
-	prevLower := false
-	for _, c := range name {
+	if latin && other {
+		return true
+	}
+	// Words split at non-letters (plain), also where a word in capitals
+	// or with one starts (camel: "GM|Carl", "Admin|Bob"), and at every
+	// change between capitals and small letters (runs: "SERVER|bot").
+	var plain, camel, runs []string
+	var flat, word, part, run strings.Builder
+	flush := func(b *strings.Builder, list *[]string) {
+		if b.Len() > 0 {
+			*list = append(*list, b.String())
+			b.Reset()
+		}
+	}
+	for i, c := range rs {
 		if !unicode.IsLetter(c) {
-			end()
-			prevLower = false
+			flush(&word, &plain)
+			flush(&part, &camel)
+			flush(&run, &runs)
 			continue
 		}
-		if unicode.IsUpper(c) && prevLower {
-			end()
+		if i > 0 && unicode.IsLetter(rs[i-1]) && unicode.IsUpper(c) != unicode.IsUpper(rs[i-1]) {
+			flush(&run, &runs)
 		}
-		prevLower = unicode.IsLower(c)
+		if i > 0 && unicode.IsUpper(c) && unicode.IsLower(rs[i-1]) ||
+			i > 0 && i+1 < len(rs) && unicode.IsUpper(rs[i-1]) && unicode.IsUpper(c) && unicode.IsLower(rs[i+1]) {
+			flush(&part, &camel)
+		}
 		lc := unicode.ToLower(c)
 		flat.WriteRune(lc)
 		word.WriteRune(lc)
+		part.WriteRune(lc)
+		run.WriteRune(lc)
 	}
-	end()
-	for _, w := range words {
+	flush(&word, &plain)
+	flush(&part, &camel)
+	flush(&run, &runs)
+	for _, w := range slices.Concat(plain, camel, runs) {
 		if slices.Contains(reservedWords, w) {
 			return true
+		}
+	}
+	for _, w := range plain {
+		for _, p := range reservedStarts {
+			if strings.HasPrefix(w, p) {
+				return true
+			}
 		}
 	}
 	f := flat.String()
@@ -131,4 +175,59 @@ func ReservedName(name string) bool {
 		}
 	}
 	return false
+}
+
+// plainLetter maps a fullwidth form to its ASCII letter and an accented
+// Latin letter to its plain one, so "ＧＭ" and "Admín" read as "GM" and
+// "Admin".
+func plainLetter(c rune) rune {
+	if c >= 0xFF01 && c <= 0xFF5E {
+		return c - 0xFEE0
+	}
+	const from, to = "ÀÁÂÃÄÅàáâãäåÈÉÊËèéêëÌÍÎÏìíîïÒÓÔÕÖòóôõöÙÚÛÜùúûüÑñÇçÝýÿ", "AAAAAAaaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuNnCcYyy"
+	if i := strings.IndexRune(from, c); i >= 0 {
+		return rune(to[utf8.RuneCountInString(from[:i])])
+	}
+	return c
+}
+
+// EachString calls f with every string s keeps, keys and the strings in
+// tables included: the engine reads what a player's state holds.
+func (s *State) EachString(f func(string)) {
+	for k, b := range s.vals {
+		f(k)
+		eachString(b, f)
+	}
+}
+
+// eachString calls f with the strings of the encoding b; it stops at
+// anything it cannot read.
+func eachString(b []byte, f func(string)) {
+	for len(b) > 0 {
+		tag := b[0]
+		b = b[1:]
+		switch tag {
+		case tagEnd, tagFalse, tagTrue, tagTable:
+		case tagInt:
+			_, k := binary.Varint(b)
+			if k <= 0 {
+				return
+			}
+			b = b[k:]
+		case tagFloat:
+			if len(b) < 8 {
+				return
+			}
+			b = b[8:]
+		case tagString:
+			n, k := binary.Uvarint(b)
+			if k <= 0 || n > uint64(len(b)-k) {
+				return
+			}
+			f(string(b[k : k+int(n)]))
+			b = b[k+int(n):]
+		default:
+			return
+		}
+	}
 }

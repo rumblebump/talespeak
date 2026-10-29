@@ -35,8 +35,9 @@ type State struct {
 	// Choices, for state.game, are the pack's settings: a key named here
 	// takes only one of its strings, and cannot be removed.
 	Choices map[string][]string
-	// Check, if set, is asked about the key and every string of a value
-	// before it is kept: state.world refuses words players typed (Shared).
+	// Check, if set, is asked about the key and every string and whole
+	// number (of 3 digits or more) of a value before it is kept:
+	// state.world refuses words players typed (Shared).
 	Check Shared
 
 	vals map[string][]byte
@@ -127,7 +128,7 @@ type encoder struct {
 	buf        []byte
 	scan       int // table slots looked at
 	max, depth int
-	check      Shared // asked about every string, keys included; nil asks nothing
+	check      Shared // asked about every string and whole number of 3 digits or more, keys included; nil asks nothing
 }
 
 func (e *encoder) tooLarge() error { return limited("value larger than %d bytes", e.max) }
@@ -146,6 +147,11 @@ func (e *encoder) value(v lua.LValue, depth int) error {
 		case math.IsNaN(f) || math.IsInf(f, 0):
 			return errors.New("numbers must be finite")
 		case f == math.Trunc(f) && math.Abs(f) <= 1<<53 && !(f == 0 && math.Signbit(f)):
+			if e.check != nil && math.Abs(f) >= 100 { // a number a player typed, such as a phone number
+				if err := e.check(strconv.FormatInt(int64(math.Abs(f)), 10)); err != nil {
+					return limitError(err.Error())
+				}
+			}
 			e.buf = append(e.buf, tagInt)
 			e.buf = binary.AppendVarint(e.buf, int64(f))
 		default:
