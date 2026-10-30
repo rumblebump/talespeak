@@ -25,6 +25,7 @@ Nothing here.
 | [T-0043](open/T-0043-pack-editor-blocks.md) | Pack editor, part 2 - blocks that write Lua | feature | medium |
 | [T-0044](open/T-0044-pack-editor-own-blocks.md) | Pack editor, part 3 - own blocks, templates, kits and the map | feature | low |
 | [T-0045](open/T-0045-edu-player-made-worlds.md) | Edu mode - GMs load worlds made by players | feature | low |
+| [T-0046](open/T-0046-playtest-worlds.md) | Playtest worlds for the pack editor | feature | medium |
 
 ## Done
 
